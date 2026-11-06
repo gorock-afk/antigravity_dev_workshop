@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Bioluminescent Deep-Sea Jellyfish</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #01040e;
+    }
+    canvas#webgl {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      touch-action: none;
+    }
+  </style>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="webgl"></canvas>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // -------------------------------------------------------------
+    // 1. Scene, Camera, and High-Fidelity WebGL Renderer
+    // -------------------------------------------------------------
+    const canvas = document.getElementById('webgl');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x01040e);
+    scene.fog = new THREE.FogExp2(0x01040e, 0.032);
+
+    const camera = new THREE.PerspectiveCamera(
+      45,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      100
+    );
+    camera.position.set(0, 1.2, 10.5);
+
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      powerPreference: 'high-performance',
+      alpha: false
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.25;
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.minDistance = 3.0;
+    controls.maxDistance = 25.0;
+    controls.target.set(0, -1.2, 0);
+
+    // -------------------------------------------------------------
+    // 2. Procedural Deep-Ocean PMREM Environment Map
+    // -------------------------------------------------------------
+    const pmremGen = new THREE.PMREMGenerator(renderer);
+    pmremGen.compileEquirectangularShader();
+
+    const envCanvas = document.createElement('canvas');
+    envCanvas.width = 512;
+    envCanvas.height = 256;
+    const eCtx = envCanvas.getContext('2d');
+
+    const bgGrad = eCtx.createLinearGradient(0, 0, 0, 256);
+    bgGrad.addColorStop(0.0, '#041738');
+    bgGrad.addColorStop(0.35, '#020a1c');
+    bgGrad.addColorStop(0.75, '#01050f');
+    bgGrad.addColorStop(1.0, '#000206');
+    eCtx.fillStyle = bgGrad;
+    eCtx.fillRect(0, 0, 512, 256);
+
+    const cyanShaft = eCtx.createRadialGradient(256, 30, 5, 256, 30, 140);
+    cyanShaft.addColorStop(0, 'rgba(0, 235, 255, 0.6)');
+    cyanShaft.addColorStop(0.5, 'rgba(0, 140, 255, 0.2)');
+    cyanShaft.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    eCtx.fillStyle = cyanShaft;
+    eCtx.fillRect(0, 0, 512, 256);
+
+    const magGlow = eCtx.createRadialGradient(100, 210, 10, 100, 210, 110);
+    magGlow.addColorStop(0, 'rgba(255, 0, 150, 0.45)');
+    magGlow.addColorStop(0.6, 'rgba(180, 0, 255, 0.15)');
+    magGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    eCtx.fillStyle = magGlow;
+    eCtx.fillRect(0, 0, 512, 256);
+
+    const envTex = new THREE.CanvasTexture(envCanvas);
+    const envRT = pmremGen.fromEquirectangular(envTex);
+    scene.environment = envRT.texture;
+    envTex.dispose();
+    pmremGen.dispose();
+
+    // -------------------------------------------------------------
+    // 3. Cinematic Abyssal Three-Point & Bioluminescent Lighting
+    // -------------------------------------------------------------
+    const ambLight = new THREE.AmbientLight(0x030c24, 0.8);
+    scene.add(ambLight);
+
+    const surfaceLight = new THREE.DirectionalLight(0x6ee2ff, 1.6);
+    surfaceLight.position.set(4, 12, 6);
+    scene.add(surfaceLight);
+
+    const deepRimLight = new THREE.DirectionalLight(0xd51eff, 2.8);
+    deepRimLight.position.set(-5, -10, -6);
+    scene.add(deepRimLight);
+
+    const frontFillLight = new THREE.DirectionalLight(0x0088ff, 0.9);
+    frontFillLight.position.set(0, -4, 8);
+    scene.add(frontFillLight);
+
+    // -------------------------------------------------------------
+    // 4. Jellyfish Root Group & Internal Stomach / Gonads
+    // -------------------------------------------------------------
+    const jellyfish = new THREE.Group();
+    scene.add(jellyfish);
+
+    // Inner bioluminescent core lights
+    const cyanCoreLight = new THREE.PointLight(0x00f2ff, 3.2, 12, 1.8);
+    cyanCoreLight.position.set(0, -0.6, 0);
+    jellyfish.add(cyanCoreLight);
+
+    const magentaCoreLight = new THREE.PointLight(0xff0088, 2.5, 9, 2.0);
+    magentaCoreLight.position.set(0, -0.9, 0);
+    jellyfish.add(magentaCoreLight);
+
+    // Central gastric cavity bulb
+    const stomachGeo = new THREE.SphereGeometry(0.38, 32, 24);
+    const stomachMat = new THREE.MeshStandardMaterial({
+      color: 0x00f0ff,
+      emissive: 0x00f0ff,
+      emissiveIntensity: 3.0,
+      roughness: 0.15,
+      metalness: 0.05,
+      transparent: true,
+      opacity: 0.85
+    });
+    const stomachMesh = new THREE.Mesh(stomachGeo, stomachMat);
+    stomachMesh.scale.set(1.0, 1.25, 1.0);
+    stomachMesh.position.set(0, -0.65, 0);
+    jellyfish.add(stomachMesh);
+
+    // 4 Horseshoe / Clover-shaped Gonads (Semaeostomeae style)
+    const gonadGroup = new THREE.Group();
+    gonadGroup.position.set(0, -0.7, 0);
+    jellyfish.add(gonadGroup);
+
+    const gonadMat = new THREE.MeshStandardMaterial({
+      color: 0xff0066,
+      emissive: 0xff0066,
+      emissiveIntensity: 2.4,
+      roughness: 0.25,
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.95
+    });
+
+    for (let i = 0; i < 4; i++) {
+      const angle = (i * Math.PI * 0.5) + Math.PI * 0.25;
+      const gGeo = new THREE.TorusGeometry(0.36, 0.085, 16, 32, Math.PI * 1.55);
+      const gMesh = new THREE.Mesh(gGeo, gonadMat);
+      gMesh.rotation.x = Math.PI * 0.5;
+      gMesh.rotation.z = angle + Math.PI * 0.25;
+      gMesh.position.set(Math.cos(angle) * 0.52, 0, Math.sin(angle) * 0.52);
+      gonadGroup.add(gMesh);
+    }
+
+    // -------------------------------------------------------------
+    // 5. Scalloped Umbrella Bell (16 Lobes & Travelling Waves)
+    // -------------------------------------------------------------
+    const RAD_SEGS = 64;
+    const H_SEGS = 36;
+    const bellGeo = new THREE.BufferGeometry();
+    const bellPos = new Float32Array((RAD_SEGS + 1) * (H_SEGS + 1) * 3);
+    const bellUVs = new Float32Array((RAD_SEGS + 1) * (H_SEGS + 1) * 2);
+    const bellIndices = [];
+
+    for (let j = 0; j <= H_SEGS; j++) {
+      const v = j / H_SEGS;
+      for (let i = 0; i <= RAD_SEGS; i++) {
+        const u = i / RAD_SEGS;
+        const idx = j * (RAD_SEGS + 1) + i;
+        bellUVs[idx * 2] = u;
+        bellUVs[idx * 2 + 1] = v;
+      }
+    }
+
+    for (let j = 0; j < H_SEGS; j++) {
+      for (let i = 0; i < RAD_SEGS; i++) {
+        const a = j * (RAD_SEGS + 1) + i;
+        const b = (j + 1) * (RAD_SEGS + 1) + i;
+        const c = (j + 1) * (RAD_SEGS + 1) + (i + 1);
+        const d = j * (RAD_SEGS + 1) + (i + 1);
+        bellIndices.push(a, b, d);
+        bellIndices.push(b, c, d);
+      }
+    }
+
+    bellGeo.setIndex(bellIndices);
+    bellGeo.setAttribute('position', new THREE.BufferAttribute(bellPos, 3));
+    bellGeo.setAttribute('uv', new THREE.BufferAttribute(bellUVs, 2));
+
+    const bellMat = new THREE.MeshPhysicalMaterial({
+      color: 0x051b2c,
+      emissive: 0x00f5ff,
+      emissiveIntensity: 0.15,
+      roughness: 0.08,
+      metalness: 0.02,
+      transmission: 0.92,
+      ior: 1.34,
+      thickness: 1.25,
+      iridescence: 0.9,
+      iridescenceIOR: 1.42,
+      iridescenceThicknessRange: [150, 480],
+      attenuationColor: new THREE.Color(0x00e1ff),
+      attenuationDistance: 1.1,
+      transparent: true,
+      opacity: 0.95,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+
+    const bellMesh = new THREE.Mesh(bellGeo, bellMat);
+    jellyfish.add(bellMesh);
+
+    // -------------------------------------------------------------
+    // 6. Glowing Neon Radial Canals & 16 Marginal Rhopalia
+    // -------------------------------------------------------------
+    const CANAL_PTS = 24;
+    const radialCanalGeos = [];
+    const canalLines = [];
+    const canalMat = new THREE.LineBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      linewidth: 1
+    });
+
+    for (let c = 0; c < 16; c++) {
+      const geo = new THREE.BufferGeometry();
+      const pos = new Float32Array(CANAL_PTS * 3);
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const line = new THREE.Line(geo, canalMat);
+      jellyfish.add(line);
+      radialCanalGeos.push(geo);
+      canalLines.push(line);
+    }
+
+    // Marginal ring canal
+    const ringGeo = new THREE.BufferGeometry();
+    const ringPos = new Float32Array((RAD_SEGS + 1) * 3);
+    ringGeo.setAttribute('position', new THREE.BufferAttribute(ringPos, 3));
+    const ringMat = new THREE.LineBasicMaterial({
+      color: 0x00f5ff,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending
+    });
+    const ringCanalLine = new THREE.Line(ringGeo, ringMat);
+    jellyfish.add(ringCanalLine);
+
+    // 16 Marginal Rhopalia (Crystal sensory nodes with glowing cyan/pink aura)
+    const rhopaliaGroup = new THREE.Group();
+    jellyfish.add(rhopaliaGroup);
+    const rhopaliaMeshes = [];
+    const rhopaliumGeo = new THREE.SphereGeometry(0.048, 12, 12);
+    const rhopaliumMat = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.95
+    });
+
+    for (let r = 0; r < 16; r++) {
+      const m = new THREE.Mesh(rhopaliumGeo, rhopaliumMat);
+      rhopaliaGroup.add(m);
+      rhopaliaMeshes.push(m);
+    }
+
+    // -------------------------------------------------------------
+    // 7. Four Flowing Frilled Spiraled Oral Arms
+    // -------------------------------------------------------------
+    const ARM_W_SEGS = 12;
+    const ARM_L_SEGS = 54;
+    const oralArms = [];
+
+    const oralArmMat = new THREE.MeshPhysicalMaterial({
+      color: 0x120326,
+      emissive: 0x8a00aa,
+      emissiveIntensity: 0.85,
+      roughness: 0.16,
+      metalness: 0.05,
+      transmission: 0.88,
+      ior: 1.34,
+      thickness: 0.5,
+      iridescence: 0.95,
+      iridescenceIOR: 1.45,
+      iridescenceThicknessRange: [180, 520],
+      transparent: true,
+      opacity: 0.86,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+
+    for (let k = 0; k < 4; k++) {
+      const armGeo = new THREE.BufferGeometry();
+      const pos = new Float32Array((ARM_W_SEGS + 1) * (ARM_L_SEGS + 1) * 3);
+      const uvs = new Float32Array((ARM_W_SEGS + 1) * (ARM_L_SEGS + 1) * 2);
+      const indices = [];
+
+      for (let j = 0; j <= ARM_L_SEGS; j++) {
+        const v = j / ARM_L_SEGS;
+        for (let i = 0; i <= ARM_W_SEGS; i++) {
+          const u = i / ARM_W_SEGS;
+          const idx = j * (ARM_W_SEGS + 1) + i;
+          uvs[idx * 2] = u;
+          uvs[idx * 2 + 1] = v;
+        }
+      }
+
+      for (let j = 0; j < ARM_L_SEGS; j++) {
+        for (let i = 0; i < ARM_W_SEGS; i++) {
+          const a = j * (ARM_W_SEGS + 1) + i;
+          const b = (j + 1) * (ARM_W_SEGS + 1) + i;
+          const c = (j + 1) * (ARM_W_SEGS + 1) + (i + 1);
+          const d = j * (ARM_W_SEGS + 1) + (i + 1);
+          indices.push(a, b, d);
+          indices.push(b, c, d);
+        }
+      }
+
+      armGeo.setIndex(indices);
+      armGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      armGeo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+
+      const armMesh = new THREE.Mesh(armGeo, oralArmMat);
+      jellyfish.add(armMesh);
+
+      oralArms.push({
+        baseAngle: (k * Math.PI * 0.5) + Math.PI * 0.25,
+        geo: armGeo,
+        mesh: armMesh
+      });
+    }
+
+    // -------------------------------------------------------------
+    // 8. Twenty-Four Slender Marginal Tentacles with Dynamic Kinematics
+    // -------------------------------------------------------------
+    const NUM_TENTACLES = 24;
+    const TENTACLE_SEGS = 34;
+    const TENTACLE_LEN = 11.5;
+    const SEG_LEN = TENTACLE_LEN / TENTACLE_SEGS;
+    const tentacles = [];
+
+    // Instanced glowing nematocyst battery nodes along the tentacles
+    const BEADS_PER_TENTACLE = 6;
+    const totalBeads = NUM_TENTACLES * BEADS_PER_TENTACLE;
+    const beadGeo = new THREE.SphereGeometry(0.032, 8, 8);
+    const beadMat = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending
+    });
+    const beadInstancedMesh = new THREE.InstancedMesh(beadGeo, beadMat, totalBeads);
+    beadInstancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(beadInstancedMesh);
+    const dummyMat4 = new THREE.Matrix4();
+    const dummyVec3 = new THREE.Vector3();
+
+    for (let i = 0; i < NUM_TENTACLES; i++) {
+      const angle = (i / NUM_TENTACLES) * Math.PI * 2;
+      const positions = new Float32Array((TENTACLE_SEGS + 1) * 3);
+      const colors = new Float32Array((TENTACLE_SEGS + 1) * 3);
+      const nodes = [];
+
+      const colTop = new THREE.Color(0x00f5ff);
+      const colBot = new THREE.Color(0xef1099);
+
+      for (let s = 0; s <= TENTACLE_SEGS; s++) {
+        const frac = s / TENTACLE_SEGS;
+        const c = colTop.clone().lerp(colBot, Math.pow(frac, 1.4));
+        colors[s * 3] = c.r;
+        colors[s * 3 + 1] = c.g;
+        colors[s * 3 + 2] = c.b;
+
+        const y = -1.8 - s * SEG_LEN;
+        const x = Math.cos(angle) * 2.3;
+        const z = Math.sin(angle) * 2.3;
+        nodes.push({
+          pos: new THREE.Vector3(x, y, z),
+          vel: new THREE.Vector3(0, 0, 0)
+        });
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+      const mat = new THREE.LineBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.8,
+        blending: THREE.AdditiveBlending,
+        linewidth: 1
+      });
+
+      const line = new THREE.Line(geo, mat);
+      scene.add(line);
+
+      tentacles.push({
+        angle,
+        nodes,
+        geo,
+        line
+      });
+    }
+
+    // -------------------------------------------------------------
+    // 9. Floating Marine Snow Particles in Dark Abyssal Water
+    // -------------------------------------------------------------
+    const SNOW_COUNT = 1400;
+    const snowGeo = new THREE.BufferGeometry();
+    const snowPositions = new Float32Array(SNOW_COUNT * 3);
+    const snowVelocities = [];
+
+    for (let i = 0; i < SNOW_COUNT; i++) {
+      snowPositions[i * 3] = (Math.random() - 0.5) * 26;
+      snowPositions[i * 3 + 1] = (Math.random() - 0.5) * 24 - 1.0;
+      snowPositions[i * 3 + 2] = (Math.random() - 0.5) * 26;
+      snowVelocities.push({
+        vy: -0.003 - Math.random() * 0.006,
+        phase: Math.random() * Math.PI * 2,
+        swaySpeed: 0.4 + Math.random() * 0.8
+      });
+    }
+
+    snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPositions, 3));
+
+    function createSnowTexture() {
+      const c = document.createElement('canvas');
+      c.width = 64;
+      c.height = 64;
+      const ctx = c.getContext('2d');
+      const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grad.addColorStop(0.0, 'rgba(255, 255, 255, 1.0)');
+      grad.addColorStop(0.25, 'rgba(170, 240, 255, 0.6)');
+      grad.addColorStop(0.65, 'rgba(60, 160, 255, 0.15)');
+      grad.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 64, 64);
+      return new THREE.CanvasTexture(c);
+    }
+
+    const snowMat = new THREE.PointsMaterial({
+      size: 0.16,
+      map: createSnowTexture(),
+      transparent: true,
+      opacity: 0.6,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+
+    const snowPoints = new THREE.Points(snowGeo, snowMat);
+    scene.add(snowPoints);
+
+    // -------------------------------------------------------------
+    // 10. Interactive Fluid Vortex Mouse Physics & Bioluminescent Shockwaves
+    // -------------------------------------------------------------
+    const raycaster = new THREE.Raycaster();
+    const mouseNorm = new THREE.Vector2(999, 999);
+    const planeZ = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+    const mouseWorld = new THREE.Vector3(999, 999, 999);
+    const prevMouseWorld = new THREE.Vector3(999, 999, 999);
+    const mouseVel3D = new THREE.Vector3(0, 0, 0);
+
+    let biolumExcitement = 0.0;
+    let pulseTime = 0.0;
+    let jellyY = -0.2;
+    let jellyVelY = 0.0;
+
+    window.addEventListener('pointermove', (e) => {
+      mouseNorm.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouseNorm.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+      raycaster.setFromCamera(mouseNorm, camera);
+      const hit = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(planeZ, hit)) {
+        if (prevMouseWorld.x === 999) {
+          prevMouseWorld.copy(hit);
+        }
+        mouseWorld.copy(hit);
+      }
+    });
+
+    window.addEventListener('pointerdown', () => {
+      // Trigger dramatic bioluminescent color pulse wave on click
+      biolumExcitement = Math.min(1.0, biolumExcitement + 0.85);
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    });
+
+    // -------------------------------------------------------------
+    // 11. Helper: Compute Margin Lobes & Notches for Physical Coherence
+    // -------------------------------------------------------------
+    function getBellPoint(u, v, contraction, time) {
+      const theta = v * Math.PI * 0.54;
+      const baseR = 2.4 * Math.sin(theta);
+      const baseY = -2.15 * (1.0 - Math.cos(theta));
+
+      const phi = u * Math.PI * 2.0;
+      // 16 scalloped lobes modulation along the margin
+      const lobeStrength = Math.pow(v, 2.6) * 0.17;
+      const lobeMod = 1.0 + lobeStrength * Math.cos(16.0 * phi);
+
+      // Radial contraction & vertical elongation
+      const rScale = 1.0 - 0.30 * contraction;
+      const yScale = 1.0 + 0.22 * contraction;
+
+      const r = baseR * rScale * lobeMod;
+      const y = (baseY + lobeStrength * 0.35 * Math.sin(16.0 * phi)) * yScale;
+
+      return {
+        x: r * Math.cos(phi),
+        y: y,
+        z: r * Math.sin(phi)
+      };
+    }
+
+    // -------------------------------------------------------------
+    // 12. Main Animation & Physics Loop
+    // -------------------------------------------------------------
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const dt = Math.min(clock.getDelta(), 0.05);
+      const time = clock.getElapsedTime();
+
+      // Mouse velocity & vortex force calculation
+      if (mouseWorld.x !== 999 && prevMouseWorld.x !== 999) {
+        mouseVel3D.subVectors(mouseWorld, prevMouseWorld).divideScalar(Math.max(dt, 0.001));
+        const mouseSpeed = mouseVel3D.length();
+        if (mouseSpeed > 0.4) {
+          const distToJelly = mouseWorld.distanceTo(jellyfish.position);
+          if (distToJelly < 6.0) {
+            biolumExcitement = Math.min(1.0, biolumExcitement + (mouseSpeed * 0.04) * (1.0 - distToJelly / 6.0));
+          }
+        }
+        prevMouseWorld.copy(mouseWorld);
+      }
+      biolumExcitement *= Math.exp(-dt * 1.35);
+
+      // Swimming Propulsion Kinematics (Power stroke vs Recovery glide)
+      const PULSE_PERIOD = 2.5;
+      const cycle = (time / PULSE_PERIOD) % 1.0;
+      let contraction = 0.0;
+
+      if (cycle < 0.28) {
+        // Active rapid muscular contraction (power stroke)
+        const t = cycle / 0.28;
+        contraction = Math.sin(t * Math.PI);
+        jellyVelY += contraction * dt * 2.2;
+      } else {
+        // Slow elastic recoil & buoyant glide (recovery stroke)
+        const t = (cycle - 0.28) / 0.72;
+        contraction = -0.12 * Math.sin(t * Math.PI);
+        jellyVelY -= 0.65 * dt;
+      }
+
+      jellyY += jellyVelY * dt;
+      jellyVelY *= 0.94;
+
+      // Keep jellyfish gracefully floating near center
+      const homeY = -0.15 + Math.sin(time * 0.8) * 0.25;
+      jellyY += (homeY - jellyY) * (dt * 1.5);
+      jellyfish.position.y = jellyY;
+
+      // Organic fluid tilt
+      jellyfish.rotation.z = Math.sin(time * 0.65) * 0.045;
+      jellyfish.rotation.x = Math.cos(time * 0.55) * 0.035;
+
+      // -----------------------------------------------------------
+      // A. Update Bell Umbrella Vertices with Contraction Waves
+      // -----------------------------------------------------------
+      const bPos = bellGeo.attributes.position.array;
+      for (let j = 0; j <= H_SEGS; j++) {
+        const v = j / H_SEGS;
+        // Phase lag travelling wave down the bell
+        const phaseLag = v * 0.8;
+        const localContraction = Math.max(-0.2, contraction * Math.cos(phaseLag));
+
+        for (let i = 0; i <= RAD_SEGS; i++) {
+          const u = i / RAD_SEGS;
+          const pt = getBellPoint(u, v, localContraction, time);
+          const idx = (j * (RAD_SEGS + 1) + i) * 3;
+          bPos[idx] = pt.x;
+          bPos[idx + 1] = pt.y;
+          bPos[idx + 2] = pt.z;
+        }
+      }
+      bellGeo.attributes.position.needsUpdate = true;
+      bellGeo.computeVertexNormals();
+
+      // -----------------------------------------------------------
+      // B. Update Radial Canals & Ring Canal & Rhopalia
+      // -----------------------------------------------------------
+      for (let c = 0; c < 16; c++) {
+        const u = c / 16.0;
+        const cGeo = radialCanalGeos[c];
+        const cPos = cGeo.attributes.position.array;
+        for (let p = 0; p < CANAL_PTS; p++) {
+          const v = p / (CANAL_PTS - 1);
+          const pt = getBellPoint(u, v, contraction, time);
+          cPos[p * 3] = pt.x * 0.985;
+          cPos[p * 3 + 1] = pt.y;
+          cPos[p * 3 + 2] = pt.z * 0.985;
+        }
+        cGeo.attributes.position.needsUpdate = true;
+      }
+
+      const rPos = ringGeo.attributes.position.array;
+      for (let i = 0; i <= RAD_SEGS; i++) {
+        const u = i / RAD_SEGS;
+        const pt = getBellPoint(u, 1.0, contraction, time);
+        rPos[i * 3] = pt.x * 0.99;
+        rPos[i * 3 + 1] = pt.y;
+        rPos[i * 3 + 2] = pt.z * 0.99;
+      }
+      ringGeo.attributes.position.needsUpdate = true;
+
+      // 16 Rhopalia positioned at the indentations between lobes
+      for (let r = 0; r < 16; r++) {
+        const u = (r + 0.5) / 16.0;
+        const pt = getBellPoint(u, 1.0, contraction, time);
+        rhopaliaMeshes[r].position.set(pt.x, pt.y, pt.z);
+      }
+
+      // -----------------------------------------------------------
+      // C. Update 4 Flowing Frilled Spiraled Oral Arms
+      // -----------------------------------------------------------
+      for (let k = 0; k < 4; k++) {
+        const arm = oralArms[k];
+        const pos = arm.geo.attributes.position.array;
+        const baseAngle = arm.baseAngle;
+
+        for (let j = 0; j <= ARM_L_SEGS; j++) {
+          const v = j / ARM_L_SEGS;
+          const baseY = -0.65 - (v * 6.4);
+
+          // Fluid drag & wave propagation
+          const wavePhase = (time * 3.4) - (v * 7.2);
+          const swayX = Math.sin(wavePhase) * (0.12 + v * 0.55);
+          const swayZ = Math.cos(wavePhase * 0.85) * (0.12 + v * 0.55);
+
+          // Graceful spiral twist
+          const spiralAngle = baseAngle + (v * 2.2) + (swayX * 0.4);
+          const radDist = 0.32 + (v * 0.4);
+          const cx = Math.cos(spiralAngle) * radDist + swayX;
+          const cz = Math.sin(spiralAngle) * radDist + swayZ;
+
+          // Frilled chiffon ribbon ruffles
+          for (let i = 0; i <= ARM_W_SEGS; i++) {
+            const u = (i / ARM_W_SEGS - 0.5) * 2.0; // -1 to +1
+            const width = (0.75 + v * 0.35);
+
+            // Multi-frequency undulating ruffles
+            const frill = Math.sin((v * 24.0) - (time * 4.6) + (u * 3.8))
+              * (1.0 - u * u * 0.25)
+              * (0.16 + v * 0.18);
+
+            // Longitudinal C-curl fold
+            const curl = Math.sin(u * Math.PI * 0.5) * (0.12 + v * 0.15);
+
+            // Tangent vectors perpendicular to spiral radial vector
+            const tx = -Math.sin(spiralAngle) * (u * width * 0.5) + Math.cos(spiralAngle) * (frill + curl);
+            const tz = Math.cos(spiralAngle) * (u * width * 0.5) + Math.sin(spiralAngle) * (frill + curl);
+            const ty = frill * 0.45;
+
+            // Interactive mouse vortex deflection on oral arm vertices
+            const vertWorld = jellyfish.localToWorld(new THREE.Vector3(cx + tx, baseY + ty, cz + tz));
+            const distMouse = vertWorld.distanceTo(mouseWorld);
+            if (distMouse < 3.2) {
+              const push = (3.2 - distMouse) / 3.2;
+              vertWorld.x += mouseVel3D.x * push * 0.08;
+              vertWorld.y += mouseVel3D.y * push * 0.08;
+              vertWorld.z += mouseVel3D.z * push * 0.08;
+            }
+            const localV = jellyfish.worldToLocal(vertWorld);
+
+            const idx = (j * (ARM_W_SEGS + 1) + i) * 3;
+            pos[idx] = localV.x;
+            pos[idx + 1] = localV.y;
+            pos[idx + 2] = localV.z;
+          }
+        }
+        arm.geo.attributes.position.needsUpdate = true;
+        arm.geo.computeVertexNormals();
+      }
+
+      // -----------------------------------------------------------
+      // D. Update 24 Marginal Tentacles (Physics & Mouse Swirl)
+      // -----------------------------------------------------------
+      let beadIdx = 0;
+      for (let i = 0; i < NUM_TENTACLES; i++) {
+        const tentacle = tentacles[i];
+        const nodes = tentacle.nodes;
+        const u = i / NUM_TENTACLES;
+
+        // Pin top node (0) to moving bell margin in world space
+        const localMargin = getBellPoint(u, 1.0, contraction, time);
+        const worldMargin = jellyfish.localToWorld(new THREE.Vector3(localMargin.x, localMargin.y, localMargin.z));
+        nodes[0].pos.copy(worldMargin);
+
+        // Verlet fluid drag integration
+        for (let s = 1; s <= TENTACLE_SEGS; s++) {
+          const node = nodes[s];
+          const frac = s / TENTACLE_SEGS;
+
+          // Velocity damping & gentle downward buoyancy
+          node.vel.multiplyScalar(0.91);
+          node.vel.y -= 0.009;
+
+          // Ambient ocean current & bell pulse wake push
+          if (contraction > 0) {
+            node.vel.y -= contraction * 0.035 * (1.0 - frac);
+            node.vel.x += Math.cos(tentacle.angle) * contraction * 0.02;
+            node.vel.z += Math.sin(tentacle.angle) * contraction * 0.02;
+          }
+
+          // Gentle harmonic water waves
+          node.vel.x += Math.sin(time * 1.2 + s * 0.22) * 0.005;
+          node.vel.z += Math.cos(time * 0.95 + s * 0.22) * 0.005;
+
+          // Interactive Mouse Vortex Swirl & Fluid Push
+          const distM = node.pos.distanceTo(mouseWorld);
+          if (distM < 3.0) {
+            const push = (3.0 - distM) / 3.0;
+            // Radial push away from cursor
+            const pushDir = new THREE.Vector3().subVectors(node.pos, mouseWorld).normalize();
+            node.vel.addScaledVector(pushDir, push * 0.12);
+
+            // Swirling vortex current around mouse motion
+            const swirl = new THREE.Vector3().crossVectors(mouseVel3D, new THREE.Vector3(0, 1, 0)).normalize();
+            node.vel.addScaledVector(swirl, push * 0.18);
+          }
+
+          node.pos.add(node.vel);
+        }
+
+        // Segment distance relaxation constraints (2 iterations)
+        for (let pass = 0; pass < 2; pass++) {
+          for (let s = 0; s < TENTACLE_SEGS; s++) {
+            const nA = nodes[s];
+            const nB = nodes[s + 1];
+            const delta = new THREE.Vector3().subVectors(nB.pos, nA.pos);
+            const d = delta.length();
+            if (d > 0.0001) {
+              const diff = (d - SEG_LEN) / d;
+              if (s === 0) {
+                nB.pos.sub(delta.multiplyScalar(diff));
+              } else {
+                nA.pos.add(delta.multiplyScalar(diff * 0.5));
+                nB.pos.sub(delta.multiplyScalar(diff * 0.5));
+              }
+            }
+          }
+        }
+
+        // Copy positions to buffer geometry
+        const posArray = tentacle.geo.attributes.position.array;
+        for (let s = 0; s <= TENTACLE_SEGS; s++) {
+          posArray[s * 3] = nodes[s].pos.x;
+          posArray[s * 3 + 1] = nodes[s].pos.y;
+          posArray[s * 3 + 2] = nodes[s].pos.z;
+
+          // Position glowing nematocyst battery beads
+          if (s > 0 && s % Math.floor(TENTACLE_SEGS / BEADS_PER_TENTACLE) === 0 && beadIdx < totalBeads) {
+            dummyMat4.identity();
+            dummyMat4.setPosition(nodes[s].pos);
+            beadInstancedMesh.setMatrixAt(beadIdx, dummyMat4);
+            beadIdx++;
+          }
+        }
+        tentacle.geo.attributes.position.needsUpdate = true;
+      }
+      beadInstancedMesh.instanceMatrix.needsUpdate = true;
+
+      // -----------------------------------------------------------
+      // E. Update Marine Snow Particles
+      // -----------------------------------------------------------
+      const sPos = snowGeo.attributes.position.array;
+      for (let i = 0; i < SNOW_COUNT; i++) {
+        const vel = snowVelocities[i];
+        sPos[i * 3 + 1] += vel.vy;
+        sPos[i * 3] += Math.sin(time * vel.swaySpeed + vel.phase) * 0.004;
+        sPos[i * 3 + 2] += Math.cos(time * vel.swaySpeed + vel.phase) * 0.004;
+
+        // Wrap around volume
+        if (sPos[i * 3 + 1] < -13.0) {
+          sPos[i * 3 + 1] = 11.0;
+        }
+      }
+      snowGeo.attributes.position.needsUpdate = true;
+
+      // -----------------------------------------------------------
+      // F. Dynamic Bioluminescent Lighting & Color Pulse Waves
+      // -----------------------------------------------------------
+      const pulseGlow = Math.max(0, contraction);
+      const totalExcitement = Math.min(1.0, pulseGlow * 0.6 + biolumExcitement);
+
+      // Core lights pulse with heartbeat and mouse surge
+      cyanCoreLight.intensity = 2.8 + pulseGlow * 3.5 + totalExcitement * 4.5;
+      magentaCoreLight.intensity = 2.2 + pulseGlow * 2.8 + totalExcitement * 4.0;
+
+      // Stomach & gonads emission
+      stomachMat.emissiveIntensity = 2.8 + pulseGlow * 3.0 + totalExcitement * 5.0;
+      gonadMat.emissiveIntensity = 2.2 + pulseGlow * 2.5 + totalExcitement * 4.5;
+
+      // Oral arms & Bell emissive response (shifting from cyan/violet to neon magenta)
+      oralArmMat.emissiveIntensity = 0.85 + totalExcitement * 2.5;
+      bellMat.emissiveIntensity = 0.15 + totalExcitement * 0.95;
+
+      const baseBellColor = new THREE.Color(0x00f5ff);
+      const activeBellColor = new THREE.Color(0xff1493);
+      bellMat.emissive.copy(baseBellColor).lerp(activeBellColor, totalExcitement);
+
+      rhopaliumMat.color.copy(baseBellColor).lerp(activeBellColor, totalExcitement);
+      canalMat.color.copy(baseBellColor).lerp(activeBellColor, totalExcitement * 0.7);
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
+</body>
+</html>

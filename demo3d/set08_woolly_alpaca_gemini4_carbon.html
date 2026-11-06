@@ -1,0 +1,2553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cloud-Fluffy Baby White Alpaca</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: #dce8f5;
+  }
+  #c {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    touch-action: none;
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ---------------------------------------------------------------------------
+// Deterministic Seeded PRNG
+// ---------------------------------------------------------------------------
+function createRNG(seed = 8082026) {
+  let s = seed >>> 0;
+  return function () {
+    s += 0x6D2B79F5;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const rng = createRNG(20260808);
+
+// Smooth spatial 3D curl/tuft field for natural fleece clumping
+function tuftField(x, y, z) {
+  const sx = Math.sin(x * 19.0 + y * 7.3) * Math.cos(z * 17.1 - y * 5.2);
+  const sy = Math.sin(y * 18.4 - z * 8.7) * Math.cos(x * 15.6 + z * 6.1);
+  const sz = Math.sin(z * 20.2 + x * 9.1) * Math.cos(y * 16.3 - x * 7.4);
+  return { x: sx, y: sy, z: sz };
+}
+
+// ---------------------------------------------------------------------------
+// Renderer, Scene & Camera
+// ---------------------------------------------------------------------------
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  powerPreference: 'high-performance'
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.04;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xdce8f4);
+scene.fog = new THREE.FogExp2(0xdfe9f2, 0.048);
+
+const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.05, 45);
+camera.position.set(1.52, 1.28, 2.58);
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.target.set(0.0, 0.78, 0.10);
+controls.minDistance = 1.15;
+controls.maxDistance = 6.2;
+controls.maxPolarAngle = Math.PI * 0.505;
+controls.update();
+
+// ---------------------------------------------------------------------------
+// Procedural Studio Environment Map + Three-Point Lighting
+// ---------------------------------------------------------------------------
+function createStudioEnvironment(rendererInstance) {
+  const pmrem = new THREE.PMREMGenerator(rendererInstance);
+  pmrem.compileEquirectangularShader();
+
+  const envScene = new THREE.Scene();
+  const skyGeo = new THREE.SphereGeometry(20, 32, 24);
+  const posAttr = skyGeo.attributes.position;
+  const skyColors = new Float32Array(posAttr.count * 3);
+  const topCol = new THREE.Color(0xe6f0ff);
+  const midCol = new THREE.Color(0xfff8ef);
+  const botCol = new THREE.Color(0xd4e6d5);
+  const tmpCol = new THREE.Color();
+
+  for (let i = 0; i < posAttr.count; i++) {
+    const ny = posAttr.getY(i) / 20;
+    if (ny >= 0) {
+      tmpCol.copy(midCol).lerp(topCol, Math.pow(ny, 0.65));
+    } else {
+      tmpCol.copy(midCol).lerp(botCol, Math.pow(-ny, 0.55));
+    }
+    skyColors[i * 3] = tmpCol.r;
+    skyColors[i * 3 + 1] = tmpCol.g;
+    skyColors[i * 3 + 2] = tmpCol.b;
+  }
+  skyGeo.setAttribute('color', new THREE.BufferAttribute(skyColors, 3));
+  envScene.add(new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+
+  // Bright studio softbox panels for rich glossy eye & hoof reflections
+  const softboxMat1 = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.6, 3.4, 3.1), side: THREE.DoubleSide });
+  const panel1 = new THREE.Mesh(new THREE.PlaneGeometry(7, 5), softboxMat1);
+  panel1.position.set(5.5, 6.5, 5.5);
+  panel1.lookAt(0, 1, 0);
+  envScene.add(panel1);
+
+  const softboxMat2 = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.9, 2.2, 2.7), side: THREE.DoubleSide });
+  const panel2 = new THREE.Mesh(new THREE.PlaneGeometry(6, 5), softboxMat2);
+  panel2.position.set(-6.0, 4.0, 4.5);
+  panel2.lookAt(0, 1, 0);
+  envScene.add(panel2);
+
+  const rimBoxMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.0, 2.6, 2.1), side: THREE.DoubleSide });
+  const panel3 = new THREE.Mesh(new THREE.PlaneGeometry(8, 4), rimBoxMat);
+  panel3.position.set(-3.0, 5.5, -6.5);
+  panel3.lookAt(0, 1, 0);
+  envScene.add(panel3);
+
+  const envRT = pmrem.fromScene(envScene, 0.035);
+  pmrem.dispose();
+  skyGeo.dispose();
+  return envRT.texture;
+}
+
+scene.environment = createStudioEnvironment(renderer);
+
+// Studio 3-Point Lights + Pastel Bounce Hemisphere
+const hemiLight = new THREE.HemisphereLight(0xf3f7ff, 0xd7ebd5, 0.72);
+scene.add(hemiLight);
+
+const keyLight = new THREE.DirectionalLight(0xfff4e4, 1.95);
+keyLight.position.set(3.2, 4.8, 3.6);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 1.0;
+keyLight.shadow.camera.far = 12.0;
+keyLight.shadow.camera.left = -1.65;
+keyLight.shadow.camera.right = 1.65;
+keyLight.shadow.camera.top = 2.15;
+keyLight.shadow.camera.bottom = -0.65;
+keyLight.shadow.bias = -0.0005;
+keyLight.shadow.normalBias = 0.015;
+keyLight.shadow.radius = 4.0;
+scene.add(keyLight);
+
+const fillLight = new THREE.DirectionalLight(0xd9e8ff, 0.88);
+fillLight.position.set(-3.6, 2.3, 2.6);
+scene.add(fillLight);
+
+const rimLight = new THREE.DirectionalLight(0xffebd0, 1.65);
+rimLight.position.set(-2.0, 3.8, -3.5);
+scene.add(rimLight);
+
+// ---------------------------------------------------------------------------
+// Procedural Canvas Textures (Eye, Soft Contact Shadow, Andean Woven Bandana)
+// ---------------------------------------------------------------------------
+function createSoftShadowTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(128, 128, 10, 128, 128, 124);
+  g.addColorStop(0.0, 'rgba(38, 52, 42, 0.42)');
+  g.addColorStop(0.45, 'rgba(42, 58, 46, 0.22)');
+  g.addColorStop(0.78, 'rgba(48, 65, 52, 0.06)');
+  g.addColorStop(1.0, 'rgba(48, 65, 52, 0.0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function createEyeTexture() {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 512;
+  const ctx = c.getContext('2d');
+
+  // Deep espresso sclera/edge base
+  ctx.fillStyle = '#150c09';
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Warm dark chocolate-amber iris glow shifted toward front center (UV 0.5, 0.5)
+  const irisGrad = ctx.createRadialGradient(256, 272, 24, 256, 256, 215);
+  irisGrad.addColorStop(0.0, '#070506');
+  irisGrad.addColorStop(0.42, '#0d0808');
+  irisGrad.addColorStop(0.64, '#2c170f');
+  irisGrad.addColorStop(0.80, '#462618');
+  irisGrad.addColorStop(0.92, '#1d100b');
+  irisGrad.addColorStop(1.0, '#0d0706');
+  ctx.fillStyle = irisGrad;
+  ctx.beginPath();
+  ctx.arc(256, 256, 235, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Subtle lower warm amber crescent reflection inside iris
+  const lowerGlow = ctx.createRadialGradient(256, 336, 10, 256, 330, 120);
+  lowerGlow.addColorStop(0.0, 'rgba(135, 78, 42, 0.46)');
+  lowerGlow.addColorStop(0.6, 'rgba(92, 50, 26, 0.18)');
+  lowerGlow.addColorStop(1.0, 'rgba(30, 15, 10, 0.0)');
+  ctx.fillStyle = lowerGlow;
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Delicate radial iris striations
+  ctx.save();
+  ctx.translate(256, 256);
+  for (let i = 0; i < 96; i++) {
+    const a = (i / 96) * Math.PI * 2;
+    ctx.strokeStyle = i % 2 === 0 ? 'rgba(110, 65, 38, 0.12)' : 'rgba(15, 8, 6, 0.18)';
+    ctx.lineWidth = 2.0;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * 95, Math.sin(a) * 95);
+    ctx.lineTo(Math.cos(a) * 195, Math.sin(a) * 195);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Velvety jet-black pupil center
+  const pupilGrad = ctx.createRadialGradient(256, 252, 10, 256, 252, 108);
+  pupilGrad.addColorStop(0.0, '#040304');
+  pupilGrad.addColorStop(0.82, '#080506');
+  pupilGrad.addColorStop(1.0, 'rgba(12, 7, 7, 0.0)');
+  ctx.fillStyle = pupilGrad;
+  ctx.beginPath();
+  ctx.arc(256, 252, 108, 0, Math.PI * 2);
+  ctx.fill();
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function createAndeanWeaveTextures() {
+  const w = 1024, h = 512;
+  const colCanvas = document.createElement('canvas');
+  colCanvas.width = w;
+  colCanvas.height = h;
+  const ctx = colCanvas.getContext('2d');
+
+  const bumpCanvas = document.createElement('canvas');
+  bumpCanvas.width = w;
+  bumpCanvas.height = h;
+  const bctx = bumpCanvas.getContext('2d');
+
+  // Rich coral-red woven wool background
+  ctx.fillStyle = '#e0423b';
+  ctx.fillRect(0, 0, w, h);
+  bctx.fillStyle = '#808080';
+  bctx.fillRect(0, 0, w, h);
+
+  // Horizontal Andean stripes
+  const bands = [
+    { y: 0.05, h: 0.04, col: '#fff4e2' },
+    { y: 0.11, h: 0.035, col: '#f3b740' },
+    { y: 0.16, h: 0.025, col: '#9c1f23' },
+    { y: 0.21, h: 0.24, col: '#cc312c' }, // main diamond motif band
+    { y: 0.47, h: 0.025, col: '#9c1f23' },
+    { y: 0.51, h: 0.035, col: '#f3b740' },
+    { y: 0.56, h: 0.04, col: '#fff4e2' },
+    { y: 0.64, h: 0.14, col: '#e64c43' },
+    { y: 0.80, h: 0.035, col: '#35a69b' },
+    { y: 0.85, h: 0.045, col: '#fff4e2' }
+  ];
+  for (const b of bands) {
+    ctx.fillStyle = b.col;
+    ctx.fillRect(0, b.y * h, w, b.h * h);
+  }
+
+  // Stepped Andean diamond motifs (pallay) across main band & lower band
+  const numDiamonds = 16;
+  const stepW = w / numDiamonds;
+  const cy = 0.33 * h;
+  for (let i = 0; i < numDiamonds; i++) {
+    const cx = (i + 0.5) * stepW;
+    // Outer cream stepped diamond
+    const drawDiamond = (rx, ry, color) => {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - ry);
+      ctx.lineTo(cx + rx, cy);
+      ctx.lineTo(cx, cy + ry);
+      ctx.lineTo(cx - rx, cy);
+      ctx.closePath();
+      ctx.fill();
+    };
+    drawDiamond(stepW * 0.42, h * 0.105, '#fff6e6');
+    drawDiamond(stepW * 0.30, h * 0.075, '#f4b942');
+    drawDiamond(stepW * 0.19, h * 0.048, '#961d22');
+    drawDiamond(stepW * 0.09, h * 0.024, i % 2 === 0 ? '#39ada1' : '#fff6e6');
+
+    // Zigzag accents along lower coral band
+    const zy = 0.71 * h;
+    ctx.strokeStyle = '#fff5e4';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(i * stepW, zy + 14);
+    ctx.lineTo(cx, zy - 14);
+    ctx.lineTo((i + 1) * stepW, zy + 14);
+    ctx.stroke();
+  }
+
+  // Woven warp/weft yarn grain on both color and bump map
+  for (let y = 0; y < h; y += 4) {
+    for (let x = 0; x < w; x += 6) {
+      const odd = ((x / 6 + y / 4) | 0) % 2 === 0;
+      ctx.fillStyle = odd ? 'rgba(255,245,230,0.08)' : 'rgba(60,10,10,0.08)';
+      ctx.fillRect(x, y, 5, 3);
+      bctx.fillStyle = odd ? '#b8b8b8' : '#525252';
+      bctx.fillRect(x, y, 5, 3);
+    }
+  }
+
+  const colTex = new THREE.CanvasTexture(colCanvas);
+  colTex.colorSpace = THREE.SRGBColorSpace;
+  colTex.wrapS = THREE.RepeatWrapping;
+  colTex.wrapT = THREE.RepeatWrapping;
+  colTex.anisotropy = 8;
+
+  const bumpTex = new THREE.CanvasTexture(bumpCanvas);
+  bumpTex.wrapS = THREE.RepeatWrapping;
+  bumpTex.wrapT = THREE.RepeatWrapping;
+  bumpTex.anisotropy = 4;
+
+  return { colTex, bumpTex };
+}
+
+// ---------------------------------------------------------------------------
+// Shared Wind & Fleece Shader System (26,400+ Crimped Strands & Micro-Curls)
+// ---------------------------------------------------------------------------
+const fleeceUniforms = {
+  uTime: { value: 0 },
+  uWindStrength: { value: 1.0 }
+};
+
+const windGLSL = `
+attribute float aStrandH;
+attribute vec2 aBrushXZ;
+attribute float aPhase;
+uniform float uTime;
+uniform float uWindStrength;
+
+vec3 computeAlpacaWind(vec3 wp, float t, float ph) {
+  float w1 = sin(wp.x * 2.7 - wp.z * 2.3 - t * 2.65 + sin(wp.y * 2.2 + t * 1.15) * 0.55);
+  float w2 = sin(wp.z * 4.6 + wp.y * 3.4 - t * 3.9 + ph * 0.4);
+  float gust = 0.62 + 0.38 * sin(t * 0.92 - wp.x * 0.75 + wp.z * 0.65);
+  float amp = (0.0155 * w1 + 0.0058 * w2) * gust * uWindStrength;
+  float flutter = sin(t * 5.8 + ph) * 0.0022 * uWindStrength;
+  return vec3(amp * 0.86 + flutter, amp * 0.16, -amp * 0.64 - flutter * 0.5);
+}
+`;
+
+const fleeceMaterial = new THREE.MeshStandardMaterial({
+  color: 0xffffff,
+  roughness: 0.84,
+  metalness: 0.0,
+  envMapIntensity: 0.52
+});
+
+fleeceMaterial.onBeforeCompile = (shader) => {
+  shader.uniforms.uTime = fleeceUniforms.uTime;
+  shader.uniforms.uWindStrength = fleeceUniforms.uWindStrength;
+
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <common>',
+    `#include <common>
+    varying float vStrandH;
+    ${windGLSL}`
+  );
+
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <beginnormal_vertex>',
+    `#include <beginnormal_vertex>
+    #ifdef USE_INSTANCING
+    {
+      mat4 mInstW = modelMatrix * instanceMatrix;
+      vec3 wRoot = mInstW[3].xyz;
+      vec3 axX = normalize(mInstW[0].xyz);
+      vec3 axZ = normalize(mInstW[2].xyz);
+      vec3 windV = computeAlpacaWind(wRoot, uTime, aPhase);
+      vec2 totBend = aBrushXZ + vec2(dot(windV, axX), dot(windV, axZ));
+      float bMag = length(totBend);
+      objectNormal = normalize(objectNormal + vec3(-totBend.x * aStrandH * 3.0, bMag * aStrandH * 1.1, -totBend.y * aStrandH * 3.0));
+    }
+    #endif`
+  );
+
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <begin_vertex>',
+    `#include <begin_vertex>
+    vStrandH = aStrandH;
+    #ifdef USE_INSTANCING
+    {
+      mat4 mInstW = modelMatrix * instanceMatrix;
+      vec3 wRoot = mInstW[3].xyz;
+      float sX = max(length(mInstW[0].xyz), 0.0001);
+      float sY = max(length(mInstW[1].xyz), 0.0001);
+      float sZ = max(length(mInstW[2].xyz), 0.0001);
+      vec3 axX = mInstW[0].xyz / sX;
+      vec3 axZ = mInstW[2].xyz / sZ;
+      vec3 windV = computeAlpacaWind(wRoot, uTime, aPhase);
+      vec2 totBend = aBrushXZ + vec2(dot(windV, axX), dot(windV, axZ));
+      float bLen = length(totBend);
+      float relB = min(bLen / sY, 0.85);
+      if (bLen > 0.00001) {
+        totBend *= (relB * sY) / bLen;
+      }
+      float bendW = aStrandH * aStrandH * (1.35 - 0.35 * aStrandH);
+      transformed.x += (totBend.x * bendW) / sX;
+      transformed.z += (totBend.y * bendW) / sZ;
+      transformed.y -= 0.42 * relB * relB * bendW;
+    }
+    #endif`
+  );
+
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <common>',
+    `#include <common>
+    varying float vStrandH;`
+  );
+
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <color_fragment>',
+    `#include <color_fragment>
+    vec3 rootChampagne = vec3(0.885, 0.825, 0.725);
+    vec3 tipCloudCream = vec3(1.025, 1.008, 0.982);
+    diffuseColor.rgb *= mix(rootChampagne, tipCloudCream, smoothstep(0.0, 0.86, vStrandH));`
+  );
+
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <emissive_fragment>',
+    `#include <emissive_fragment>
+    vec3 vDir = normalize(vViewPosition);
+    vec3 nDir = normalize(vNormal);
+    float fuzzRim = pow(clamp(1.0 - abs(dot(nDir, vDir)), 0.0, 1.0), 2.35);
+    vec3 cloudScatter = vec3(0.155, 0.140, 0.118) * mix(0.48, 1.0, vStrandH);
+    vec3 sunlitHalo = vec3(0.25, 0.225, 0.19) * fuzzRim * (0.35 + 0.65 * vStrandH);
+    totalEmissiveRadiance += diffuseColor.rgb * (cloudScatter + sunlitHalo);`
+  );
+};
+fleeceMaterial.customProgramCacheKey = () => 'alpaca-cloud-fleece-v1';
+
+const fleeceDepthMaterial = new THREE.MeshDepthMaterial({
+  depthPacking: THREE.RGBADepthPacking
+});
+fleeceDepthMaterial.onBeforeCompile = (shader) => {
+  shader.uniforms.uTime = fleeceUniforms.uTime;
+  shader.uniforms.uWindStrength = fleeceUniforms.uWindStrength;
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <common>',
+    `#include <common>
+    ${windGLSL}`
+  );
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <begin_vertex>',
+    `#include <begin_vertex>
+    #ifdef USE_INSTANCING
+    {
+      mat4 mInstW = modelMatrix * instanceMatrix;
+      vec3 wRoot = mInstW[3].xyz;
+      float sX = max(length(mInstW[0].xyz), 0.0001);
+      float sY = max(length(mInstW[1].xyz), 0.0001);
+      float sZ = max(length(mInstW[2].xyz), 0.0001);
+      vec3 axX = mInstW[0].xyz / sX;
+      vec3 axZ = mInstW[2].xyz / sZ;
+      vec3 windV = computeAlpacaWind(wRoot, uTime, aPhase);
+      vec2 totBend = aBrushXZ + vec2(dot(windV, axX), dot(windV, axZ));
+      float bLen = length(totBend);
+      float relB = min(bLen / sY, 0.85);
+      if (bLen > 0.00001) {
+        totBend *= (relB * sY) / bLen;
+      }
+      float bendW = aStrandH * aStrandH * (1.35 - 0.35 * aStrandH);
+      transformed.x += (totBend.x * bendW) / sX;
+      transformed.z += (totBend.y * bendW) / sZ;
+      transformed.y -= 0.42 * relB * relB * bendW;
+    }
+    #endif`
+  );
+};
+fleeceDepthMaterial.customProgramCacheKey = () => 'alpaca-cloud-fleece-depth-v1';
+
+// ---------------------------------------------------------------------------
+// 3D Crimped Fleece Strand & Fluffy Micro-Curl Geometries
+// ---------------------------------------------------------------------------
+function buildLoftedTubeGeometry(spineFn, radiusFn, segsY = 6, radialSegs = 5) {
+  const positions = [];
+  const strandH = [];
+  const indices = [];
+
+  const pPrev = new THREE.Vector3();
+  const pCurr = new THREE.Vector3();
+  const pNext = new THREE.Vector3();
+  const tangent = new THREE.Vector3();
+  const normal = new THREE.Vector3();
+  const binormal = new THREE.Vector3();
+  const upRef = new THREE.Vector3(0, 0, 1);
+
+  for (let iy = 0; iy <= segsY; iy++) {
+    const t = iy / segsY;
+    spineFn(t, pCurr);
+    spineFn(Math.max(0, t - 0.04), pPrev);
+    spineFn(Math.min(1, t + 0.04), pNext);
+    tangent.subVectors(pNext, pPrev).normalize();
+
+    if (Math.abs(tangent.dot(upRef)) > 0.94) {
+      normal.set(1, 0, 0).cross(tangent).normalize();
+    } else {
+      normal.crossVectors(upRef, tangent).normalize();
+    }
+    binormal.crossVectors(tangent, normal).normalize();
+
+    const r = radiusFn(t);
+    for (let ir = 0; ir < radialSegs; ir++) {
+      const ang = (ir / radialSegs) * Math.PI * 2;
+      const ca = Math.cos(ang);
+      const sa = Math.sin(ang);
+      const vx = pCurr.x + (normal.x * ca + binormal.x * sa) * r;
+      const vy = pCurr.y + (normal.y * ca + binormal.y * sa) * r;
+      const vz = pCurr.z + (normal.z * ca + binormal.z * sa) * r;
+      positions.push(vx, vy, vz);
+      strandH.push(t);
+    }
+  }
+
+  // Rounded soft dome cap vertex at tip
+  const tipCenter = new THREE.Vector3();
+  spineFn(1.0, tipCenter);
+  const tipIdx = positions.length / 3;
+  positions.push(tipCenter.x, tipCenter.y + 0.025, tipCenter.z);
+  strandH.push(1.0);
+
+  for (let iy = 0; iy < segsY; iy++) {
+    const rowA = iy * radialSegs;
+    const rowB = (iy + 1) * radialSegs;
+    for (let ir = 0; ir < radialSegs; ir++) {
+      const irNext = (ir + 1) % radialSegs;
+      const a = rowA + ir;
+      const b = rowA + irNext;
+      const c = rowB + irNext;
+      const d = rowB + ir;
+      indices.push(a, b, c, a, c, d);
+    }
+  }
+
+  const lastRow = segsY * radialSegs;
+  for (let ir = 0; ir < radialSegs; ir++) {
+    const irNext = (ir + 1) % radialSegs;
+    indices.push(lastRow + ir, lastRow + irNext, tipIdx);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('aStrandH', new THREE.Float32BufferAttribute(strandH, 1));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// 1) Crimped Huacaya/Suri Fleece Lock (3D sinusoidal crimp + plump soft tip)
+const crimpedStrandGeo = buildLoftedTubeGeometry(
+  (t, out) => {
+    const crimpWave = Math.sin(t * Math.PI * 3.4) * 0.105 * Math.sin(t * Math.PI * 0.88);
+    const twistWave = Math.cos(t * Math.PI * 2.6) * 0.062 * t;
+    const drape = 0.14 * t * t;
+    out.set(crimpWave, t, twistWave + drape);
+  },
+  (t) => {
+    const crimpPinch = 1.0 + 0.10 * Math.cos(t * Math.PI * 6.8);
+    const profile = 0.135 + 0.055 * Math.sin(t * Math.PI * 0.82) - 0.105 * Math.pow(t, 2.4);
+    return Math.max(0.035, profile * crimpPinch);
+  },
+  6,
+  5
+);
+
+// 2) Cloud Bouclé Ringlet / Micro-Curl (coiled fluffy cloud curl)
+const microCurlGeo = buildLoftedTubeGeometry(
+  (t, out) => {
+    const coilT = Math.max(0, (t - 0.18) / 0.82);
+    const theta = coilT * Math.PI * 2.35;
+    const loopR = 0.185 * Math.sin(coilT * Math.PI * 0.92);
+    const cx = Math.cos(theta) * loopR * coilT;
+    const cy = t * 0.72 + Math.sin(theta * 0.5) * 0.14 * coilT;
+    const cz = Math.sin(theta) * loopR * coilT + 0.08 * t;
+    out.set(cx, cy, cz);
+  },
+  (t) => {
+    return Math.max(0.045, 0.155 + 0.045 * Math.sin(t * Math.PI) - 0.095 * Math.pow(t, 2.6));
+  },
+  6,
+  5
+);
+
+// ---------------------------------------------------------------------------
+// Pastel Meadow Mound, Cyclorama Ground, Grass Tufts & Wildflowers
+// ---------------------------------------------------------------------------
+const meadowGroup = new THREE.Group();
+scene.add(meadowGroup);
+
+// Seamless pastel studio ground cyclorama beneath the mound
+const studioFloorGeo = new THREE.CircleGeometry(18, 64);
+studioFloorGeo.rotateX(-Math.PI / 2);
+const floorPos = studioFloorGeo.attributes.position;
+const floorColors = new Float32Array(floorPos.count * 3);
+const innerFloorCol = new THREE.Color(0xd5e3db);
+const outerFloorCol = new THREE.Color(0xdce8f4);
+const tmpFloorC = new THREE.Color();
+for (let i = 0; i < floorPos.count; i++) {
+  const r = Math.hypot(floorPos.getX(i), floorPos.getZ(i));
+  tmpFloorC.copy(innerFloorCol).lerp(outerFloorCol, Math.min(1, Math.pow(r / 12, 0.75)));
+  floorColors[i * 3] = tmpFloorC.r;
+  floorColors[i * 3 + 1] = tmpFloorC.g;
+  floorColors[i * 3 + 2] = tmpFloorC.b;
+}
+studioFloorGeo.setAttribute('color', new THREE.BufferAttribute(floorColors, 3));
+const studioFloor = new THREE.Mesh(
+  studioFloorGeo,
+  new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0.0 })
+);
+studioFloor.position.y = -0.32;
+studioFloor.receiveShadow = true;
+scene.add(studioFloor);
+
+// Helper height function of the small pastel meadow mound
+function getMoundHeight(x, z) {
+  const r2 = (x * x) / (1.42 * 1.42) + (z * z) / (1.28 * 1.28);
+  if (r2 >= 1.25) return -0.32;
+  // Flat-ish cozy plateau on top (y ≈ 0.0 for r < 0.45) curving smoothly down to -0.32
+  const falloff = Math.pow(Math.max(0, 1.0 - r2 * 0.80), 1.65);
+  const gentleRipple = (Math.sin(x * 3.8 + 0.5) * Math.cos(z * 4.1 - 0.3)) * 0.012 * Math.min(1, r2 * 2.2);
+  return -0.32 + 0.328 * falloff + gentleRipple;
+}
+
+// Sculpted Pastel Meadow Mound
+{
+  const moundGeo = new THREE.CylinderGeometry(1.48, 1.56, 0.36, 72, 18, false);
+  const pos = moundGeo.attributes.position;
+  const cols = new Float32Array(pos.count * 3);
+  const topMint = new THREE.Color(0xc6e5be);
+  const cloverCream = new THREE.Color(0xd9efd0);
+  const sageRim = new THREE.Color(0xaed4b0);
+  const earthBase = new THREE.Color(0xd2c8b8);
+  const cTmp = new THREE.Color();
+
+  for (let i = 0; i < pos.count; i++) {
+    let vx = pos.getX(i);
+    let vy = pos.getY(i);
+    let vz = pos.getZ(i);
+    // Normalize cylinder height [-0.18, +0.18] -> [0, 1]
+    const hNorm = (vy + 0.18) / 0.36;
+    const radScale = 1.0 + 0.035 * Math.sin(Math.atan2(vz, vx) * 5.0 + 0.8);
+    vx *= radScale;
+    vz *= radScale;
+
+    const surfY = getMoundHeight(vx, vz);
+    const finalY = THREE.MathUtils.lerp(-0.33, surfY, Math.pow(hNorm, 0.75));
+    pos.setXYZ(i, vx, finalY, vz);
+
+    const rDist = Math.hypot(vx / 1.42, vz / 1.28);
+    const patch = 0.5 + 0.5 * Math.sin(vx * 5.2 + vz * 4.4);
+    cTmp.copy(topMint).lerp(cloverCream, patch * 0.55);
+    cTmp.lerp(sageRim, THREE.MathUtils.smoothstep(rDist, 0.45, 0.92) * 0.65);
+    cTmp.lerp(earthBase, THREE.MathUtils.smoothstep(finalY, -0.16, -0.32) * 0.85);
+    cols[i * 3] = cTmp.r;
+    cols[i * 3 + 1] = cTmp.g;
+    cols[i * 3 + 2] = cTmp.b;
+  }
+  moundGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  moundGeo.computeVertexNormals();
+
+  const moundMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.92,
+    metalness: 0.0
+  });
+  const moundMesh = new THREE.Mesh(moundGeo, moundMat);
+  moundMesh.receiveShadow = true;
+  moundMesh.castShadow = true;
+  meadowGroup.add(moundMesh);
+}
+
+// Soft Contact Shadows (under mound rim + under alpaca belly & each hoof)
+const softShadowTex = createSoftShadowTexture();
+function addContactShadow(x, y, z, sx, sz, opacity) {
+  const mat = new THREE.MeshBasicMaterial({
+    map: softShadowTex,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2
+  });
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(sx, sz), mat);
+  m.rotation.x = -Math.PI / 2;
+  m.position.set(x, y, z);
+  meadowGroup.add(m);
+  return m;
+}
+addContactShadow(0, -0.318, 0, 3.35, 3.05, 0.55);
+const bodyContactShadow = addContactShadow(0.0, 0.010, 0.0, 1.05, 1.18, 0.46);
+addContactShadow(-0.185, 0.008, 0.255, 0.28, 0.28, 0.55);
+addContactShadow(0.185, 0.008, 0.255, 0.28, 0.28, 0.55);
+addContactShadow(-0.195, 0.008, -0.275, 0.28, 0.28, 0.55);
+addContactShadow(0.195, 0.008, -0.275, 0.28, 0.28, 0.55);
+
+// Instanced Pastel Grass Tufts on the Mound (animated softly with wind)
+{
+  const bladeGeo = new THREE.BufferGeometry();
+  const bVerts = new Float32Array([
+    -0.011, 0.0, 0.0,
+     0.011, 0.0, 0.0,
+    -0.007, 0.48, 0.008,
+     0.007, 0.48, 0.008,
+     0.0,   1.0,  0.026
+  ]);
+  const bH = new Float32Array([0.0, 0.0, 0.48, 0.48, 1.0]);
+  bladeGeo.setAttribute('position', new THREE.BufferAttribute(bVerts, 3));
+  bladeGeo.setAttribute('aBladeH', new THREE.BufferAttribute(bH, 1));
+  bladeGeo.setIndex([0, 1, 3, 0, 3, 2, 2, 3, 4]);
+  bladeGeo.computeVertexNormals();
+
+  const grassMat = new THREE.MeshStandardMaterial({
+    roughness: 0.82,
+    metalness: 0.0,
+    side: THREE.DoubleSide
+  });
+  grassMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = fleeceUniforms.uTime;
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <common>',
+      `#include <common>
+      attribute float aBladeH;
+      uniform float uTime;`
+    );
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+      #ifdef USE_INSTANCING
+      {
+        vec3 wPos = (modelMatrix * instanceMatrix)[3].xyz;
+        float sw = sin(wPos.x * 2.6 - wPos.z * 2.2 - uTime * 2.6) * 0.16;
+        transformed.x += sw * aBladeH * aBladeH;
+        transformed.z -= sw * 0.6 * aBladeH * aBladeH;
+      }
+      #endif`
+    );
+  };
+
+  const grassCount = 1350;
+  const grassInst = new THREE.InstancedMesh(bladeGeo, grassMat, grassCount);
+  grassInst.receiveShadow = true;
+  const dummy = new THREE.Object3D();
+  const c1 = new THREE.Color(0xb5dfae);
+  const c2 = new THREE.Color(0xd2ecc2);
+  const c3 = new THREE.Color(0x9fd0a4);
+  const cPick = new THREE.Color();
+
+  let gi = 0;
+  let guard = 0;
+  while (gi < grassCount && guard < 12000) {
+    guard++;
+    const ang = rng() * Math.PI * 2;
+    const rad = Math.sqrt(rng()) * 1.32;
+    const gx = Math.cos(ang) * rad * 1.02;
+    const gz = Math.sin(ang) * rad * 0.92;
+    // Keep tiny clearings right on the 4 hooves so hooves read super cleanly
+    const dHoof = Math.min(
+      Math.hypot(gx + 0.185, gz - 0.255),
+      Math.hypot(gx - 0.185, gz - 0.255),
+      Math.hypot(gx + 0.195, gz + 0.275),
+      Math.hypot(gx - 0.195, gz + 0.275)
+    );
+    if (dHoof < 0.085 && rng() < 0.85) continue;
+
+    const gy = getMoundHeight(gx, gz);
+    if (gy < -0.26) continue;
+
+    dummy.position.set(gx, gy - 0.008, gz);
+    dummy.rotation.set((rng() - 0.5) * 0.35, rng() * Math.PI * 2, (rng() - 0.5) * 0.35);
+    const hScale = 0.048 + rng() * 0.068 * (0.55 + 0.45 * rad);
+    dummy.scale.set(0.85 + rng() * 0.5, hScale, 0.85 + rng() * 0.5);
+    dummy.updateMatrix();
+    grassInst.setMatrixAt(gi, dummy.matrix);
+
+    cPick.copy(c1).lerp(c2, rng()).lerp(c3, rng() * 0.35);
+    grassInst.setColorAt(gi, cPick);
+    gi++;
+  }
+  grassInst.count = gi;
+  grassInst.instanceMatrix.needsUpdate = true;
+  if (grassInst.instanceColor) grassInst.instanceColor.needsUpdate = true;
+  meadowGroup.add(grassInst);
+}
+
+// Delicate Pastel Wildflowers & Smooth River Pebbles on the Mound
+const flowerStems = [];
+{
+  const petalGeo = new THREE.SphereGeometry(0.013, 8, 6);
+  petalGeo.scale(1.0, 0.32, 1.85);
+  const centerGeo = new THREE.SphereGeometry(0.011, 8, 6);
+  centerGeo.scale(1, 0.65, 1);
+
+  const petalPalettes = [0xfffbf4, 0xffd7df, 0xf7e4ff, 0xfff1c2];
+  const centerMat = new THREE.MeshStandardMaterial({ color: 0xf7c948, roughness: 0.65 });
+  const stemMat = new THREE.MeshStandardMaterial({ color: 0x90c48e, roughness: 0.8 });
+
+  for (let f = 0; f < 26; f++) {
+    const ang = (f / 26) * Math.PI * 2 + (rng() - 0.5) * 0.25;
+    const rad = 0.48 + rng() * 0.72;
+    const fx = Math.cos(ang) * rad * 1.04;
+    const fz = Math.sin(ang) * rad * 0.92;
+    const fy = getMoundHeight(fx, fz);
+    if (fy < -0.24) continue;
+
+    const fGroup = new THREE.Group();
+    fGroup.position.set(fx, fy - 0.005, fz);
+    const stemH = 0.045 + rng() * 0.045;
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.0025, 0.0032, stemH, 5), stemMat);
+    stem.position.y = stemH * 0.5;
+    fGroup.add(stem);
+
+    const head = new THREE.Group();
+    head.position.y = stemH;
+    head.rotation.set((rng() - 0.5) * 0.45, rng() * Math.PI * 2, (rng() - 0.5) * 0.45);
+    const pMat = new THREE.MeshStandardMaterial({
+      color: petalPalettes[f % petalPalettes.length],
+      roughness: 0.68
+    });
+    const petals = 5 + (f % 2);
+    for (let p = 0; p < petals; p++) {
+      const pa = (p / petals) * Math.PI * 2;
+      const pm = new THREE.Mesh(petalGeo, pMat);
+      pm.position.set(Math.sin(pa) * 0.016, 0, Math.cos(pa) * 0.016);
+      pm.rotation.y = pa;
+      pm.rotation.x = -0.18;
+      head.add(pm);
+    }
+    head.add(new THREE.Mesh(centerGeo, centerMat));
+    const fScale = 0.75 + rng() * 0.45;
+    fGroup.scale.setScalar(fScale);
+    meadowGroup.add(fGroup);
+    flowerStems.push({ group: fGroup, phase: rng() * Math.PI * 2, x: fx, z: fz });
+  }
+
+  // Smooth pastel meadow pebbles
+  const pebbleCoords = [
+    [0.78, 0.52, 0.055],
+    [0.86, 0.44, 0.036],
+    [-0.82, 0.46, 0.050],
+    [-0.68, -0.68, 0.044],
+    [0.64, -0.74, 0.040]
+  ];
+  for (const [px, pz, pr] of pebbleCoords) {
+    const py = getMoundHeight(px, pz);
+    const pebGeo = new THREE.SphereGeometry(pr, 14, 10);
+    pebGeo.scale(1.25, 0.56, 1.05);
+    const pebMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color().setHSL(0.08 + rng() * 0.04, 0.16, 0.82 + rng() * 0.06),
+      roughness: 0.78
+    });
+    const peb = new THREE.Mesh(pebGeo, pebMat);
+    peb.position.set(px, py + pr * 0.22, pz);
+    peb.rotation.y = rng() * Math.PI;
+    peb.castShadow = true;
+    peb.receiveShadow = true;
+    meadowGroup.add(peb);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Baby White Alpaca Skeletal / Hierarchical Rig
+// ---------------------------------------------------------------------------
+const alpacaRoot = new THREE.Group();
+alpacaRoot.position.set(0, 0.008, 0);
+scene.add(alpacaRoot);
+
+// Materials for non-fleece anatomical details
+const undercoatMat = new THREE.MeshStandardMaterial({
+  color: 0xf9f1e2,
+  roughness: 0.92,
+  metalness: 0.0
+});
+
+const muzzleSkinMat = new THREE.MeshStandardMaterial({
+  vertexColors: true,
+  roughness: 0.68,
+  metalness: 0.0,
+  envMapIntensity: 0.35
+});
+
+const nostrilInnerMat = new THREE.MeshStandardMaterial({
+  color: 0xd16d7b,
+  roughness: 0.55,
+  metalness: 0.0
+});
+
+const nostrilRimMat = new THREE.MeshStandardMaterial({
+  color: 0xf2a5af,
+  roughness: 0.62,
+  metalness: 0.0
+});
+
+const smileMat = new THREE.MeshStandardMaterial({
+  color: 0x693c3d,
+  roughness: 0.65,
+  metalness: 0.0
+});
+
+const eyelashMat = new THREE.MeshStandardMaterial({
+  color: 0x221513,
+  roughness: 0.45,
+  metalness: 0.05
+});
+
+const hoofMat = new THREE.MeshPhysicalMaterial({
+  color: 0xc8b6a2,
+  roughness: 0.32,
+  metalness: 0.0,
+  clearcoat: 0.45,
+  clearcoatRoughness: 0.28,
+  envMapIntensity: 0.85
+});
+
+const invisibleColliderMat = new THREE.MeshBasicMaterial({ visible: false });
+const brushColliders = [];
+
+// Helper to create an ellipsoid mesh & SDF descriptor for clean cloud union sampling
+function createEllipsoidLobe(cx, cy, cz, rx, ry, rz, rotX = 0, rotY = 0, rotZ = 0, segs = 24) {
+  const geo = new THREE.SphereGeometry(1, segs, Math.round(segs * 0.75));
+  const mesh = new THREE.Mesh(geo, undercoatMat);
+  mesh.position.set(cx, cy, cz);
+  mesh.rotation.set(rotX, rotY, rotZ);
+  mesh.scale.set(rx, ry, rz);
+  mesh.castShadow = true;
+  mesh.receiveShadow = false;
+  mesh.updateMatrix();
+
+  const invMat = mesh.matrix.clone().invert();
+  return {
+    mesh,
+    cx, cy, cz, rx, ry, rz,
+    matrix: mesh.matrix.clone(),
+    invMat
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 1. Four Cute Fluffy Pillar Legs & Cloven Hooves (Planted on Mound)
+// ---------------------------------------------------------------------------
+const legConfigs = [
+  { name: 'legFL', x: -0.185, z: 0.255, topY: 0.58 },
+  { name: 'legFR', x:  0.185, z: 0.255, topY: 0.58 },
+  { name: 'legBL', x: -0.195, z: -0.275, topY: 0.60 },
+  { name: 'legBR', x:  0.195, z: -0.275, topY: 0.60 }
+];
+
+const legDataList = [];
+for (const cfg of legConfigs) {
+  const groundY = getMoundHeight(cfg.x, cfg.z) - alpacaRoot.position.y;
+  const legGroup = new THREE.Group();
+  legGroup.position.set(cfg.x, groundY, cfg.z);
+  alpacaRoot.add(legGroup);
+
+  // Cute cloven two-toed alpaca hoof (smoothly defined at bottom 0.0 .. 0.062)
+  const hoofGroup = new THREE.Group();
+  legGroup.add(hoofGroup);
+  for (const toeSide of [-1, 1]) {
+    const toeGeo = new THREE.SphereGeometry(0.036, 16, 12);
+    toeGeo.scale(0.82, 0.95, 1.38);
+    // Flatten sole at bottom
+    const tp = toeGeo.attributes.position;
+    for (let i = 0; i < tp.count; i++) {
+      const y = tp.getY(i);
+      if (y < -0.005) tp.setY(i, -0.005 + (y + 0.005) * 0.15);
+    }
+    toeGeo.computeVertexNormals();
+    const toe = new THREE.Mesh(toeGeo, hoofMat);
+    toe.position.set(toeSide * 0.025, 0.024, 0.022);
+    toe.rotation.y = toeSide * 0.09;
+    toe.castShadow = true;
+    toe.receiveShadow = true;
+    hoofGroup.add(toe);
+  }
+
+  // Fluffy leg core lobes from ankle cuff (0.068) up into shoulder/hip (topY)
+  const lobes = [
+    createEllipsoidLobe(0, 0.14, 0.005, 0.088, 0.105, 0.090, 0, 0, 0, 20),
+    createEllipsoidLobe(0, 0.29, 0.0,   0.096, 0.125, 0.098, 0, 0, 0, 20),
+    createEllipsoidLobe(0, 0.45, -0.01, 0.112, 0.145, 0.116, 0, 0, 0, 20)
+  ];
+  for (const l of lobes) legGroup.add(l.mesh);
+
+  // Raycast brush collider for leg
+  const col = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.14, cfg.topY, 12), invisibleColliderMat);
+  col.position.set(0, cfg.topY * 0.5, 0);
+  legGroup.add(col);
+  brushColliders.push(col);
+
+  legDataList.push({ group: legGroup, lobes, cfg });
+}
+
+// ---------------------------------------------------------------------------
+// 2. Plump Cloud Body & Fluffy Tail
+// ---------------------------------------------------------------------------
+const bodyGroup = new THREE.Group();
+bodyGroup.position.set(0, 0.66, 0);
+alpacaRoot.add(bodyGroup);
+
+const bodyLobes = [
+  // Central spine & cozy belly
+  createEllipsoidLobe(0.0,   0.01,  0.00,  0.265, 0.245, 0.340, 0, 0, 0, 28),
+  // Plump chest cloud ruff
+  createEllipsoidLobe(0.0,   0.04,  0.24,  0.248, 0.238, 0.220, -0.12, 0, 0, 26),
+  // Rounded lifted baby-alpaca hindquarters
+  createEllipsoidLobe(0.0,   0.05, -0.23,  0.262, 0.250, 0.240, 0.10, 0, 0, 26),
+  // Cloud flank & shoulder puffs for billowing silhouette
+  createEllipsoidLobe(-0.16, 0.04,  0.14,  0.155, 0.175, 0.185, 0, 0, 0, 20),
+  createEllipsoidLobe( 0.16, 0.04,  0.14,  0.155, 0.175, 0.185, 0, 0, 0, 20),
+  createEllipsoidLobe(-0.17, 0.05, -0.14,  0.162, 0.182, 0.195, 0, 0, 0, 20),
+  createEllipsoidLobe( 0.17, 0.05, -0.14,  0.162, 0.182, 0.195, 0, 0, 0, 20),
+  createEllipsoidLobe( 0.0,  0.13, -0.02,  0.215, 0.165, 0.285, 0, 0, 0, 22)
+];
+for (const l of bodyLobes) bodyGroup.add(l.mesh);
+
+{
+  const bodyCol = new THREE.Mesh(new THREE.SphereGeometry(0.42, 18, 14), invisibleColliderMat);
+  bodyCol.scale.set(0.86, 0.80, 1.18);
+  bodyCol.position.set(0, 0.03, 0.0);
+  bodyGroup.add(bodyCol);
+  brushColliders.push(bodyCol);
+}
+
+// Fluffy Cloud Tail
+const tailGroup = new THREE.Group();
+tailGroup.position.set(0, 0.13, -0.35);
+bodyGroup.add(tailGroup);
+
+const tailLobes = [
+  createEllipsoidLobe(0, 0.02, -0.06, 0.082, 0.086, 0.095, -0.35, 0, 0, 18),
+  createEllipsoidLobe(0, 0.04, -0.14, 0.078, 0.082, 0.092, -0.15, 0, 0, 18),
+  createEllipsoidLobe(0, 0.02, -0.20, 0.064, 0.068, 0.072, 0.15, 0, 0, 16)
+];
+for (const l of tailLobes) tailGroup.add(l.mesh);
+
+{
+  const tailCol = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), invisibleColliderMat);
+  tailCol.position.set(0, 0.02, -0.13);
+  tailGroup.add(tailCol);
+  brushColliders.push(tailCol);
+}
+
+// ---------------------------------------------------------------------------
+// 3. Long Fluffy Neck + Woven Coral-Red Andean Neck Tassel / Bandana
+// ---------------------------------------------------------------------------
+const neckLowerGroup = new THREE.Group();
+neckLowerGroup.position.set(0, 0.14, 0.24);
+bodyGroup.add(neckLowerGroup);
+
+const neckLowerLobes = [
+  createEllipsoidLobe(0, 0.06, 0.01, 0.148, 0.125, 0.148, -0.14, 0, 0, 22),
+  createEllipsoidLobe(0, 0.17, 0.03, 0.136, 0.125, 0.138, -0.12, 0, 0, 22),
+  createEllipsoidLobe(0, 0.26, 0.04, 0.128, 0.105, 0.130, -0.10, 0, 0, 20)
+];
+for (const l of neckLowerLobes) neckLowerGroup.add(l.mesh);
+
+{
+  const nlCol = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.22, 0.34, 14), invisibleColliderMat);
+  nlCol.position.set(0, 0.15, 0.025);
+  neckLowerGroup.add(nlCol);
+  brushColliders.push(nlCol);
+}
+
+// Woven Coral-Red Andean Neck Tassel / Bandana
+const bandanaGroup = new THREE.Group();
+bandanaGroup.position.set(0, 0.115, 0.022);
+bandanaGroup.rotation.x = 0.24; // Cozily draped forward toward chest
+neckLowerGroup.add(bandanaGroup);
+
+const tasselRigList = [];
+{
+  const { colTex, bumpTex } = createAndeanWeaveTextures();
+  const bandanaMat = new THREE.MeshStandardMaterial({
+    map: colTex,
+    bumpMap: bumpTex,
+    bumpScale: 0.0045,
+    roughness: 0.80,
+    metalness: 0.02,
+    side: THREE.DoubleSide
+  });
+
+  // Parametric sculpted neck kerchief / bandana with triangular V-front drape & cloth folds
+  const segU = 72, segV = 18;
+  const bPos = [];
+  const bUV = [];
+  const bIdx = [];
+
+  function bandanaSurface(u, v, out) {
+    // u = 0..1 around neck (u = 0.5 is dead front +Z, u = 0 or 1 is center back -Z)
+    const theta = (u - 0.5) * Math.PI * 2; // 0 at front +Z
+    const frontFactor = Math.max(0, 1.0 - Math.abs(u - 0.5) / 0.33);
+    const bibDrop = 0.056 + 0.165 * Math.pow(frontFactor, 1.25);
+
+    const topR = 0.156 + 0.008 * Math.cos(theta * 2.0);
+    // Flare forward & outward as the triangular kerchief drapes over the plump chest
+    const botR = topR + 0.016 + 0.058 * Math.pow(frontFactor, 1.15);
+    const foldWave = Math.sin(theta * 7.0) * 0.0038 * v * (0.35 + 0.65 * frontFactor);
+
+    const r = THREE.MathUtils.lerp(topR, botR, v) + foldWave;
+    const y = THREE.MathUtils.lerp(0.032, 0.032 - bibDrop, v);
+    out.set(Math.sin(theta) * r, y, Math.cos(theta) * r);
+  }
+
+  const pTmp = new THREE.Vector3();
+  for (let iv = 0; iv <= segV; iv++) {
+    const v = iv / segV;
+    for (let iu = 0; iu <= segU; iu++) {
+      const u = iu / segU;
+      bandanaSurface(u, v, pTmp);
+      bPos.push(pTmp.x, pTmp.y, pTmp.z);
+      bUV.push(u * 2.5, v);
+    }
+  }
+  for (let iv = 0; iv < segV; iv++) {
+    for (let iu = 0; iu < segU; iu++) {
+      const a = iv * (segU + 1) + iu;
+      const b = a + 1;
+      const c = a + (segU + 1) + 1;
+      const d = a + (segU + 1);
+      bIdx.push(a, d, c, a, c, b);
+    }
+  }
+
+  const bandanaGeo = new THREE.BufferGeometry();
+  bandanaGeo.setAttribute('position', new THREE.Float32BufferAttribute(bPos, 3));
+  bandanaGeo.setAttribute('uv', new THREE.Float32BufferAttribute(bUV, 2));
+  bandanaGeo.setIndex(bIdx);
+  bandanaGeo.computeVertexNormals();
+
+  const bandanaMesh = new THREE.Mesh(bandanaGeo, bandanaMat);
+  bandanaMesh.castShadow = true;
+  bandanaMesh.receiveShadow = true;
+  bandanaGroup.add(bandanaMesh);
+
+  // Cute rolled top collar trim & back knot
+  const trimPts = [];
+  for (let i = 0; i <= 48; i++) {
+    const pt = new THREE.Vector3();
+    bandanaSurface(i / 48, 0.04, pt);
+    trimPts.push(pt);
+  }
+  const trimCurve = new THREE.CatmullRomCurve3(trimPts, true);
+  const trimMesh = new THREE.Mesh(
+    new THREE.TubeGeometry(trimCurve, 56, 0.0085, 8, true),
+    new THREE.MeshStandardMaterial({ color: 0xd93832, roughness: 0.78 })
+  );
+  trimMesh.castShadow = true;
+  bandanaGroup.add(trimMesh);
+
+  // Back knot + 2 cute woven tie ends
+  const knot = new THREE.Mesh(
+    new THREE.SphereGeometry(0.022, 12, 10),
+    bandanaMat
+  );
+  knot.scale.set(1.2, 0.95, 0.9);
+  knot.position.set(0, 0.005, -0.168);
+  bandanaGroup.add(knot);
+
+  // 9 Dangling Andean Yarn Pom-Poms & Fringe Tassels along the front V-trim!
+  const pomColors = [0xe8443c, 0xf4b942, 0xfff3de, 0xf06d7e, 0xe8443c, 0xf06d7e, 0xfff3de, 0xf4b942, 0xe8443c];
+  const fringeColors = [0xfff3de, 0xe8443c, 0xf4b942, 0xe8443c, 0xf4b942, 0xe8443c, 0xf4b942, 0xe8443c, 0xfff3de];
+  const cordMat = new THREE.MeshStandardMaterial({ color: 0xf6c65b, roughness: 0.75 });
+
+  // Reusable puffy bumpy yarn pom-pom geometry
+  const pomGeo = new THREE.SphereGeometry(0.017, 14, 12);
+  const pp = pomGeo.attributes.position;
+  for (let i = 0; i < pp.count; i++) {
+    const vx = pp.getX(i), vy = pp.getY(i), vz = pp.getZ(i);
+    const bump = 1.0 + 0.16 * Math.sin(vx * 420) * Math.cos(vy * 420) * Math.sin(vz * 420);
+    pp.setXYZ(i, vx * bump, vy * bump, vz * bump);
+  }
+  pomGeo.computeVertexNormals();
+
+  for (let t = 0; t < 9; t++) {
+    const u = 0.25 + (t / 8) * 0.50; // spans front V-edge symmetrically, t=4 is center point!
+    const anchor = new THREE.Vector3();
+    bandanaSurface(u, 0.97, anchor);
+
+    const tPivot = new THREE.Group();
+    tPivot.position.copy(anchor);
+    // Counter-rotate slightly so tassels hang naturally downward with gravity
+    const restRotX = -0.22;
+    tPivot.rotation.x = restRotX;
+    bandanaGroup.add(tPivot);
+
+    const isCenter = t === 4;
+    const scaleT = isCenter ? 1.28 : (t % 2 === 0 ? 1.02 : 0.88);
+
+    // Braided hanging cord
+    const cordLen = 0.022 * scaleT;
+    const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.0028, 0.0028, cordLen, 6), cordMat);
+    cord.position.y = -cordLen * 0.5;
+    tPivot.add(cord);
+
+    // Fluffy Andean Pom-Pom ball
+    const pomMat = new THREE.MeshStandardMaterial({ color: pomColors[t], roughness: 0.88 });
+    const pom = new THREE.Mesh(pomGeo, pomMat);
+    pom.scale.setScalar(scaleT);
+    pom.position.y = -cordLen - 0.012 * scaleT;
+    pom.castShadow = true;
+    tPivot.add(pom);
+
+    // Flared multi-strand yarn tassel skirt beneath pom-pom
+    const skirtMat = new THREE.MeshStandardMaterial({ color: fringeColors[t], roughness: 0.86 });
+    const skirtGroup = new THREE.Group();
+    skirtGroup.position.y = pom.position.y - 0.010 * scaleT;
+    const numThreads = 7;
+    for (let s = 0; s < numThreads; s++) {
+      const sa = (s / numThreads) * Math.PI * 2;
+      const th = new THREE.Mesh(new THREE.CylinderGeometry(0.0022, 0.0036, 0.028 * scaleT, 5), skirtMat);
+      th.position.set(Math.cos(sa) * 0.005 * scaleT, -0.013 * scaleT, Math.sin(sa) * 0.005 * scaleT);
+      th.rotation.z = Math.cos(sa) * 0.24;
+      th.rotation.x = -Math.sin(sa) * 0.24;
+      skirtGroup.add(th);
+    }
+    tPivot.add(skirtGroup);
+
+    tasselRigList.push({
+      pivot: tPivot,
+      restRotX,
+      phase: t * 0.75,
+      velX: 0,
+      velZ: 0,
+      offX: 0,
+      offZ: 0
+    });
+  }
+}
+
+// Upper Long Fluffy Neck
+const neckUpperGroup = new THREE.Group();
+neckUpperGroup.position.set(0, 0.26, 0.04);
+neckLowerGroup.add(neckUpperGroup);
+
+const neckUpperLobes = [
+  createEllipsoidLobe(0, 0.06, 0.005, 0.126, 0.115, 0.128, -0.06, 0, 0, 22),
+  createEllipsoidLobe(0, 0.16, 0.015, 0.120, 0.115, 0.122, -0.04, 0, 0, 22),
+  createEllipsoidLobe(0, 0.24, 0.020, 0.116, 0.095, 0.118,  0.00, 0, 0, 20)
+];
+for (const l of neckUpperLobes) neckUpperGroup.add(l.mesh);
+
+{
+  const nuCol = new THREE.Mesh(new THREE.CylinderGeometry(0.185, 0.195, 0.30, 14), invisibleColliderMat);
+  nuCol.position.set(0, 0.14, 0.015);
+  neckUpperGroup.add(nuCol);
+  brushColliders.push(nuCol);
+}
+
+// ---------------------------------------------------------------------------
+// 4. Cute Head, Cloud Topknot (정수리 털뭉치), Clean Smooth Muzzle,
+//    Expressive Dark Eyes + Eyelashes + Dual Catchlights & Spear Ears
+// ---------------------------------------------------------------------------
+const headGroup = new THREE.Group();
+headGroup.position.set(0, 0.25, 0.022);
+neckUpperGroup.add(headGroup);
+
+// Cranium & Chubby Fluffy Cheeks
+const headCoreLobes = [
+  createEllipsoidLobe( 0.0,   0.085,  0.015, 0.156, 0.150, 0.152, 0, 0, 0, 26),
+  createEllipsoidLobe(-0.112, 0.024,  0.066, 0.092, 0.088, 0.092, 0, 0, 0, 22),
+  createEllipsoidLobe( 0.112, 0.024,  0.066, 0.092, 0.088, 0.092, 0, 0, 0, 22),
+  createEllipsoidLobe( 0.0,   0.068, -0.052, 0.144, 0.140, 0.125, 0, 0, 0, 22),
+  createEllipsoidLobe( 0.0,  -0.032,  0.038, 0.106, 0.072, 0.102, 0, 0, 0, 20)
+];
+for (const l of headCoreLobes) headGroup.add(l.mesh);
+
+// Fluffy Cloud Head Topknot (정수리 털뭉치)
+const topknotLobes = [
+  createEllipsoidLobe( 0.0,   0.218,  0.042, 0.130, 0.104, 0.120, 0, 0, 0, 24),
+  createEllipsoidLobe( 0.0,   0.198,  0.105, 0.106, 0.066, 0.078, 0, 0, 0, 22), // bangs safely above eyes
+  createEllipsoidLobe(-0.082, 0.200,  0.048, 0.092, 0.084, 0.094, 0, 0, 0, 20),
+  createEllipsoidLobe( 0.082, 0.200,  0.048, 0.092, 0.084, 0.094, 0, 0, 0, 20),
+  createEllipsoidLobe( 0.0,   0.205, -0.028, 0.114, 0.088, 0.096, 0, 0, 0, 20)
+];
+for (const l of topknotLobes) headGroup.add(l.mesh);
+
+{
+  const headCol = new THREE.Mesh(new THREE.SphereGeometry(0.27, 16, 14), invisibleColliderMat);
+  headCol.position.set(0, 0.125, 0.04);
+  headCol.scale.set(0.96, 1.12, 0.98);
+  headGroup.add(headCol);
+  brushColliders.push(headCol);
+}
+
+// Smooth Cute Muzzle, Pink-Tinted Nostrils, Happy Y-Shaped Smile & Chewing Lower Jaw
+const muzzleGroup = new THREE.Group();
+muzzleGroup.position.set(0, 0.024, 0.148);
+headGroup.add(muzzleGroup);
+
+const jawGroup = new THREE.Group();
+jawGroup.position.set(0, -0.015, -0.012);
+muzzleGroup.add(jawGroup);
+
+{
+  // Upper smooth muzzle cushion with subtle rosy nose-tip & outer cheek blush
+  const mRx = 0.084, mRy = 0.060, mRz = 0.092;
+  const mCenterY = 0.008, mCenterZ = 0.018;
+  const muzGeo = new THREE.SphereGeometry(1, 36, 28);
+  const mp = muzGeo.attributes.position;
+  const mCols = new Float32Array(mp.count * 3);
+  const basePorcelain = new THREE.Color(0xfcf2e4);
+  const rosyBlush = new THREE.Color(0xf7c2c7);
+  const noseWarmth = new THREE.Color(0xf9d6d8);
+  const cTmp = new THREE.Color();
+
+  for (let i = 0; i < mp.count; i++) {
+    let x = mp.getX(i);
+    let y = mp.getY(i);
+    let z = mp.getZ(i);
+
+    // Subtle plump upper-lip cheeks (peanut/omega kawaii muzzle contour)
+    const cheekPlump = z > 0 && y < 0.25 ? 1.0 + 0.09 * Math.sin(Math.abs(x) * Math.PI) * z : 1.0;
+    const vx = x * mRx * cheekPlump;
+    const vy = mCenterY + y * mRy * (z > 0.2 && y < -0.2 ? 0.90 : 1.0);
+    const vz = mCenterZ + z * mRz;
+    mp.setXYZ(i, vx, vy, vz);
+
+    // Delicate blush near nose tip & cheek sides
+    const tipAmt = THREE.MathUtils.smoothstep(z, 0.45, 0.98) * THREE.MathUtils.smoothstep(y, -0.1, 0.65);
+    const sideBlush = THREE.MathUtils.smoothstep(Math.abs(x), 0.55, 0.95) * THREE.MathUtils.smoothstep(z, -0.1, 0.55);
+    cTmp.copy(basePorcelain).lerp(noseWarmth, tipAmt * 0.52).lerp(rosyBlush, sideBlush * 0.42);
+    mCols[i * 3] = cTmp.r;
+    mCols[i * 3 + 1] = cTmp.g;
+    mCols[i * 3 + 2] = cTmp.b;
+  }
+  muzGeo.setAttribute('color', new THREE.BufferAttribute(mCols, 3));
+  muzGeo.computeVertexNormals();
+
+  const upperMuzzleMesh = new THREE.Mesh(muzGeo, muzzleSkinMat);
+  upperMuzzleMesh.castShadow = true;
+  upperMuzzleMesh.receiveShadow = true;
+  muzzleGroup.add(upperMuzzleMesh);
+
+  // Smooth nose-bridge blend connecting cleanly between the two eyes
+  const bridgeGeo = new THREE.SphereGeometry(1, 24, 18);
+  const bp = bridgeGeo.attributes.position;
+  const bCols = new Float32Array(bp.count * 3);
+  for (let i = 0; i < bp.count; i++) {
+    bp.setXYZ(i, bp.getX(i) * 0.052, bp.getY(i) * 0.056, bp.getZ(i) * 0.068);
+    bCols[i * 3] = basePorcelain.r;
+    bCols[i * 3 + 1] = basePorcelain.g;
+    bCols[i * 3 + 2] = basePorcelain.b;
+  }
+  bridgeGeo.setAttribute('color', new THREE.BufferAttribute(bCols, 3));
+  bridgeGeo.computeVertexNormals();
+  const bridgeMesh = new THREE.Mesh(bridgeGeo, muzzleSkinMat);
+  bridgeMesh.position.set(0, 0.048, 0.012);
+  bridgeMesh.rotation.x = -0.38;
+  muzzleGroup.add(bridgeMesh);
+
+  // Exact surface projection helper on upperMuzzleMesh
+  function projectOnMuzzle(x, y, offsetZ = 0.0016) {
+    const nx = x / mRx;
+    const ny = (y - mCenterY) / mRy;
+    const radRem = Math.max(0.02, 1.0 - nx * nx - ny * ny);
+    const zPlump = 1.0 + 0.06 * Math.sin(Math.min(1, Math.abs(nx)) * Math.PI);
+    return new THREE.Vector3(x * zPlump, y, mCenterZ + mRz * Math.sqrt(radRem) + offsetZ);
+  }
+
+  // Pink-Tinted Teardrop/Comma Nostrils
+  for (const side of [-1, 1]) {
+    const nPos = projectOnMuzzle(side * 0.024, 0.025, 0.0005);
+    const nostrilGroup = new THREE.Group();
+    nostrilGroup.position.copy(nPos);
+    nostrilGroup.rotation.y = side * 0.30;
+    nostrilGroup.rotation.x = -0.26;
+    nostrilGroup.rotation.z = -side * 0.58; // cute angled \  / alpaca nostrils
+
+    // Soft pink outer tint cushion
+    const haloGeo = new THREE.SphereGeometry(0.0115, 14, 10);
+    haloGeo.scale(1.25, 0.62, 0.42);
+    nostrilGroup.add(new THREE.Mesh(haloGeo, nostrilRimMat));
+
+    // Defined comma slit
+    const slitGeo = new THREE.SphereGeometry(0.0078, 12, 10);
+    slitGeo.scale(1.30, 0.46, 0.48);
+    const slit = new THREE.Mesh(slitGeo, nostrilInnerMat);
+    slit.position.set(0, -0.0005, 0.0018);
+    nostrilGroup.add(slit);
+
+    muzzleGroup.add(nostrilGroup);
+  }
+
+  // Happy Y-Shaped Smile (Philtrum Stem + Upturned Smiling Arms)
+  const stemPts = [];
+  for (let i = 0; i <= 8; i++) {
+    const t = i / 8;
+    const y = THREE.MathUtils.lerp(0.016, -0.011, t);
+    stemPts.push(projectOnMuzzle(0, y, 0.0018));
+  }
+  const stemCurve = new THREE.CatmullRomCurve3(stemPts);
+  muzzleGroup.add(new THREE.Mesh(new THREE.TubeGeometry(stemCurve, 12, 0.0024, 8, false), smileMat));
+
+  for (const side of [-1, 1]) {
+    const armPts = [];
+    for (let i = 0; i <= 12; i++) {
+      const u = i / 12;
+      const x = side * 0.044 * u;
+      const y = -0.011 + 0.019 * Math.pow(u, 1.45);
+      armPts.push(projectOnMuzzle(x, y, 0.0018));
+    }
+    const armCurve = new THREE.CatmullRomCurve3(armPts);
+    const armMesh = new THREE.Mesh(new THREE.TubeGeometry(armCurve, 16, 0.0024, 8, false), smileMat);
+    muzzleGroup.add(armMesh);
+
+    // Cute rounded cap at upturned corner of smile
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.0025, 8, 6), smileMat);
+    cap.position.copy(armPts[armPts.length - 1]);
+    muzzleGroup.add(cap);
+  }
+
+  // Cute Lower Jaw / Chin (animated with circular chewing nibbles!)
+  const chinGeo = new THREE.SphereGeometry(1, 24, 18);
+  const cp = chinGeo.attributes.position;
+  const cCols = new Float32Array(cp.count * 3);
+  for (let i = 0; i < cp.count; i++) {
+    cp.setXYZ(i, cp.getX(i) * 0.056, cp.getY(i) * 0.030, cp.getZ(i) * 0.058);
+    cCols[i * 3] = basePorcelain.r * 0.985;
+    cCols[i * 3 + 1] = basePorcelain.g * 0.975;
+    cCols[i * 3 + 2] = basePorcelain.b * 0.975;
+  }
+  chinGeo.setAttribute('color', new THREE.BufferAttribute(cCols, 3));
+  chinGeo.computeVertexNormals();
+  const chinMesh = new THREE.Mesh(chinGeo, muzzleSkinMat);
+  chinMesh.position.set(0, -0.014, 0.054);
+  chinMesh.castShadow = true;
+  jawGroup.add(chinMesh);
+
+  // Subtle rosy lower-lip / tongue hint tucked on top of chin
+  const lipGeo = new THREE.SphereGeometry(0.024, 14, 10);
+  lipGeo.scale(1.15, 0.35, 0.95);
+  const lipMesh = new THREE.Mesh(lipGeo, nostrilRimMat);
+  lipMesh.position.set(0, 0.006, 0.068);
+  jawGroup.add(lipMesh);
+}
+
+// Large Expressive Dark Eyes with Long Eyelashes & Dual Catchlights
+const eyelidRigList = [];
+{
+  const eyeTex = createEyeTexture();
+  const eyeballMat = new THREE.MeshPhysicalMaterial({
+    map: eyeTex,
+    roughness: 0.035,
+    metalness: 0.0,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.02,
+    envMapIntensity: 1.75
+  });
+
+  const catchlightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const catchlightSubMat = new THREE.MeshBasicMaterial({ color: 0xfff7ea });
+  const eyelidSkinMat = new THREE.MeshStandardMaterial({ color: 0xf7ecdc, roughness: 0.76 });
+  const eyeRimBevelMat = new THREE.MeshStandardMaterial({ color: 0xf1e2ce, roughness: 0.78 });
+  const cheekGlowMat = new THREE.MeshBasicMaterial({
+    color: 0xf79ca8,
+    transparent: true,
+    opacity: 0.22,
+    depthWrite: false
+  });
+
+  for (const side of [-1, 1]) {
+    const eyeSocket = new THREE.Group();
+    eyeSocket.position.set(side * 0.088, 0.078, 0.143);
+    eyeSocket.rotation.y = side * 0.35; // +X eye faces slightly right, -X eye faces slightly left
+    eyeSocket.rotation.x = -0.05;
+    headGroup.add(eyeSocket);
+
+    // Clean velvety eyelid socket ring
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.0385, 0.0062, 12, 32), eyeRimBevelMat);
+    ring.scale.set(1.0, 1.05, 0.70);
+    ring.position.z = 0.002;
+    eyeSocket.add(ring);
+
+    // Big soulful glossy dark eyeball (UV rotated so iris faces +Z)
+    const ballGeo = new THREE.SphereGeometry(0.038, 32, 24);
+    ballGeo.rotateY(-Math.PI / 2);
+    const ball = new THREE.Mesh(ballGeo, eyeballMat);
+    ball.scale.set(1.0, 1.05, 0.72);
+    eyeSocket.add(ball);
+
+    // Dual Catchlights (both eyes aligned toward upper-right studio key light + lower-left fill!)
+    const mainCatch = new THREE.Mesh(new THREE.SphereGeometry(0.0074, 14, 12), catchlightMat);
+    mainCatch.scale.set(0.88, 1.18, 0.22);
+    mainCatch.position.set(0.0115, 0.0125, 0.0268);
+    mainCatch.rotation.z = -0.25;
+    mainCatch.rotation.y = 0.28;
+    mainCatch.rotation.x = -0.28;
+    eyeSocket.add(mainCatch);
+
+    const secCatch = new THREE.Mesh(new THREE.SphereGeometry(0.0038, 12, 10), catchlightSubMat);
+    secCatch.scale.set(1.0, 1.0, 0.22);
+    secCatch.position.set(-0.0105, -0.0115, 0.0268);
+    secCatch.rotation.y = -0.25;
+    secCatch.rotation.x = 0.25;
+    eyeSocket.add(secCatch);
+
+    // Upper Eyelid Cap + Long Curved 3D Eyelashes (rotates +X downward during blink!)
+    const lidPivot = new THREE.Group();
+    const restLidRotX = -0.24;
+    lidPivot.rotation.x = restLidRotX;
+    eyeSocket.add(lidPivot);
+
+    const lidCapGeo = new THREE.SphereGeometry(0.0402, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.50);
+    const lidCap = new THREE.Mesh(lidCapGeo, eyelidSkinMat);
+    lidCap.scale.set(1.02, 1.06, 0.74);
+    lidPivot.add(lidCap);
+
+    // Crisp espresso upper lash line along the lid margin
+    const lashLineGeo = new THREE.TorusGeometry(0.0392, 0.0030, 8, 28, Math.PI * 1.02);
+    const lashLine = new THREE.Mesh(lashLineGeo, eyelashMat);
+    lashLine.scale.set(1.02, 0.74, 1.05);
+    lashLine.rotation.x = Math.PI / 2;
+    lidPivot.add(lashLine);
+
+    // 7 Graceful Long Curved 3D Eyelashes fanning toward outer eye corner
+    const numLashes = 7;
+    for (let l = 0; l < numLashes; l++) {
+      const frac = l / (numLashes - 1); // 0 = inner-top, 1 = outer corner
+      // Angle around upper rim: 0 is dead top, positive toward outer side
+      const rimAng = side * (-0.18 + frac * 1.12);
+      const rx = Math.sin(rimAng) * 0.0385;
+      const ry = Math.cos(rimAng) * 0.004;
+      const rz = Math.cos(rimAng) * 0.0385 * 0.73;
+
+      const lashLen = 0.015 + 0.019 * Math.sin(frac * Math.PI * 0.78 + 0.22);
+      const p0 = new THREE.Vector3(rx, ry, rz);
+      const outDir = new THREE.Vector3(
+        Math.sin(rimAng) * 0.85 + side * 0.38,
+        0.52 + (1.0 - frac) * 0.25,
+        0.55
+      ).normalize();
+      const p1 = p0.clone().addScaledVector(outDir, lashLen * 0.52);
+      const tipDir = outDir.clone().add(new THREE.Vector3(side * 0.28, 0.58, -0.08)).normalize();
+      const p2 = p1.clone().addScaledVector(tipDir, lashLen * 0.52);
+
+      const lCurve = new THREE.QuadraticBezierCurve3(p0, p1, p2);
+      const lGeo = new THREE.TubeGeometry(lCurve, 8, 0.0018, 5, false);
+      // Taper eyelash cleanly toward tip
+      const lp = lGeo.attributes.position;
+      for (let vi = 0; vi < lp.count; vi++) {
+        const ringT = Math.min(1, Math.floor(vi / 6) / 8);
+        const spinePt = lCurve.getPoint(ringT);
+        const taper = 1.0 - 0.82 * ringT;
+        lp.setXYZ(
+          vi,
+          spinePt.x + (lp.getX(vi) - spinePt.x) * taper,
+          spinePt.y + (lp.getY(vi) - spinePt.y) * taper,
+          spinePt.z + (lp.getZ(vi) - spinePt.z) * taper
+        );
+      }
+      lGeo.computeVertexNormals();
+      lidPivot.add(new THREE.Mesh(lGeo, eyelashMat));
+    }
+
+    // Subtle kawaii warm rosy cheek glow below outer eye
+    const blushDisc = new THREE.Mesh(new THREE.CircleGeometry(0.028, 18), cheekGlowMat);
+    blushDisc.scale.set(1.35, 0.82, 1.0);
+    blushDisc.position.set(side * 0.022, -0.042, 0.022);
+    blushDisc.rotation.x = -0.15;
+    eyeSocket.add(blushDisc);
+
+    eyelidRigList.push({ pivot: lidPivot, restRotX: restLidRotX });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 5. Spear-Shaped Alpaca Ears (Fluffy Outer Back, Cleanly Defined Pink Inner!)
+// ---------------------------------------------------------------------------
+function createSpearEarGeometry(side) {
+  const segV = 28, segU = 28;
+  const positions = [];
+  const colors = [];
+  const indices = [];
+
+  const outerCream = new THREE.Color(0xfaf2e2);
+  const innerRim = new THREE.Color(0xfbe2de);
+  const innerPink = new THREE.Color(0xf3b8bf);
+  const innerDeep = new THREE.Color(0xe598a3);
+  const cTmp = new THREE.Color();
+
+  for (let iv = 0; iv <= segV; iv++) {
+    const v = iv / segV; // 0 = base, 1 = spear tip
+    // Spear leaf width profile: slender base -> broad mid -> graceful pointed-rounded spear tip
+    const halfW = 0.036 * Math.sin(Math.pow(v, 0.68) * Math.PI * 0.95) + 0.013 * Math.pow(1.0 - v, 1.5);
+    const depth = (0.024 * (1.0 - 0.68 * v) + 0.005);
+    // Subtle authentic alpaca inward-forward spear tip curve
+    const spineX = -side * 0.017 * Math.pow(v, 2.2);
+    const spineY = v * 0.192;
+    const spineZ = 0.020 * Math.pow(v, 2.0);
+
+    for (let iu = 0; iu <= segU; iu++) {
+      const u = (iu / segU) * Math.PI * 2;
+      const cu = Math.cos(u);
+      const su = Math.sin(u); // su > 0 is front (+Z inner cavity), su < 0 is back (-Z outer)
+
+      const lx = cu * halfW;
+      let lz;
+      let innerAmount = 0;
+
+      if (su > 0) {
+        // Concave cleanly defined inner spear hollow with raised outer ear rims
+        const rimFactor = Math.pow(Math.abs(cu), 2.4);
+        const hollowMask = Math.sin(Math.min(1, Math.max(0, (v - 0.03) / 0.91)) * Math.PI);
+        const cup = -0.58 * depth * su * (1.0 - rimFactor) * hollowMask;
+        const rimLift = 0.28 * depth * su * rimFactor;
+        lz = cup + rimLift;
+        innerAmount = su * (1.0 - 0.65 * rimFactor) * hollowMask;
+      } else {
+        // Smooth convex outer back of ear
+        lz = -depth * Math.pow(-su, 0.82);
+      }
+
+      positions.push(spineX + lx, spineY, spineZ + lz);
+
+      if (innerAmount > 0.08) {
+        const tPink = Math.min(1, (innerAmount - 0.08) / 0.65);
+        cTmp.copy(innerRim).lerp(innerPink, tPink).lerp(innerDeep, (1.0 - v) * tPink * 0.48);
+      } else {
+        cTmp.copy(outerCream);
+      }
+      colors.push(cTmp.r, cTmp.g, cTmp.b);
+    }
+  }
+
+  for (let iv = 0; iv < segV; iv++) {
+    for (let iu = 0; iu < segU; iu++) {
+      const a = iv * (segU + 1) + iu;
+      const b = a + 1;
+      const c = a + (segU + 1) + 1;
+      const d = a + (segU + 1);
+      indices.push(a, b, c, a, c, d);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+const earMat = new THREE.MeshStandardMaterial({
+  vertexColors: true,
+  roughness: 0.76,
+  metalness: 0.0
+});
+
+const earLGroup = new THREE.Group();
+earLGroup.position.set(-0.108, 0.192, -0.008);
+earLGroup.rotation.set(0.06, -0.18, 0.28); // flares gently outward to -X
+headGroup.add(earLGroup);
+const earLMesh = new THREE.Mesh(createSpearEarGeometry(-1), earMat);
+earLMesh.castShadow = true;
+earLMesh.receiveShadow = true;
+earLGroup.add(earLMesh);
+
+const earRGroup = new THREE.Group();
+earRGroup.position.set(0.108, 0.192, -0.008);
+earRGroup.rotation.set(0.06, 0.18, -0.28); // flares gently outward to +X
+headGroup.add(earRGroup);
+const earRMesh = new THREE.Mesh(createSpearEarGeometry(1), earMat);
+earRMesh.castShadow = true;
+earRMesh.receiveShadow = true;
+earRGroup.add(earRMesh);
+
+for (const eg of [earLGroup, earRGroup]) {
+  const ec = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.20, 10), invisibleColliderMat);
+  ec.position.set(0, 0.10, 0);
+  eg.add(ec);
+  brushColliders.push(ec);
+}
+
+// ---------------------------------------------------------------------------
+// Surface Sampler & 26,400+ Fleece InstancedMesh Generator
+// ---------------------------------------------------------------------------
+const fleeceLayers = []; // Tracked for interactive spring-physics mouse brushing
+let totalFleeceCount = 0;
+
+// Warm cream-white & soft champagne-ivory natural palette
+const paletteStops = [
+  new THREE.Color(0xfffdf7), // luminous cloud cream-white
+  new THREE.Color(0xfcf6ea), // warm milk ivory
+  new THREE.Color(0xf8eedb), // soft buttercream
+  new THREE.Color(0xf3e4ca), // soft champagne-ivory
+  new THREE.Color(0xfaf3e5), // pearl fleece
+  new THREE.Color(0xefe0c4)  // warm toasted champagne accent
+];
+
+function pickFleeceColor(outCol) {
+  const idx = Math.floor(rng() * paletteStops.length);
+  const nextIdx = (idx + 1) % paletteStops.length;
+  outCol.copy(paletteStops[idx]).lerp(paletteStops[nextIdx], rng());
+  const brightJitter = 0.975 + rng() * 0.045;
+  outCol.multiplyScalar(brightJitter);
+  return outCol;
+}
+
+function buildTriangleTable(meshesInGroupSpace) {
+  const tris = [];
+  let totalArea = 0;
+  const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
+  const nA = new THREE.Vector3(), nB = new THREE.Vector3(), nC = new THREE.Vector3();
+  const e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), cross = new THREE.Vector3();
+  const normalMat = new THREE.Matrix3();
+
+  for (const m of meshesInGroupSpace) {
+    m.updateMatrix();
+    const mat = m.matrix;
+    normalMat.getNormalMatrix(mat);
+    const geo = m.geometry;
+    const pos = geo.attributes.position;
+    const norm = geo.attributes.normal;
+    const index = geo.index;
+    const triCount = index ? index.count / 3 : pos.count / 3;
+
+    for (let t = 0; t < triCount; t++) {
+      const i0 = index ? index.getX(t * 3) : t * 3;
+      const i1 = index ? index.getX(t * 3 + 1) : t * 3 + 1;
+      const i2 = index ? index.getX(t * 3 + 2) : t * 3 + 2;
+
+      vA.fromBufferAttribute(pos, i0).applyMatrix4(mat);
+      vB.fromBufferAttribute(pos, i1).applyMatrix4(mat);
+      vC.fromBufferAttribute(pos, i2).applyMatrix4(mat);
+
+      e1.subVectors(vB, vA);
+      e2.subVectors(vC, vA);
+      cross.crossVectors(e1, e2);
+      const area = 0.5 * cross.length();
+      if (area < 1e-8) continue;
+
+      nA.fromBufferAttribute(norm, i0).applyMatrix3(normalMat).normalize();
+      nB.fromBufferAttribute(norm, i1).applyMatrix3(normalMat).normalize();
+      nC.fromBufferAttribute(norm, i2).applyMatrix3(normalMat).normalize();
+
+      totalArea += area;
+      tris.push({
+        cumArea: totalArea,
+        ax: vA.x, ay: vA.y, az: vA.z,
+        bx: vB.x, by: vB.y, bz: vB.z,
+        cx: vC.x, cy: vC.y, cz: vC.z,
+        nax: nA.x, nay: nA.y, naz: nA.z,
+        nbx: nB.x, nby: nB.y, nbz: nB.z,
+        ncx: nC.x, ncy: nC.y, ncz: nC.z
+      });
+    }
+  }
+  return { tris, totalArea };
+}
+
+function populateFleeceOnGroup({
+  parentGroup,
+  sourceMeshes,
+  unionLobes = null,
+  crimpedCount,
+  curlCount,
+  lenRange = [0.068, 0.105],
+  widthRange = [0.088, 0.130],
+  curlLenRange = [0.055, 0.085],
+  curlWidthRange = [0.105, 0.148],
+  growthBias = new THREE.Vector3(0, -0.18, -0.04),
+  filterAndModulate = null
+}) {
+  const table = buildTriangleTable(sourceMeshes);
+  if (table.tris.length === 0) return;
+
+  const pSample = new THREE.Vector3();
+  const nSample = new THREE.Vector3();
+  const localCheck = new THREE.Vector3();
+
+  function pickTriangle(targetArea) {
+    let lo = 0, hi = table.tris.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (table.tris[mid].cumArea < targetArea) lo = mid + 1;
+      else hi = mid;
+    }
+    return table.tris[lo];
+  }
+
+  function spawnLayer(geometry, targetCount, lRange, wRange) {
+    if (targetCount <= 0) return;
+
+    const instMesh = new THREE.InstancedMesh(geometry, fleeceMaterial, targetCount);
+    instMesh.castShadow = true;
+    instMesh.receiveShadow = false; // Crisp cloud shading free of sub-texel fur shadow acne
+    instMesh.customDepthMaterial = fleeceDepthMaterial;
+    instMesh.frustumCulled = false;
+
+    const brushArr = new Float32Array(targetCount * 2);
+    const phaseArr = new Float32Array(targetCount);
+    const brushAttr = new THREE.InstancedBufferAttribute(brushArr, 2);
+    brushAttr.setUsage(THREE.DynamicDrawUsage);
+    geometry = instMesh.geometry; // shared geometry? Wait: each InstancedMesh MUST have its own per-instance attribute buffer!
+
+    // Clone lightweight BufferGeometry wrapper sharing vertex/index GPU buffers so each InstancedMesh owns its own InstancedBufferAttributes!
+    const instGeo = geometry.clone();
+    instGeo.setAttribute('aBrushXZ', brushAttr);
+    const phaseAttr = new THREE.InstancedBufferAttribute(phaseArr, 1);
+    instGeo.setAttribute('aPhase', phaseAttr);
+    instMesh.geometry = instGeo;
+
+    const roots = new Float32Array(targetCount * 3);
+    const tanX = new Float32Array(targetCount * 3);
+    const tanZ = new Float32Array(targetCount * 3);
+    const velXZ = new Float32Array(targetCount * 2);
+    const omegaArr = new Float32Array(targetCount);
+
+    const mat4 = new THREE.Matrix4();
+    const axisX = new THREE.Vector3();
+    const axisY = new THREE.Vector3();
+    const axisZ = new THREE.Vector3();
+    const refUp = new THREE.Vector3();
+    const tX = new THREE.Vector3();
+    const tZ = new THREE.Vector3();
+    const colTmp = new THREE.Color();
+    const modResult = { scaleMult: 1.0, tiltAddX: 0, tiltAddY: 0, tiltAddZ: 0, tint: null };
+
+    let placed = 0;
+    let attempts = 0;
+    const maxAttempts = targetCount * 35;
+
+    while (placed < targetCount && attempts < maxAttempts) {
+      attempts++;
+      const tri = pickTriangle(rng() * table.totalArea);
+
+      let u = rng(), v = rng();
+      if (u + v > 1.0) { u = 1.0 - u; v = 1.0 - v; }
+      const w = 1.0 - u - v;
+
+      pSample.set(
+        tri.ax * w + tri.bx * u + tri.cx * v,
+        tri.ay * w + tri.by * u + tri.cy * v,
+        tri.az * w + tri.bz * u + tri.cz * v
+      );
+      nSample.set(
+        tri.nax * w + tri.nbx * u + tri.ncx * v,
+        tri.nay * w + tri.nby * u + tri.ncy * v,
+        tri.naz * w + tri.nbz * u + tri.ncz * v
+      ).normalize();
+
+      // Reject interior faces buried strictly inside overlapping cloud lobes
+      if (unionLobes) {
+        let buried = false;
+        for (let li = 0; li < unionLobes.length; li++) {
+          localCheck.copy(pSample).applyMatrix4(unionLobes[li].invMat);
+          if (localCheck.lengthSq() < 0.935) {
+            buried = true;
+            break;
+          }
+        }
+        if (buried) continue;
+      }
+
+      modResult.scaleMult = 1.0;
+      modResult.tiltAddX = 0;
+      modResult.tiltAddY = 0;
+      modResult.tiltAddZ = 0;
+      modResult.tint = null;
+
+      if (filterAndModulate && !filterAndModulate(pSample, nSample, modResult)) {
+        continue;
+      }
+
+      const tf = tuftField(pSample.x, pSample.y, pSample.z);
+      axisY.set(
+        nSample.x + tf.x * 0.24 + growthBias.x + modResult.tiltAddX,
+        nSample.y + tf.y * 0.24 + growthBias.y + modResult.tiltAddY,
+        nSample.z + tf.z * 0.24 + growthBias.z + modResult.tiltAddZ
+      ).normalize();
+
+      // Guarantee strands always grow outward from skin
+      const nDot = axisY.dot(nSample);
+      if (nDot < 0.24) {
+        axisY.addScaledVector(nSample, 0.35 - nDot).normalize();
+      }
+
+      if (Math.abs(axisY.y) < 0.92) refUp.set(0, 1, 0);
+      else refUp.set(1, 0, 0);
+
+      tX.crossVectors(refUp, axisY).normalize();
+      tZ.crossVectors(axisY, tX).normalize();
+
+      const spin = rng() * Math.PI * 2;
+      const cs = Math.cos(spin), ss = Math.sin(spin);
+      axisX.set(tX.x * cs + tZ.x * ss, tX.y * cs + tZ.y * ss, tX.z * cs + tZ.z * ss);
+      axisZ.set(-tX.x * ss + tZ.x * cs, -tX.y * ss + tZ.y * cs, -tX.z * ss + tZ.z * cs);
+
+      const sLen = THREE.MathUtils.lerp(lRange[0], lRange[1], rng()) * modResult.scaleMult;
+      const sWid = THREE.MathUtils.lerp(wRange[0], wRange[1], rng()) * (0.45 + 0.55 * modResult.scaleMult);
+
+      // Sink root slightly into warm cream undercoat so zero root seams ever appear
+      const rx = pSample.x - nSample.x * 0.008;
+      const ry = pSample.y - nSample.y * 0.008;
+      const rz = pSample.z - nSample.z * 0.008;
+
+      const te = mat4.elements;
+      te[0] = axisX.x * sWid; te[4] = axisY.x * sLen; te[8]  = axisZ.x * sWid; te[12] = rx;
+      te[1] = axisX.y * sWid; te[5] = axisY.y * sLen; te[9]  = axisZ.y * sWid; te[13] = ry;
+      te[2] = axisX.z * sWid; te[6] = axisY.z * sLen; te[10] = axisZ.z * sWid; te[14] = rz;
+      te[3] = 0;              te[7] = 0;              te[11] = 0;              te[15] = 1;
+
+      instMesh.setMatrixAt(placed, mat4);
+
+      pickFleeceColor(colTmp);
+      if (modResult.tint) {
+        colTmp.lerp(modResult.tint, 0.28);
+      }
+      instMesh.setColorAt(placed, colTmp);
+
+      roots[placed * 3] = rx;
+      roots[placed * 3 + 1] = ry;
+      roots[placed * 3 + 2] = rz;
+      tanX[placed * 3] = axisX.x;
+      tanX[placed * 3 + 1] = axisX.y;
+      tanX[placed * 3 + 2] = axisX.z;
+      tanZ[placed * 3] = axisZ.x;
+      tanZ[placed * 3 + 1] = axisZ.y;
+      tanZ[placed * 3 + 2] = axisZ.z;
+
+      phaseArr[placed] = rng() * Math.PI * 2;
+      omegaArr[placed] = 7.5 + rng() * 4.2;
+      placed++;
+    }
+
+    instMesh.count = placed;
+    instMesh.instanceMatrix.needsUpdate = true;
+    if (instMesh.instanceColor) instMesh.instanceColor.needsUpdate = true;
+    phaseAttr.needsUpdate = true;
+    parentGroup.add(instMesh);
+
+    totalFleeceCount += placed;
+    fleeceLayers.push({
+      group: parentGroup,
+      mesh: instMesh,
+      count: placed,
+      roots,
+      tanX,
+      tanZ,
+      brushArr,
+      brushAttr,
+      velXZ,
+      omegaArr,
+      active: false
+    });
+  }
+
+  spawnLayer(crimpedStrandGeo, crimpedCount, lenRange, widthRange);
+  spawnLayer(microCurlGeo, curlCount, curlLenRange, curlWidthRange);
+}
+
+// ---------------------------------------------------------------------------
+// Populate 26,400+ Crimped Fleece Strands & Micro-Curls Across Entire Alpaca!
+// ---------------------------------------------------------------------------
+
+// 1) Body Cloud Coat (10,000 strands: 6,800 crimped + 3,200 micro-curls)
+populateFleeceOnGroup({
+  parentGroup: bodyGroup,
+  sourceMeshes: bodyLobes.map((l) => l.mesh),
+  unionLobes: bodyLobes,
+  crimpedCount: 6800,
+  curlCount: 3200,
+  lenRange: [0.078, 0.118],
+  widthRange: [0.095, 0.138],
+  curlLenRange: [0.062, 0.094],
+  curlWidthRange: [0.115, 0.158],
+  growthBias: new THREE.Vector3(0, -0.18, -0.05),
+  filterAndModulate: (p, n, mod) => {
+    // Tuck wool right underneath the front triangular bandana drape on upper chest
+    if (p.z > 0.28 && p.y > 0.02 && Math.abs(p.x) < 0.15) {
+      mod.scaleMult = 0.55;
+      mod.tiltAddY = -0.35;
+    }
+    return true;
+  }
+});
+
+// 2) Lower Long Neck (2,800 strands: 1,900 crimped + 900 micro-curls, masked under bandana band)
+populateFleeceOnGroup({
+  parentGroup: neckLowerGroup,
+  sourceMeshes: neckLowerLobes.map((l) => l.mesh),
+  unionLobes: neckLowerLobes,
+  crimpedCount: 1900,
+  curlCount: 900,
+  lenRange: [0.068, 0.102],
+  widthRange: [0.092, 0.132],
+  curlLenRange: [0.055, 0.082],
+  curlWidthRange: [0.108, 0.148],
+  growthBias: new THREE.Vector3(0, -0.16, 0.0),
+  filterAndModulate: (p, n, mod) => {
+    // Bandana collar wraps around y ≈ 0.06..0.15 (tilted forward). Keep cloth clean of poking spikes!
+    const bandCenterY = 0.115 - p.z * 0.24;
+    const distBand = Math.abs(p.y - bandCenterY);
+    const frontV = p.z > 0.03 ? (1.0 - Math.min(1, Math.abs(p.x) / 0.15)) * 0.12 : 0.0;
+    if (p.y < bandCenterY + 0.032 && p.y > bandCenterY - 0.042 - frontV) {
+      return false;
+    }
+    if (distBand < 0.075) {
+      // Fluffy collar puff framing just above & below the coral-red bandana!
+      mod.scaleMult = 0.85;
+      mod.tiltAddY = p.y >= bandCenterY ? 0.28 : -0.32;
+    }
+    return true;
+  }
+});
+
+// 3) Upper Long Neck (3,000 strands: 2,000 crimped + 1,000 micro-curls)
+populateFleeceOnGroup({
+  parentGroup: neckUpperGroup,
+  sourceMeshes: neckUpperLobes.map((l) => l.mesh),
+  unionLobes: neckUpperLobes,
+  crimpedCount: 2000,
+  curlCount: 1000,
+  lenRange: [0.068, 0.100],
+  widthRange: [0.090, 0.130],
+  curlLenRange: [0.054, 0.082],
+  curlWidthRange: [0.106, 0.146],
+  growthBias: new THREE.Vector3(0, -0.14, 0.0)
+});
+
+// 4) Head & Chubby Cheeks (2,700 strands, strictly leaving smooth muzzle & eye sockets cleanly defined!)
+const cheekWarmTint = new THREE.Color(0xfce1df);
+const allHeadUnion = [...headCoreLobes, ...topknotLobes];
+populateFleeceOnGroup({
+  parentGroup: headGroup,
+  sourceMeshes: headCoreLobes.map((l) => l.mesh),
+  unionLobes: allHeadUnion,
+  crimpedCount: 1800,
+  curlCount: 900,
+  lenRange: [0.058, 0.088],
+  widthRange: [0.088, 0.126],
+  curlLenRange: [0.048, 0.074],
+  curlWidthRange: [0.102, 0.142],
+  growthBias: new THREE.Vector3(0, -0.06, -0.08),
+  filterAndModulate: (p, n, mod) => {
+    // A) Clean smooth muzzle & nose-bridge exclusion zone
+    const mx = p.x / 0.092;
+    const my = (p.y - 0.032) / 0.074;
+    const mz = (p.z - 0.156) / 0.105;
+    const mDist = Math.sqrt(mx * mx + my * my + mz * mz);
+    if (mDist < 1.04) return false;
+
+    // Nose bridge clear channel between the eyes
+    if (p.z > 0.118 && Math.abs(p.x) < 0.054 && p.y > 0.025 && p.y < 0.105) {
+      return false;
+    }
+
+    // B) Left & Right Eye Socket clearings + radial outward grooming
+    const dEyeL = Math.hypot(p.x + 0.088, p.y - 0.078, (p.z - 0.143) * 1.15);
+    const dEyeR = Math.hypot(p.x - 0.088, p.y - 0.078, (p.z - 0.143) * 1.15);
+    const dEye = Math.min(dEyeL, dEyeR);
+    if (dEye < 0.054) return false;
+
+    let mult = 1.0;
+    if (mDist < 1.38) {
+      mult = Math.min(mult, THREE.MathUtils.lerp(0.32, 1.0, (mDist - 1.04) / 0.34));
+      mod.tiltAddZ -= 0.45;
+      mod.tiltAddX += Math.sign(p.x) * 0.28;
+    }
+    if (dEye < 0.090) {
+      mult = Math.min(mult, THREE.MathUtils.lerp(0.34, 1.0, (dEye - 0.054) / 0.036));
+      const eyeCx = dEyeL < dEyeR ? -0.088 : 0.088;
+      mod.tiltAddX += (p.x - eyeCx) * 7.5;
+      mod.tiltAddY += (p.y - 0.078) * 6.5;
+      mod.tiltAddZ -= 0.35;
+    }
+
+    // Subtle rosy cheek warmth on front cheek puffs
+    if (p.z > 0.08 && Math.abs(p.x) > 0.09 && p.y < 0.065) {
+      mod.tint = cheekWarmTint;
+    }
+    mod.scaleMult = mult;
+    return true;
+  }
+});
+
+// 5) Fluffy Cloud Head Topknot - 정수리 털뭉치 (3,100 dense extra-plump locks & ringlets!)
+populateFleeceOnGroup({
+  parentGroup: headGroup,
+  sourceMeshes: topknotLobes.map((l) => l.mesh),
+  unionLobes: allHeadUnion,
+  crimpedCount: 1900,
+  curlCount: 1200,
+  lenRange: [0.076, 0.118],
+  widthRange: [0.098, 0.142],
+  curlLenRange: [0.064, 0.098],
+  curlWidthRange: [0.118, 0.165],
+  growthBias: new THREE.Vector3(0, 0.36, 0.06), // Bouncy cloud crown loft!
+  filterAndModulate: (p, n, mod) => {
+    // Keep front bangs lifted above the eyes & eyelashes so gaze is 100% expressive
+    if (p.z > 0.115 && p.y < 0.155) {
+      mod.scaleMult = 0.52;
+      mod.tiltAddY = 0.55;
+      mod.tiltAddZ = -0.15;
+    }
+    return true;
+  }
+});
+
+// 6) Spear-Shaped Ears Outer Fleece (1,300 strands total, leaving pink inner hollow 100% clean!)
+for (const earMesh of [earLMesh, earRMesh]) {
+  populateFleeceOnGroup({
+    parentGroup: earMesh.parent,
+    sourceMeshes: [earMesh],
+    unionLobes: null,
+    crimpedCount: 450,
+    curlCount: 200,
+    lenRange: [0.032, 0.056],
+    widthRange: [0.072, 0.105],
+    curlLenRange: [0.028, 0.046],
+    curlWidthRange: [0.085, 0.118],
+    growthBias: new THREE.Vector3(0, 0.32, -0.14),
+    filterAndModulate: (p, n, mod) => {
+      // Strictly exclude the smooth pastel-pink inner spear cavity (+Z facing hollow)
+      if (n.z > 0.12 && p.y > 0.024) return false;
+      // Taper fleece delicately toward the spear tip
+      const vNorm = THREE.MathUtils.clamp(p.y / 0.192, 0, 1);
+      mod.scaleMult = THREE.MathUtils.lerp(1.0, 0.38, vNorm);
+      return true;
+    }
+  });
+}
+
+// 7) Four Fluffy Pillar Legs (2,700 strands: 675 per leg, stopping cleanly at cuff above hooves)
+for (const legItem of legDataList) {
+  populateFleeceOnGroup({
+    parentGroup: legItem.group,
+    sourceMeshes: legItem.lobes.map((l) => l.mesh),
+    unionLobes: legItem.lobes,
+    crimpedCount: 450,
+    curlCount: 225,
+    lenRange: [0.058, 0.090],
+    widthRange: [0.088, 0.128],
+    curlLenRange: [0.048, 0.076],
+    curlWidthRange: [0.105, 0.144],
+    growthBias: new THREE.Vector3(0, -0.26, 0.0),
+    filterAndModulate: (p, n, mod) => {
+      if (p.y < 0.068) return false;
+      if (p.y < 0.115) {
+        mod.scaleMult = THREE.MathUtils.lerp(0.58, 1.0, (p.y - 0.068) / 0.047);
+      }
+      return true;
+    }
+  });
+}
+
+// 8) Fluffy Cloud Tail (800 strands: 520 crimped + 280 micro-curls)
+populateFleeceOnGroup({
+  parentGroup: tailGroup,
+  sourceMeshes: tailLobes.map((l) => l.mesh),
+  unionLobes: tailLobes,
+  crimpedCount: 520,
+  curlCount: 280,
+  lenRange: [0.064, 0.098],
+  widthRange: [0.092, 0.134],
+  curlLenRange: [0.055, 0.086],
+  curlWidthRange: [0.112, 0.155],
+  growthBias: new THREE.Vector3(0, -0.10, -0.24)
+});
+
+// Total fleece instances = 10,000 + 2,800 + 3,000 + 2,700 + 3,100 + 1,300 + 2,700 + 800 = 26,400!
+
+// ---------------------------------------------------------------------------
+// Interactive Mouse Raycasting & Spring-Damper Fleece Brushing Physics
+// ---------------------------------------------------------------------------
+const raycaster = new THREE.Raycaster();
+const pointerNDC = new THREE.Vector2(99, 99);
+let pointerActive = false;
+let isOrbitDragging = false;
+let downPos = { x: 0, y: 0 };
+
+const prevHitWorld = new THREE.Vector3();
+let hasPrevHit = false;
+const hitWorld = new THREE.Vector3();
+const strokeWorld = new THREE.Vector3();
+
+// Affectionate interactive head-look & click hop states
+let hoverInterest = 0;
+const hoverLookLocal = new THREE.Vector2(0, 0);
+let hopTimer = -1;
+let tailJoyBoost = 0;
+let earPerkBoost = 0;
+
+const invGroupMat = new THREE.Matrix4();
+const hitLocal = new THREE.Vector3();
+const strokeLocal = new THREE.Vector3();
+const tasselWorldPos = new THREE.Vector3();
+
+function applyFleeceBrushImpulse(worldCenter, worldImpulse, radius, radialBurstStrength = 0) {
+  scene.updateMatrixWorld();
+  const rSq = radius * radius;
+
+  for (let li = 0; li < fleeceLayers.length; li++) {
+    const layer = fleeceLayers[li];
+    invGroupMat.copy(layer.group.matrixWorld).invert();
+    hitLocal.copy(worldCenter).applyMatrix4(invGroupMat);
+
+    // Transform world impulse direction into layer.group local space (pure rotation on groups)
+    strokeLocal.copy(worldImpulse).transformDirection(invGroupMat).multiplyScalar(worldImpulse.length());
+
+    const roots = layer.roots;
+    const tanX = layer.tanX;
+    const tanZ = layer.tanZ;
+    const velXZ = layer.velXZ;
+    const count = layer.count;
+    let touched = false;
+
+    for (let i = 0; i < count; i++) {
+      const i3 = i * 3;
+      const dx = roots[i3] - hitLocal.x;
+      const dy = roots[i3 + 1] - hitLocal.y;
+      const dz = roots[i3 + 2] - hitLocal.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 >= rSq) continue;
+
+      const falloff = 1.0 - d2 / rSq;
+      const weight = falloff * falloff;
+
+      // Combine directional stroke combing + soft radial parting around cursor
+      const invDist = 1.0 / (Math.sqrt(d2) + 0.025);
+      const radScale = radialBurstStrength * invDist;
+      const fx = (strokeLocal.x + dx * radScale) * weight;
+      const fy = (strokeLocal.y + dy * radScale) * weight;
+      const fz = (strokeLocal.z + dz * radScale) * weight;
+
+      const i2 = i * 2;
+      velXZ[i2]     += fx * tanX[i3] + fy * tanX[i3 + 1] + fz * tanX[i3 + 2];
+      velXZ[i2 + 1] += fx * tanZ[i3] + fy * tanZ[i3 + 1] + fz * tanZ[i3 + 2];
+      touched = true;
+    }
+
+    if (touched) layer.active = true;
+  }
+
+  // Also gently sway nearby coral-red Andean bandana tassels!
+  for (const tas of tasselRigList) {
+    tas.pivot.getWorldPosition(tasselWorldPos);
+    const dTas = tasselWorldPos.distanceTo(worldCenter);
+    if (dTas < radius * 1.25) {
+      const tw = Math.pow(1.0 - dTas / (radius * 1.25), 1.5);
+      tas.velZ += (worldImpulse.x * 16.0 + (tasselWorldPos.x - worldCenter.x) * radialBurstStrength * 28.0) * tw;
+      tas.velX += (worldImpulse.z * 16.0 + (tasselWorldPos.z - worldCenter.z) * radialBurstStrength * 28.0) * tw;
+    }
+  }
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+  downPos.x = e.clientX;
+  downPos.y = e.clientY;
+  isOrbitDragging = false;
+  pointerNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
+  pointerNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  pointerActive = true;
+});
+
+window.addEventListener('pointermove', (e) => {
+  if (e.buttons !== 0) {
+    const moveDist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+    if (moveDist > 5) isOrbitDragging = true;
+  } else {
+    isOrbitDragging = false;
+  }
+  pointerNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
+  pointerNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  pointerActive = true;
+});
+
+window.addEventListener('pointerup', (e) => {
+  const moveDist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+  if (moveDist <= 6) {
+    // Click / tap interaction: check raycast on the baby alpaca!
+    pointerNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
+    pointerNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(pointerNDC, camera);
+    const hits = raycaster.intersectObjects(brushColliders, false);
+    if (hits.length > 0) {
+      // Energetic fluffy rosette poof + joyful baby alpaca hop, ear perk & tail wag!
+      applyFleeceBrushImpulse(hits[0].point, new THREE.Vector3(0, 0.12, 0), 0.36, 0.72);
+      hopTimer = 0.0;
+      tailJoyBoost = 1.0;
+      earPerkBoost = 1.0;
+    }
+  }
+  isOrbitDragging = false;
+});
+
+canvas.addEventListener('pointerleave', () => {
+  pointerActive = false;
+  hasPrevHit = false;
+});
+
+// ---------------------------------------------------------------------------
+// Animation Loop (Head Bob, Ear Rotation, Chewing, Tail Flick, Wind & Brushing)
+// ---------------------------------------------------------------------------
+const clock = new THREE.Clock();
+let nextBlinkTime = 2.2;
+let blinkTimer = -1;
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  const rawDt = clock.getDelta();
+  const dt = Math.min(rawDt, 0.033);
+  const t = clock.elapsedTime;
+
+  fleeceUniforms.uTime.value = t;
+
+  // 1) Continuous Mouse Raycast Brushing Physics
+  if (pointerActive && !isOrbitDragging) {
+    raycaster.setFromCamera(pointerNDC, camera);
+    const hits = raycaster.intersectObjects(brushColliders, false);
+    if (hits.length > 0) {
+      hitWorld.copy(hits[0].point);
+      if (hasPrevHit) {
+        strokeWorld.subVectors(hitWorld, prevHitWorld);
+        const stepLen = strokeWorld.length();
+        if (stepLen > 0.0006) {
+          const clampedSpeed = Math.min(stepLen / Math.max(dt, 0.008), 2.4);
+          strokeWorld.normalize().multiplyScalar(clampedSpeed * 0.24);
+          applyFleeceBrushImpulse(hitWorld, strokeWorld, 0.25, 0.16);
+        } else {
+          // Gentle subtle hover parting when resting cursor on the fleece
+          applyFleeceBrushImpulse(hitWorld, strokeWorld.set(0, 0, 0), 0.19, 0.035);
+        }
+      } else {
+        applyFleeceBrushImpulse(hitWorld, strokeWorld.set(0, 0, 0), 0.21, 0.14);
+      }
+      prevHitWorld.copy(hitWorld);
+      hasPrevHit = true;
+
+      hoverInterest = THREE.MathUtils.lerp(hoverInterest, 1.0, dt * 4.5);
+      hoverLookLocal.x = THREE.MathUtils.clamp(hitWorld.x * 0.42, -0.22, 0.22);
+      hoverLookLocal.y = THREE.MathUtils.clamp((hitWorld.y - 1.25) * 0.28, -0.14, 0.16);
+      tailJoyBoost = Math.min(1.0, tailJoyBoost + dt * 1.4);
+    } else {
+      hasPrevHit = false;
+      hoverInterest = THREE.MathUtils.lerp(hoverInterest, 0.0, dt * 2.5);
+    }
+  } else {
+    hasPrevHit = false;
+    hoverInterest = THREE.MathUtils.lerp(hoverInterest, 0.0, dt * 2.5);
+  }
+
+  // Integrate per-strand damped harmonic springs for brushed fleece
+  for (let li = 0; li < fleeceLayers.length; li++) {
+    const layer = fleeceLayers[li];
+    if (!layer.active) continue;
+
+    const pos = layer.brushArr;
+    const vel = layer.velXZ;
+    const omega = layer.omegaArr;
+    const n = layer.count;
+    let maxEnergy = 0;
+
+    for (let i = 0; i < n; i++) {
+      const i2 = i * 2;
+      let px = pos[i2];
+      let pz = pos[i2 + 1];
+      let vx = vel[i2];
+      let vz = vel[i2 + 1];
+
+      if (px === 0 && pz === 0 && vx === 0 && vz === 0) continue;
+
+      const w = omega[i];
+      const stiff = w * w;
+      const damp = 2.0 * 0.44 * w; // Springy wool bounce with cozy overshoot!
+
+      vx += (-stiff * px - damp * vx) * dt;
+      vz += (-stiff * pz - damp * vz) * dt;
+      px += vx * dt;
+      pz += vz * dt;
+
+      // Soft max bend clamp
+      const magSq = px * px + pz * pz;
+      if (magSq > 0.0144) {
+        const s = 0.12 / Math.sqrt(magSq);
+        px *= s;
+        pz *= s;
+      }
+
+      const energy = Math.abs(px) + Math.abs(pz) + (Math.abs(vx) + Math.abs(vz)) * 0.08;
+      if (energy < 0.00025) {
+        px = 0; pz = 0; vx = 0; vz = 0;
+      } else if (energy > maxEnergy) {
+        maxEnergy = energy;
+      }
+
+      pos[i2] = px;
+      pos[i2 + 1] = pz;
+      vel[i2] = vx;
+      vel[i2 + 1] = vz;
+    }
+
+    layer.brushAttr.needsUpdate = true;
+    if (maxEnergy === 0) layer.active = false;
+  }
+
+  // 2) Playful Hop on Click + Cozy Breathing Body
+  let hopY = 0;
+  let hopPitch = 0;
+  if (hopTimer >= 0) {
+    hopTimer += dt;
+    if (hopTimer < 0.52) {
+      const u = hopTimer / 0.52;
+      hopY = Math.sin(u * Math.PI) * 0.048 * (1.0 - 0.25 * u);
+      hopPitch = Math.sin(u * Math.PI * 2) * 0.045;
+    } else {
+      hopTimer = -1;
+    }
+  }
+  alpacaRoot.position.y = 0.008 + hopY;
+  bodyContactShadow.material.opacity = 0.46 * (1.0 - hopY * 4.5);
+
+  const breath = Math.sin(t * 2.15);
+  bodyGroup.position.y = 0.66 + breath * 0.0075;
+  bodyGroup.rotation.x = hopPitch + Math.sin(t * 1.45) * 0.012;
+  bodyGroup.rotation.z = Math.sin(t * 0.95) * 0.014;
+  bodyGroup.scale.set(1.0 + breath * 0.012, 1.0 - breath * 0.006, 1.0 + breath * 0.008);
+
+  // 3) Gentle Head Bobbing & Graceful Long Neck Sway
+  const bobWave = Math.sin(t * 1.75);
+  const curiosityTilt = Math.sin(t * 0.78) * 0.055 + Math.sin(t * 1.9) * 0.018;
+
+  neckLowerGroup.rotation.x = bobWave * 0.032 + 0.02;
+  neckLowerGroup.rotation.z = Math.sin(t * 0.85) * 0.024;
+
+  neckUpperGroup.rotation.x = Math.sin(t * 1.75 - 0.45) * 0.038;
+  neckUpperGroup.rotation.y = Math.sin(t * 0.62) * 0.055 + hoverLookLocal.x * hoverInterest * 0.45;
+
+  headGroup.rotation.x = Math.sin(t * 1.75 - 0.85) * 0.048 - hoverLookLocal.y * hoverInterest * 0.55;
+  headGroup.rotation.y = Math.sin(t * 0.62 - 0.3) * 0.075 + hoverLookLocal.x * hoverInterest * 0.85;
+  headGroup.rotation.z = curiosityTilt + hoverLookLocal.x * hoverInterest * -0.18;
+
+  // 4) Spear-Shaped Ear Rotation & Expressive Twitches
+  earPerkBoost = Math.max(0, earPerkBoost - dt * 1.3);
+  const twitchL = Math.pow(Math.max(0, Math.sin(t * 2.9 + Math.sin(t * 1.3) * 2.0)), 14.0) * 0.22;
+  const twitchR = Math.pow(Math.max(0, Math.sin(t * 3.3 + 1.7 + Math.cos(t * 1.1) * 2.0)), 14.0) * 0.22;
+
+  earLGroup.rotation.y = -0.18 + Math.sin(t * 1.35) * 0.16 + twitchL + earPerkBoost * 0.22;
+  earLGroup.rotation.z =  0.28 + Math.sin(t * 1.05 + 0.5) * 0.055 - earPerkBoost * 0.10;
+  earLGroup.rotation.x =  0.06 + Math.cos(t * 1.55) * 0.045;
+
+  earRGroup.rotation.y =  0.18 - Math.sin(t * 1.25 + 0.8) * 0.16 - twitchR - earPerkBoost * 0.22;
+  earRGroup.rotation.z = -0.28 - Math.sin(t * 1.12 + 1.1) * 0.055 + earPerkBoost * 0.10;
+  earRGroup.rotation.x =  0.06 + Math.cos(t * 1.48 + 0.6) * 0.045;
+
+  // 5) Cute Rhythmic Circular Chewing Motion & Natural Eye Blinking
+  // Alpaca chewing cycle: ~4.4s of cute lateral figure-8 nibbling + ~1.6s attentive pause
+  const chewCycle = t % 6.0;
+  let chewEnvelope = 0;
+  if (chewCycle < 4.4) {
+    chewEnvelope = Math.sin(Math.min(1, chewCycle / 0.35) * Math.PI * 0.5) *
+                   Math.sin(Math.min(1, (4.4 - chewCycle) / 0.40) * Math.PI * 0.5);
+  }
+  const chewPhase = t * 18.5; // ~2.95 Hz adorable nibble!
+  jawGroup.position.x = Math.sin(chewPhase) * 0.0082 * chewEnvelope;
+  jawGroup.position.y = -0.015 + (Math.cos(chewPhase) * 0.0042 - 0.0032) * chewEnvelope;
+  jawGroup.rotation.z = -Math.sin(chewPhase) * 0.085 * chewEnvelope;
+  jawGroup.rotation.x = (0.045 - Math.cos(chewPhase) * 0.045) * chewEnvelope;
+  muzzleGroup.rotation.z = Math.sin(chewPhase) * 0.016 * chewEnvelope;
+
+  // Natural blinking of upper eyelids + long curved eyelashes
+  if (t >= nextBlinkTime && blinkTimer < 0) {
+    blinkTimer = 0;
+    nextBlinkTime = t + 3.0 + ((Math.sin(t * 12.9898) * 43758.5453) % 1 + 1) % 1 * 2.8;
+  }
+  let blinkAmt = 0;
+  if (blinkTimer >= 0) {
+    blinkTimer += dt;
+    const blinkDur = 0.15;
+    if (blinkTimer < blinkDur) {
+      blinkAmt = Math.sin((blinkTimer / blinkDur) * Math.PI);
+    } else {
+      blinkTimer = -1;
+    }
+  }
+  for (const lid of eyelidRigList) {
+    lid.pivot.rotation.x = lid.restRotX + blinkAmt * 1.42;
+  }
+
+  // 6) Cheerful Fluffy Tail Flick
+  tailJoyBoost = Math.max(0, tailJoyBoost - dt * 0.85);
+  const periodicFlickEnv = Math.pow(Math.max(0, Math.sin(t * 1.15)), 8.0);
+  const flickAmp = 0.08 + periodicFlickEnv * 0.26 + tailJoyBoost * 0.30;
+  tailGroup.rotation.z = Math.sin(t * 13.5) * flickAmp + Math.sin(t * 2.1) * 0.06;
+  tailGroup.rotation.x = Math.abs(Math.sin(t * 13.5)) * flickAmp * 0.45 + Math.sin(t * 1.8) * 0.05;
+
+  // 7) Bandana Pom-Pom & Tassel Secondary Sway + Meadow Wildflower Breeze
+  for (const tas of tasselRigList) {
+    const windSwayZ = Math.sin(t * 2.8 + tas.phase) * 0.075;
+    const windSwayX = Math.cos(t * 2.3 + tas.phase) * 0.045 - bobWave * 0.05;
+    tas.velX += (-85.0 * tas.offX - 7.5 * tas.velX) * dt;
+    tas.velZ += (-85.0 * tas.offZ - 7.5 * tas.velZ) * dt;
+    tas.offX += tas.velX * dt;
+    tas.offZ += tas.velZ * dt;
+
+    tas.pivot.rotation.x = tas.restRotX + windSwayX + THREE.MathUtils.clamp(tas.offX, -0.55, 0.55);
+    tas.pivot.rotation.z = windSwayZ + THREE.MathUtils.clamp(tas.offZ, -0.55, 0.55);
+  }
+
+  for (const fl of flowerStems) {
+    const fw = Math.sin(fl.x * 2.6 - fl.z * 2.2 - t * 2.6 + fl.phase * 0.3) * 0.085;
+    fl.group.rotation.z = -fw;
+    fl.group.rotation.x = fw * 0.6;
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+animate();
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+</body>
+</html>

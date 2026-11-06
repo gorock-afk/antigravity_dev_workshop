@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chubby Baby Hedgehog</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: #e9e2da; }
+  canvas#c { display: block; width: 100vw; height: 100vh; outline: none; touch-action: none; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+// ---------------------------------------------------------------- helpers
+const V3 = THREE.Vector3;
+const UP = new V3(0, 1, 0), ZAX = new V3(0, 0, 1);
+const rand = Math.random;
+const col = (h) => new THREE.Color(h);
+const SS = (x, a, b) => { let t = (x - a) / (b - a); t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); };
+function randDir() {
+  const u = rand() * 2 - 1, th = rand() * Math.PI * 2, s = Math.sqrt(1 - u * u);
+  return new V3(s * Math.cos(th), u, s * Math.sin(th));
+}
+
+// ---------------------------------------------------------------- renderer / scene
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight, false);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+const BG = 0xe9e2da;
+scene.background = new THREE.Color(BG);
+scene.fog = new THREE.Fog(BG, 9, 24);
+
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+
+const camera = new THREE.PerspectiveCamera(34, window.innerWidth / window.innerHeight, 0.05, 100);
+camera.position.set(2.9, 2.3, 4.9);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.95, 0.15);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.minDistance = 2.4;
+controls.maxDistance = 11;
+controls.maxPolarAngle = Math.PI * 0.495;
+controls.update();
+
+// ---------------------------------------------------------------- studio three-point lighting
+scene.add(new THREE.HemisphereLight(0xfff4e8, 0x8a7a6a, 0.35));
+const key = new THREE.DirectionalLight(0xfff0dc, 2.6);
+key.position.set(4, 6.5, 4.5);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+{
+  const sc = key.shadow.camera;
+  sc.left = -3; sc.right = 3; sc.top = 3; sc.bottom = -3; sc.near = 1; sc.far = 20;
+}
+key.shadow.bias = -0.0004;
+key.shadow.normalBias = 0.025;
+scene.add(key);
+const fill = new THREE.DirectionalLight(0xdfe8ff, 0.8);
+fill.position.set(-5, 2.5, 3);
+scene.add(fill);
+const rim = new THREE.DirectionalLight(0xfff6ea, 2.0);
+rim.position.set(-2.5, 4, -6);
+scene.add(rim);
+
+// ---------------------------------------------------------------- ground + soft contact shadow
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(60, 60),
+  new THREE.MeshStandardMaterial({ color: 0xe4dace, roughness: 0.95, metalness: 0 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+function radialTex() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  gr.addColorStop(0, 'rgba(45,30,20,0.78)');
+  gr.addColorStop(0.35, 'rgba(45,30,20,0.42)');
+  gr.addColorStop(0.7, 'rgba(45,30,20,0.1)');
+  gr.addColorStop(1, 'rgba(45,30,20,0)');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 256, 256);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const contact = new THREE.Mesh(
+  new THREE.PlaneGeometry(3.0, 2.8),
+  new THREE.MeshBasicMaterial({ map: radialTex(), transparent: true, depthWrite: false, toneMapped: false })
+);
+contact.rotation.x = -Math.PI / 2;
+contact.position.set(0, 0.004, 0.15);
+scene.add(contact);
+
+// ---------------------------------------------------------------- hedgehog layout constants
+const TILT = -0.22, Y0 = 1.0;
+const cosT = Math.cos(TILT), sinT = Math.sin(TILT);
+const worldY = (p) => Y0 + p.y * cosT - p.z * sinT;
+
+const hog = new THREE.Group();
+hog.position.y = Y0;
+hog.rotation.x = TILT;
+scene.add(hog);
+const breath = new THREE.Group();
+hog.add(breath);
+
+const A = new V3(1.0, 1.05, 0.92);             // body ellipsoid radii
+const Hc = new V3(0, 0.40, 0.50), Hr = 0.6;    // head sphere
+const M_BODY = new V3(0, 0.5, -1).normalize(); // mantle direction
+const P_BODY = new V3(0, 0.35, 1).normalize(); // quill flow pole (face)
+const MH = new V3(0, 0.9, -0.55).normalize();  // head crown direction
+const SNOUT_DIR = new V3(0, -0.15, 1).normalize();
+const SNOUT_PITCH = Math.atan2(0.15, 1);
+const ellip = (p) => (p.x / A.x) ** 2 + (p.y / A.y) ** 2 + (p.z / A.z) ** 2;
+
+const EYE_D = [1, -1].map(s => new V3(0.5 * s, 0.22, 0.84).normalize());
+const EYE_P = EYE_D.map(d => d.clone().multiplyScalar(Hr * 0.95));
+const EAR_D = [1, -1].map(s => new V3(0.72 * s, 0.5, 0.25).normalize());
+const EAR_P = EAR_D.map(d => d.clone().multiplyScalar(Hr * 0.93));
+const EAR_PB = EAR_P.map(p => p.clone().add(Hc));
+const PAW_POS = [
+  new V3(0.33, -0.2, 0.94), new V3(-0.33, -0.2, 0.94),
+  new V3(0.42, -1.02, 0.66), new V3(-0.42, -1.02, 0.66)
+];
+const nearPaw = (p, r) => PAW_POS.some(q => q.distanceTo(p) < r);
+
+// ---------------------------------------------------------------- materials
+const bodyMat = new THREE.MeshPhysicalMaterial({
+  vertexColors: true, roughness: 0.88, sheen: 1, sheenRoughness: 0.55, sheenColor: col('#fff2e2')
+});
+const skinMat = new THREE.MeshPhysicalMaterial({
+  color: '#eab9a6', roughness: 0.6, sheen: 0.8, sheenColor: col('#fff1e8'), sheenRoughness: 0.5
+});
+const furSkinMat = new THREE.MeshPhysicalMaterial({
+  color: '#f1e3d0', roughness: 0.9, sheen: 1, sheenColor: col('#fffaf0'), sheenRoughness: 0.6
+});
+const jellyMat = new THREE.MeshPhysicalMaterial({
+  color: '#ff8da1', roughness: 0.16, metalness: 0, transmission: 0.6, thickness: 0.35, ior: 1.42,
+  clearcoat: 1, clearcoatRoughness: 0.06, attenuationColor: col('#ff3d6a'), attenuationDistance: 0.35,
+  emissive: col('#5a0f22'), emissiveIntensity: 0.35, sheen: 0.4, sheenColor: col('#ffd0da')
+});
+const clawMat = new THREE.MeshPhysicalMaterial({ color: '#f4e7d2', roughness: 0.35, clearcoat: 0.5 });
+const snoutMat = new THREE.MeshPhysicalMaterial({
+  color: '#e8c2ab', roughness: 0.55, sheen: 0.7, sheenColor: col('#fff0e8'), sheenRoughness: 0.4
+});
+const noseMat = new THREE.MeshPhysicalMaterial({
+  color: '#120a0a', roughness: 0.22, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04, specularIntensity: 1
+});
+const nostrilMat = new THREE.MeshStandardMaterial({ color: '#000000', roughness: 0.95 });
+const whiskerMat = new THREE.MeshStandardMaterial({ color: '#2a1d16', roughness: 0.5 });
+const mouthMat = new THREE.MeshStandardMaterial({ color: '#7a3b3b', roughness: 0.6 });
+const lidMat = new THREE.MeshStandardMaterial({ color: '#2b1c17', roughness: 0.6 });
+const eyeMat = new THREE.MeshPhysicalMaterial({
+  color: '#060404', roughness: 0.06, clearcoat: 1, clearcoatRoughness: 0.02, ior: 1.5, specularIntensity: 1
+});
+const catchMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+const earOuterMat = new THREE.MeshPhysicalMaterial({
+  color: '#c9a28c', roughness: 0.7, sheen: 0.8, sheenColor: col('#fff0e6')
+});
+const earInnerMat = new THREE.MeshPhysicalMaterial({
+  color: '#f2a3a5', roughness: 0.45, sheen: 0.5, sheenColor: col('#ffe0e4'), clearcoat: 0.2
+});
+const proxyMat = new THREE.MeshBasicMaterial({ visible: false });
+
+const sph = new THREE.SphereGeometry(1, 32, 24);
+const pickTargets = [];
+
+// ---------------------------------------------------------------- body
+function ellipsoidGeo(colorFn) {
+  const g = new THREE.SphereGeometry(1, 128, 96);
+  const pos = g.attributes.position, nor = g.attributes.normal;
+  const cols = new Float32Array(pos.count * 3);
+  const d = new V3(), n = new V3(), c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    d.fromBufferAttribute(pos, i).normalize();
+    colorFn(d, c);
+    cols[i * 3] = c.r; cols[i * 3 + 1] = c.g; cols[i * 3 + 2] = c.b;
+    pos.setXYZ(i, d.x * A.x, d.y * A.y, d.z * A.z);
+    n.set(d.x / A.x, d.y / A.y, d.z / A.z).normalize();
+    nor.setXYZ(i, n.x, n.y, n.z);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  return g;
+}
+const C_DARK = col('#3a281c'), C_BELLY = col('#f3e6d3');
+const bodyGeo = ellipsoidGeo((d, c) => {
+  const k = SS(d.dot(M_BODY), -0.36, -0.12);
+  c.copy(C_BELLY).lerp(C_DARK, k);
+});
+const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+bodyMesh.castShadow = true;
+bodyMesh.receiveShadow = true;
+breath.add(bodyMesh);
+
+const bodyProxy = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 24), proxyMat);
+bodyProxy.scale.copy(A).multiplyScalar(1.2);
+bodyProxy.userData.kind = 'body';
+breath.add(bodyProxy);
+pickTargets.push(bodyProxy);
+
+// thighs / haunches
+[1, -1].forEach(s => {
+  const th = new THREE.Mesh(sph, furSkinMat);
+  th.position.set(0.42 * s, -0.74, 0.42);
+  th.scale.set(0.22, 0.2, 0.24);
+  th.castShadow = true;
+  breath.add(th);
+});
+
+// ---------------------------------------------------------------- head
+const headGroup = new THREE.Group();
+headGroup.position.copy(Hc);
+breath.add(headGroup);
+
+const headGeo = new THREE.SphereGeometry(Hr, 96, 72);
+{
+  const pos = headGeo.attributes.position;
+  const cols = new Float32Array(pos.count * 3);
+  const d = new V3(), c = new THREE.Color();
+  const face = col('#efd3bf'), mask = col('#6e4f3e');
+  for (let i = 0; i < pos.count; i++) {
+    d.fromBufferAttribute(pos, i).normalize();
+    let mk = 0;
+    EYE_D.forEach(e => { mk = Math.max(mk, SS(d.distanceTo(e), 0.34, 0.16)); });
+    c.copy(face).lerp(mask, mk * 0.85).lerp(C_DARK, SS(d.dot(MH), -0.2, 0.02));
+    cols[i * 3] = c.r; cols[i * 3 + 1] = c.g; cols[i * 3 + 2] = c.b;
+  }
+  headGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+}
+const headMesh = new THREE.Mesh(headGeo, bodyMat);
+headMesh.castShadow = true;
+headMesh.receiveShadow = true;
+headGroup.add(headMesh);
+
+const headProxy = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 24), proxyMat);
+headProxy.scale.setScalar(Hr * 1.3);
+headProxy.userData.kind = 'body';
+headGroup.add(headProxy);
+pickTargets.push(headProxy);
+
+// snout
+const snoutGroup = new THREE.Group();
+snoutGroup.position.copy(SNOUT_DIR).multiplyScalar(Hr * 0.78);
+snoutGroup.rotation.x = SNOUT_PITCH;
+headGroup.add(snoutGroup);
+const snoutPts = [
+  [0.30, 0], [0.297, 0.08], [0.275, 0.18], [0.232, 0.29], [0.178, 0.385],
+  [0.13, 0.455], [0.097, 0.5], [0.066, 0.53], [0.03, 0.545], [0.0, 0.55]
+].map(([r, y]) => new THREE.Vector2(r, y));
+const snoutGeo = new THREE.LatheGeometry(snoutPts, 48);
+snoutGeo.rotateX(Math.PI / 2);
+const snout = new THREE.Mesh(snoutGeo, snoutMat);
+snout.castShadow = true;
+snout.userData.kind = 'boop';
+snoutGroup.add(snout);
+pickTargets.push(snout);
+
+// wet button nose
+const NOSE_Y = 0.01, NOSE_Z = 0.53, NS = new V3(1.3, 1.0, 0.85);
+const nose = new THREE.Group();
+nose.position.set(0, NOSE_Y, NOSE_Z);
+nose.scale.copy(NS);
+snoutGroup.add(nose);
+const noseBall = new THREE.Mesh(new THREE.SphereGeometry(0.07, 48, 32), noseMat);
+noseBall.userData.kind = 'boop';
+nose.add(noseBall);
+pickTargets.push(noseBall);
+[1, -1].forEach(s => {
+  const n = new THREE.Mesh(sph, nostrilMat);
+  n.scale.set(0.014, 0.0098, 0.0084);
+  n.position.set(0.027 * s, -0.008, 0.057);
+  nose.add(n);
+});
+
+// whiskers
+const whiskerGeo = new THREE.CylinderGeometry(0.0014, 0.0032, 1, 5);
+whiskerGeo.translate(0, 0.5, 0);
+const whiskerGroups = [];
+[1, -1].forEach(s => {
+  const wg = new THREE.Group();
+  wg.position.set(0.085 * s, -0.02, 0.43);
+  snoutGroup.add(wg);
+  whiskerGroups.push(wg);
+  for (let i = 0; i < 4; i++) {
+    const dir = new V3(s, -0.28 + i * 0.17, 0.3 + 0.08 * i).normalize();
+    const w = new THREE.Mesh(whiskerGeo, whiskerMat);
+    w.scale.set(1, 0.3 + 0.07 * rand(), 1);
+    w.quaternion.setFromUnitVectors(UP, dir);
+    wg.add(w);
+  }
+});
+
+// little mouth
+{
+  const mouth = new THREE.Group();
+  mouth.position.set(0, -0.095, 0.49);
+  mouth.rotation.x = 0.7;
+  snoutGroup.add(mouth);
+  const arcGeo = new THREE.TorusGeometry(0.024, 0.005, 6, 16, Math.PI);
+  [1, -1].forEach(s => {
+    const a = new THREE.Mesh(arcGeo, mouthMat);
+    a.position.x = 0.024 * s;
+    a.rotation.z = Math.PI;
+    mouth.add(a);
+  });
+}
+
+// glossy bead eyes with catchlights
+const eyes = [];
+EYE_D.forEach((d, i) => {
+  const g = new THREE.Group();
+  g.position.copy(EYE_P[i]);
+  g.quaternion.setFromUnitVectors(ZAX, d);
+  headGroup.add(g);
+  eyes.push(g);
+  const lid = new THREE.Mesh(sph, lidMat);
+  lid.scale.set(0.088, 0.082, 0.05);
+  lid.position.z = -0.004;
+  const ball = new THREE.Mesh(sph, eyeMat);
+  ball.scale.set(0.074, 0.07, 0.06);
+  ball.position.z = 0.012;
+  const c1 = new THREE.Mesh(sph, catchMat);
+  c1.scale.set(0.017, 0.017, 0.006);
+  c1.position.set(0.022, 0.026, 0.066);
+  const c2 = new THREE.Mesh(sph, catchMat);
+  c2.scale.set(0.008, 0.008, 0.004);
+  c2.position.set(-0.022, -0.024, 0.066);
+  g.add(lid, ball, c1, c2);
+});
+
+// rounded pink-lined ears
+const ears = [];
+EAR_D.forEach((d, i) => {
+  const side = i === 0 ? 1 : -1;
+  const g = new THREE.Group();
+  const outer = new THREE.Mesh(sph, earOuterMat);
+  outer.scale.set(0.15, 0.165, 0.055);
+  outer.castShadow = true;
+  const inner = new THREE.Mesh(sph, earInnerMat);
+  inner.scale.set(0.105, 0.12, 0.03);
+  inner.position.set(0, 0.01, 0.03);
+  g.add(outer, inner);
+  g.position.copy(EAR_P[i]);
+  g.quaternion.setFromUnitVectors(ZAX, new V3(0.55 * side, 0.25, 1).normalize());
+  g.userData.q0 = g.quaternion.clone();
+  headGroup.add(g);
+  ears.push(g);
+});
+
+// ---------------------------------------------------------------- paws with jelly pads
+const clawGeo = new THREE.ConeGeometry(0.009, 0.032, 8);
+clawGeo.translate(0, 0.016, 0);
+const paws = [];
+function makePaw(hind, pos, rot) {
+  const pw = {
+    group: new THREE.Group(), pads: [], spring: { x: 0, v: 0 }, hover: 0, hovered: false,
+    wig: 0, hind, phase: rand() * 6.28, r0: new THREE.Euler(rot[0], rot[1], rot[2])
+  };
+  const g = pw.group;
+  g.position.copy(pos);
+  g.rotation.copy(pw.r0);
+  const px = hind ? 0.14 : 0.12, py = hind ? 0.17 : 0.12, pz = hind ? 0.095 : 0.085;
+  const palm = new THREE.Mesh(sph, skinMat);
+  palm.scale.set(px, py, pz);
+  palm.castShadow = true;
+  g.add(palm);
+  const limb = new THREE.Mesh(sph, furSkinMat);
+  if (hind) { limb.position.set(0, 0.12, -0.14); limb.scale.set(0.15, 0.15, 0.17); }
+  else { limb.position.set(0, 0.09, -0.11); limb.scale.set(0.1, 0.14, 0.11); }
+  limb.castShadow = true;
+  g.add(limb);
+  const zs = (x, y) => pz * Math.sqrt(Math.max(0, 1 - (x / px) ** 2 - (y / py) ** 2));
+  const mpS = hind ? new V3(0.072, 0.07, 0.034) : new V3(0.06, 0.048, 0.03);
+  const mpY = hind ? -0.04 : -0.022;
+  const main = new THREE.Mesh(sph, jellyMat);
+  main.scale.copy(mpS);
+  main.position.set(0, mpY, zs(0, mpY) - mpS.z * 0.45);
+  pw.pads.push(main);
+  const tr = hind ? 0.03 : 0.025, cy = hind ? 0.055 : 0.03, ry = hind ? 0.06 : 0.042, rx = hind ? 0.078 : 0.064;
+  for (let k = 0; k < 4; k++) {
+    const a = -0.75 + k * 0.5;
+    const x = Math.sin(a) * rx, y = cy + Math.cos(a) * ry;
+    const toe = new THREE.Mesh(sph, jellyMat);
+    toe.scale.set(tr, tr * 1.1, tr * 0.8);
+    toe.position.set(x, y, zs(x, y) - tr * 0.8 * 0.4);
+    pw.pads.push(toe);
+    const claw = new THREE.Mesh(clawGeo, clawMat);
+    claw.position.set(x + Math.sin(a) * 0.012, y + tr * 1.1, toe.position.z - 0.012);
+    claw.rotation.set(0.5, 0, -a * 0.8);
+    g.add(claw);
+  }
+  pw.pads.forEach(p => { p.userData.bs = p.scale.clone(); p.userData.bp = p.position.clone(); g.add(p); });
+  [palm, limb, ...pw.pads].forEach(m => { m.userData.kind = 'paw'; m.userData.paw = pw; pickTargets.push(m); });
+  breath.add(g);
+  paws.push(pw);
+}
+makePaw(false, PAW_POS[0], [-0.1, 0.25, -0.25]);
+makePaw(false, PAW_POS[1], [-0.1, -0.25, 0.25]);
+makePaw(true, PAW_POS[2], [-0.55, 0.35, -0.12]);
+makePaw(true, PAW_POS[3], [-0.55, -0.35, 0.12]);
+
+// ---------------------------------------------------------------- instanced strand machinery
+function makeQuillGeo() {
+  const ys = [0, 0.12, 0.26, 0.31, 0.36, 0.42, 0.56, 0.61, 0.66, 0.78, 0.83, 0.87, 0.93, 1.0];
+  const pts = ys.map(y => new THREE.Vector2(y >= 1 ? 0 : Math.max(0.002, Math.pow(1 - y, 0.72)), y));
+  const g = new THREE.LatheGeometry(pts, 5);
+  const stops = [
+    [0, '#24160d'], [0.26, '#3a2415'], [0.36, '#e6cfa2'], [0.56, '#f0dcb4'],
+    [0.64, '#4b2f1b'], [0.78, '#3d2516'], [0.87, '#f6ecd6'], [1.0, '#fffaf0']
+  ].map(([t, h]) => [t, col(h)]);
+  const pos = g.attributes.position;
+  const cols = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    let j = 0;
+    while (j < stops.length - 2 && y > stops[j + 1][0]) j++;
+    const [t0, c0] = stops[j], [t1, c1] = stops[j + 1];
+    c.copy(c0).lerp(c1, Math.min(1, Math.max(0, (y - t0) / (t1 - t0))));
+    cols[i * 3] = c.r; cols[i * 3 + 1] = c.g; cols[i * 3 + 2] = c.b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  return g;
+}
+function makeFurGeo() {
+  const pts = [[1, 0], [0.78, 0.4], [0.45, 0.78], [0, 1]].map(([r, y]) => new THREE.Vector2(r, y));
+  const g = new THREE.LatheGeometry(pts, 3);
+  const pos = g.attributes.position;
+  const cols = new Float32Array(pos.count * 3);
+  const root = col('#d9c7ad'), tip = col('#fffaf2'), c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    c.copy(root).lerp(tip, Math.pow(pos.getY(i), 0.7));
+    cols[i * 3] = c.r; cols[i * 3 + 1] = c.g; cols[i * 3 + 2] = c.b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  return g;
+}
+
+const _q = new THREE.Quaternion(), _tw = new THREE.Quaternion(), _m = new THREE.Matrix4(), _s = new V3();
+function buildInstanced(geoBase, mat, list) {
+  const geo = geoBase.clone();
+  const N = list.length;
+  const mesh = new THREE.InstancedMesh(geo, mat, N);
+  const aN = new Float32Array(N * 3), aR = new Float32Array(N);
+  list.forEach((q, i) => {
+    _q.setFromUnitVectors(UP, q.dir);
+    _tw.setFromAxisAngle(UP, rand() * Math.PI * 2);
+    _q.multiply(_tw);
+    _s.set(q.rad, q.len, q.rad);
+    _m.compose(q.p, _q, _s);
+    mesh.setMatrixAt(i, _m);
+    mesh.setColorAt(i, q.c);
+    aN[i * 3] = q.n.x; aN[i * 3 + 1] = q.n.y; aN[i * 3 + 2] = q.n.z;
+    aR[i] = rand();
+  });
+  geo.setAttribute('aN', new THREE.InstancedBufferAttribute(aN, 3));
+  geo.setAttribute('aR', new THREE.InstancedBufferAttribute(aR, 1));
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
+// ---------------------------------------------------------------- quill shader (wave bristling)
+const quillU = {
+  uTime: { value: 0 },
+  uBase: { value: 0 },
+  uHover: { value: new THREE.Vector4(0, -99, 0, 0) },
+  uRip: { value: Array.from({ length: 16 }, () => new THREE.Vector4(0, -99, 0, -99)) }
+};
+const QUILL_DECL = /* glsl */`#include <common>
+uniform float uTime;
+uniform float uBase;
+uniform vec4 uHover;
+uniform vec4 uRip[16];
+attribute vec3 aN;
+attribute float aR;
+`;
+const QUILL_BODY = /* glsl */`
+vec3 qRoot = instanceMatrix[3].xyz;
+vec3 qAxis = normalize(instanceMatrix[1].xyz);
+vec3 qP = (instanceMatrix * vec4(transformed, 1.0)).xyz;
+vec3 qRootW = (modelMatrix * vec4(qRoot, 1.0)).xyz;
+float bb = uBase * (0.7 + 0.6 * aR);
+for (int i = 0; i < 16; i++) {
+  float age = uTime - uRip[i].w;
+  if (age > 0.0 && age < 2.4) {
+    float dd = distance(qRootW, uRip[i].xyz);
+    float ring = age * 1.5;
+    float xx = (dd - ring) / 0.2;
+    bb += exp(-xx * xx) * exp(-age * 1.7) * 0.9;
+    bb += step(dd, ring) * exp(-age * 2.6) * 0.18 * (1.0 - smoothstep(0.0, 1.2, dd));
+  }
+}
+float hd = distance(qRootW, uHover.xyz);
+bb += uHover.w * (1.0 - smoothstep(0.05, 0.6, hd));
+bb = clamp(bb, 0.0, 1.0);
+vec3 qv = qP - qRoot;
+float qL = dot(qv, qAxis);
+vec3 qPerp = qv - qAxis * qL;
+vec3 qSide = cross(aN, qAxis);
+vec3 qDir = normalize(mix(qAxis, aN, bb * 0.88) + qSide * sin(uTime * 37.0 + aR * 60.0) * 0.06 * bb);
+vec4 mvPosition = modelViewMatrix * vec4(qRoot + qDir * qL + qPerp, 1.0);
+gl_Position = projectionMatrix * mvPosition;
+`;
+const quillMat = new THREE.MeshPhysicalMaterial({
+  vertexColors: true, roughness: 0.38, metalness: 0, clearcoat: 0.4, clearcoatRoughness: 0.35
+});
+quillMat.onBeforeCompile = (s) => {
+  Object.assign(s.uniforms, quillU);
+  s.vertexShader = s.vertexShader
+    .replace('#include <common>', QUILL_DECL)
+    .replace('#include <project_vertex>', QUILL_BODY);
+};
+quillMat.customProgramCacheKey = () => 'hedgehog-quill-v1';
+
+// ---------------------------------------------------------------- fur shader (brushing)
+const furU = {
+  uTime: quillU.uTime,
+  uHover: { value: new THREE.Vector4(0, -99, 0, 0) },
+  uBrush: { value: new V3() }
+};
+const FUR_DECL = /* glsl */`#include <common>
+uniform float uTime;
+uniform vec4 uHover;
+uniform vec3 uBrush;
+attribute vec3 aN;
+attribute float aR;
+`;
+const FUR_BODY = /* glsl */`
+vec3 fRoot = instanceMatrix[3].xyz;
+vec3 fAxisS = instanceMatrix[1].xyz;
+float fLen = length(fAxisS);
+vec3 fAxis = fAxisS / fLen;
+vec3 fP = (instanceMatrix * vec4(transformed, 1.0)).xyz;
+vec3 fv = fP - fRoot;
+float ft = clamp(dot(fv, fAxis) / fLen, 0.0, 1.0);
+vec3 fRootW = (modelMatrix * vec4(fRoot, 1.0)).xyz;
+vec3 fAway = fRootW - uHover.xyz;
+float fd = length(fAway);
+float fF = uHover.w * (1.0 - smoothstep(0.0, 0.5, fd));
+vec3 fAwayL = normalize(fAway * mat3(modelMatrix) + vec3(1e-5));
+fAwayL = fAwayL - aN * dot(fAwayL, aN);
+vec3 fVel = (uBrush * mat3(modelMatrix)) * (1.0 - smoothstep(0.0, 0.65, fd));
+fVel -= aN * dot(fVel, aN);
+vec3 fSway = vec3(sin(uTime * 1.6 + aR * 40.0), sin(uTime * 1.2 + aR * 23.0) * 0.5, cos(uTime * 1.4 + aR * 31.0)) * 0.12;
+vec3 fOff = (fAwayL * fF * 1.1 + fVel * 1.2 + fSway) * ft * ft * fLen;
+fOff -= aN * fF * 0.3 * ft * fLen;
+vec4 mvPosition = modelViewMatrix * vec4(fP + fOff, 1.0);
+gl_Position = projectionMatrix * mvPosition;
+`;
+const furMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
+furMat.onBeforeCompile = (s) => {
+  Object.assign(s.uniforms, furU);
+  s.vertexShader = s.vertexShader
+    .replace('#include <common>', FUR_DECL)
+    .replace('#include <project_vertex>', FUR_BODY);
+};
+furMat.customProgramCacheKey = () => 'hedgehog-fur-v1';
+
+// ---------------------------------------------------------------- procedural distribution
+function flowAway(n, pole, fallback) {
+  const t = n.clone().multiplyScalar(pole.dot(n)).sub(pole);
+  if (t.lengthSq() < 1e-6) t.copy(fallback);
+  return t.normalize();
+}
+function downTangent(n) {
+  const d = new V3(0, -1, 0).addScaledVector(n, n.y);
+  if (d.lengthSq() < 1e-4) d.set(0, 0, 1);
+  return d.normalize();
+}
+
+// body quills (mantle)
+const bodyQuills = [];
+for (let tries = 0; bodyQuills.length < 15000 && tries < 600000; tries++) {
+  const d = randDir();
+  const m = d.dot(M_BODY);
+  if (m < -0.24) continue;
+  const p = new V3(d.x * A.x, d.y * A.y, d.z * A.z);
+  if (p.distanceTo(Hc) < Hr * 1.03) continue;
+  if (worldY(p) < 0.1) continue;
+  if (EAR_PB[0].distanceTo(p) < 0.22 || EAR_PB[1].distanceTo(p) < 0.22) continue;
+  const n = new V3(d.x / A.x, d.y / A.y, d.z / A.z).normalize();
+  const tf = flowAway(n, P_BODY, new V3(0, -1, 0));
+  const edge = SS(m, -0.24, 0.06);
+  const dir = n.clone().multiplyScalar(0.4 + 0.18 * rand()).add(tf).addScaledVector(randDir(), 0.22).normalize();
+  if (dir.dot(n) < 0.18) dir.addScaledVector(n, 0.35).normalize();
+  const len = (0.25 + 0.15 * rand()) * (0.4 + 0.6 * edge);
+  const rad = 0.0105 + 0.005 * rand();
+  p.addScaledVector(n, -0.015);
+  const b = 0.72 + 0.4 * rand();
+  bodyQuills.push({ p, n, dir, len, rad, c: new THREE.Color(b, b * (0.96 + 0.06 * rand()), b * (0.9 + 0.1 * rand())) });
+}
+
+// head crown quills
+const P_HEAD = new V3(0, 0.1, 1).normalize();
+const headQuills = [];
+for (let tries = 0; headQuills.length < 2600 && tries < 600000; tries++) {
+  const d = randDir();
+  const m = d.dot(MH);
+  if (m < -0.04) continue;
+  const q = d.clone().multiplyScalar(Hr);
+  const pb = q.clone().add(Hc);
+  if (ellip(pb) < 0.93) continue;
+  if (EAR_P[0].distanceTo(q) < 0.2 || EAR_P[1].distanceTo(q) < 0.2) continue;
+  const n = d.clone();
+  const tf = flowAway(n, P_HEAD, new V3(0, 0, -1));
+  const edge = SS(m, -0.04, 0.35);
+  const dir = n.clone().multiplyScalar(0.38 + 0.15 * rand()).add(tf).addScaledVector(randDir(), 0.2).normalize();
+  if (dir.dot(n) < 0.18) dir.addScaledVector(n, 0.35).normalize();
+  const len = (0.16 + 0.1 * rand()) * (0.35 + 0.65 * edge);
+  const rad = 0.009 + 0.004 * rand();
+  q.addScaledVector(n, -0.012);
+  const b = 0.72 + 0.4 * rand();
+  headQuills.push({ p: q, n, dir, len, rad, c: new THREE.Color(b, b * (0.96 + 0.06 * rand()), b * (0.9 + 0.1 * rand())) });
+}
+
+// belly / chest fluffy fur
+const bodyFur = [];
+for (let tries = 0; bodyFur.length < 7600 && tries < 600000; tries++) {
+  const d = randDir();
+  const m = d.dot(M_BODY);
+  if (m > -0.15) continue;
+  const p = new V3(d.x * A.x, d.y * A.y, d.z * A.z);
+  if (p.distanceTo(Hc) < Hr * 1.0) continue;
+  if (worldY(p) < 0.04) continue;
+  if (nearPaw(p, 0.17)) continue;
+  const n = new V3(d.x / A.x, d.y / A.y, d.z / A.z).normalize();
+  const down = downTangent(n);
+  const dir = n.clone().addScaledVector(down, 0.55).addScaledVector(randDir(), 0.35).normalize();
+  if (dir.dot(n) < 0.25) dir.addScaledVector(n, 0.4).normalize();
+  const len = 0.085 + 0.06 * rand() + 0.05 * SS(m, -0.55, -0.15);
+  const rad = 0.0065 + 0.004 * rand();
+  p.addScaledVector(n, -0.006);
+  const b = 0.9 + 0.14 * rand();
+  bodyFur.push({ p, n, dir, len, rad, c: new THREE.Color(b, b * 0.985, b * 0.95) });
+}
+
+// cheek / face fur
+const headFur = [];
+for (let tries = 0; headFur.length < 2600 && tries < 800000; tries++) {
+  const d = randDir();
+  const m = d.dot(MH);
+  if (m > 0.03) continue;
+  const q = d.clone().multiplyScalar(Hr);
+  const pb = q.clone().add(Hc);
+  if (ellip(pb) < 0.97) continue;
+  if (d.dot(SNOUT_DIR) > 0.86) continue;
+  if (EYE_P[0].distanceTo(q) < 0.11 || EYE_P[1].distanceTo(q) < 0.11) continue;
+  if (EAR_P[0].distanceTo(q) < 0.16 || EAR_P[1].distanceTo(q) < 0.16) continue;
+  if (worldY(pb) < 0.04) continue;
+  if (nearPaw(pb, 0.17)) continue;
+  const n = d.clone();
+  const away = flowAway(n, SNOUT_DIR, new V3(0, -1, 0));
+  const down = downTangent(n);
+  const cheek = SS(Math.abs(d.x), 0.2, 0.75) * SS(d.y, 0.35, -0.25);
+  const dir = n.clone().multiplyScalar(0.9).addScaledVector(away, 0.55).addScaledVector(down, 0.45)
+    .addScaledVector(randDir(), 0.3).normalize();
+  if (dir.dot(n) < 0.25) dir.addScaledVector(n, 0.4).normalize();
+  const len = 0.04 + 0.025 * rand() + 0.085 * cheek;
+  const rad = 0.005 + 0.003 * rand();
+  q.addScaledVector(n, -0.005);
+  const b = 0.92 + 0.12 * rand();
+  headFur.push({ p: q, n, dir, len, rad, c: new THREE.Color(b, b * 0.975, b * 0.93) });
+}
+
+const quillGeo = makeQuillGeo();
+const furGeo = makeFurGeo();
+const bodyQuillMesh = buildInstanced(quillGeo, quillMat, bodyQuills);
+bodyQuillMesh.castShadow = true;
+breath.add(bodyQuillMesh);
+const headQuillMesh = buildInstanced(quillGeo, quillMat, headQuills);
+headQuillMesh.castShadow = true;
+headGroup.add(headQuillMesh);
+const bodyFurMesh = buildInstanced(furGeo, furMat, bodyFur);
+breath.add(bodyFurMesh);
+const headFurMesh = buildInstanced(furGeo, furMat, headFur);
+headGroup.add(headFurMesh);
+
+// ---------------------------------------------------------------- interaction
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2(9, 9);
+let pointerInside = false;
+const el = renderer.domElement;
+function setPointer(e) {
+  const r = el.getBoundingClientRect();
+  pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  pointerInside = true;
+}
+function pick() {
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(pickTargets, false);
+  let body = null, part = null;
+  for (const h of hits) {
+    if (h.object.userData.kind === 'body') { if (!body) body = h; }
+    else if (!part) part = h;
+  }
+  if (part && (!body || part.distance < body.distance + 0.45)) return part;
+  return body;
+}
+
+let t = 0, startle = 0, hoverStrength = 0, sniffBurst = 0, earTwitch = 0, nextBlink = 2, blinkStart = -10;
+let headYaw = 0, headPitch = 0;
+const hunch = { x: 0, v: 0 }, noseS = { x: 0, v: 0 };
+const hoverPos = new V3(0, -99, 0), lastHit = new V3(), brushVel = new V3(), lastRip = new V3(0, -99, 0), tmpV = new V3();
+let hasLast = false, lastRipT = -1, ripIdx = 0;
+function addRipple(p, time) {
+  quillU.uRip.value[ripIdx].set(p.x, p.y, p.z, time);
+  ripIdx = (ripIdx + 1) % 16;
+}
+function spring(s, k, c, dt, target) {
+  s.v += (-k * (s.x - target) - c * s.v) * dt;
+  s.x += s.v * dt;
+}
+
+el.addEventListener('pointermove', setPointer);
+el.addEventListener('pointerleave', () => { pointerInside = false; });
+el.addEventListener('pointerdown', (e) => {
+  setPointer(e);
+  const h = pick();
+  if (!h) return;
+  const k = h.object.userData.kind;
+  if (k === 'paw') {
+    const pw = h.object.userData.paw;
+    pw.spring.v += 7.5;
+    pw.wig = 1;
+  } else if (k === 'boop') {
+    noseS.v += 5;
+    sniffBurst = 1.6;
+    startle = Math.max(startle, 0.45);
+    earTwitch = 1;
+  } else {
+    addRipple(h.point, t);
+    addRipple(h.point, t + 0.18);
+    startle = 1.5;
+    earTwitch = 1;
+    lastRip.copy(h.point);
+    lastRipT = t;
+  }
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+});
+
+// ---------------------------------------------------------------- animation loop
+const clock = new THREE.Clock();
+const tmpE = new THREE.Euler(), tmpQ2 = new THREE.Quaternion();
+
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  t += dt;
+
+  // --- picking / hover
+  paws.forEach(p => { p.hovered = false; });
+  let hoverBody = false, hoverBoop = false, hoverAny = false;
+  if (pointerInside) {
+    const h = pick();
+    if (h) {
+      hoverAny = true;
+      const k = h.object.userData.kind;
+      if (k === 'paw') h.object.userData.paw.hovered = true;
+      else if (k === 'boop') hoverBoop = true;
+      else {
+        hoverBody = true;
+        const P = h.point;
+        if (!hasLast) { lastHit.copy(P); hoverPos.copy(P); hasLast = true; }
+        tmpV.copy(P).sub(lastHit).divideScalar(Math.max(dt, 1e-3)).clampLength(0, 4);
+        brushVel.lerp(tmpV, 0.3);
+        lastHit.copy(P);
+        hoverPos.lerp(P, 0.45);
+        if (P.distanceTo(lastRip) > 0.16 && t - lastRipT > 0.08) {
+          addRipple(P, t);
+          lastRip.copy(P);
+          lastRipT = t;
+        }
+      }
+    }
+  }
+  if (!hoverBody) { hasLast = false; brushVel.multiplyScalar(Math.exp(-dt * 5)); }
+  hoverStrength += ((hoverBody ? 1 : 0) - hoverStrength) * Math.min(1, dt * (hoverBody ? 7 : 2.5));
+
+  // --- uniforms
+  startle = Math.max(0, startle - dt * 0.9);
+  const st = Math.min(1, startle);
+  const br = Math.sin(t * 2.3);
+  quillU.uTime.value = t;
+  quillU.uBase.value = 0.05 + 0.035 * br + st * 0.85;
+  quillU.uHover.value.set(hoverPos.x, hoverPos.y, hoverPos.z, hoverStrength * 0.8);
+  furU.uHover.value.set(hoverPos.x, hoverPos.y, hoverPos.z, hoverStrength);
+  furU.uBrush.value.copy(brushVel).multiplyScalar(0.25).clampLength(0, 1.0);
+
+  // --- breathing + startle hunch
+  spring(hunch, 60, 9, dt, st * 0.6);
+  breath.scale.set(1 + 0.014 * br + 0.03 * hunch.x, 1 + 0.02 * br - 0.07 * hunch.x, 1 + 0.014 * br + 0.02 * hunch.x);
+  hog.rotation.z = Math.sin(t * 0.45) * 0.02;
+  hog.rotation.x = TILT + Math.sin(t * 0.6) * 0.01;
+
+  // --- head follows cursor gently
+  const lookX = pointerInside ? pointer.x : 0, lookY = pointerInside ? pointer.y : 0;
+  const ka = Math.min(1, dt * 3);
+  headYaw += ((lookX * 0.28 + Math.sin(t * 0.37) * 0.08) - headYaw) * ka;
+  headPitch += ((-lookY * 0.12 + Math.sin(t * 0.53) * 0.04 + hunch.x * 0.35) - headPitch) * ka;
+  headGroup.rotation.set(headPitch, headYaw, Math.sin(t * 0.29) * 0.05);
+  headGroup.position.set(Hc.x, Hc.y - 0.08 * hunch.x + 0.008 * br, Hc.z - 0.03 * hunch.x);
+
+  // --- nose sniffing
+  sniffBurst = Math.max(0, sniffBurst - dt * 0.7);
+  const env = 0.5 + 0.5 * Math.sin(t * 0.6) * Math.sin(t * 1.37 + 0.7);
+  const sniffAmt = Math.min(1.3, SS(env, 0.42, 0.7) + sniffBurst + (hoverAny ? 0.45 : 0) + (hoverBoop ? 0.3 : 0));
+  const tw = Math.pow(Math.abs(Math.sin(t * 13)), 6) * sniffAmt;
+  spring(noseS, 220, 9, dt, hoverBoop ? 0.08 : 0);
+  nose.position.set(0, NOSE_Y + 0.005 * tw, NOSE_Z + 0.012 * tw);
+  nose.scale.set(
+    NS.x * (1 + 0.07 * tw + 0.3 * noseS.x),
+    NS.y * (1 + 0.05 * tw - 0.22 * noseS.x),
+    NS.z * (1 - 0.05 * tw - 0.35 * noseS.x)
+  );
+  snoutGroup.rotation.set(
+    SNOUT_PITCH + 0.02 * tw + 0.025 * Math.sin(t * 0.9) - 0.05 * noseS.x,
+    0.05 * Math.sin(t * 0.73) * sniffAmt, 0
+  );
+  whiskerGroups.forEach((w, i) => {
+    const side = i === 0 ? 1 : -1;
+    w.rotation.set(0.04 * tw, side * (0.07 * tw + 0.03 * Math.sin(t * 2.1)), 0);
+  });
+
+  // --- blinking
+  if (t > nextBlink) { blinkStart = t; nextBlink = t + 2.2 + rand() * 3.5; }
+  const bu = (t - blinkStart) / 0.17;
+  const bl = bu < 1 ? Math.sin(bu * Math.PI) : 0;
+  const lidAmt = Math.max(bl, st * 0.6);
+  eyes.forEach(e => e.scale.set(1, Math.max(0.08, 1 - 0.92 * lidAmt), 1));
+
+  // --- ear twitch
+  if (rand() < dt * 0.15) earTwitch = 1;
+  earTwitch = Math.max(0, earTwitch - dt * 2.2);
+  ears.forEach((e, i) => {
+    const side = i === 0 ? 1 : -1;
+    tmpE.set(Math.sin(t * 28) * 0.15 * earTwitch - 0.25 * st, 0, side * (0.12 * earTwitch + 0.03 * Math.sin(t * 0.8)));
+    tmpQ2.setFromEuler(tmpE);
+    e.quaternion.copy(e.userData.q0).multiply(tmpQ2);
+  });
+
+  // --- paw wiggle + jelly pad wobble
+  paws.forEach(pw => {
+    pw.hover += ((pw.hovered ? 1 : 0) - pw.hover) * Math.min(1, dt * 6);
+    spring(pw.spring, 150, 6.5, dt, pw.hover * 0.25);
+    pw.wig = Math.max(0, pw.wig - dt * 0.6);
+    const wa = 1 + pw.wig * 2;
+    const w1 = Math.sin(t * (pw.hind ? 2.4 : 3.1) + pw.phase);
+    pw.group.rotation.set(
+      pw.r0.x + w1 * (pw.hind ? 0.05 : 0.1) * wa + pw.spring.x * 0.15,
+      pw.r0.y + Math.sin(t * 1.7 + pw.phase) * 0.05 * wa,
+      pw.r0.z + Math.sin(t * 2.2 + pw.phase * 1.3) * 0.08 * wa
+    );
+    pw.pads.forEach((pad, i) => {
+      const bs = pad.userData.bs, bp = pad.userData.bp;
+      const jig = 0.05 * Math.sin(t * 5.5 + i * 1.1 + pw.phase) * wa + pw.hover * 0.1 * Math.sin(t * 15 + i * 0.8);
+      const sq = THREE.MathUtils.clamp(pw.spring.x * (1 + 0.15 * i) + jig, -0.6, 0.8);
+      pad.scale.set(bs.x * (1 + 0.32 * sq), bs.y * (1 + 0.32 * sq), bs.z * (1 - 0.5 * sq));
+      pad.position.set(bp.x, bp.y + (i > 0 ? 0.004 * Math.sin(t * 6 - i * 0.9 + pw.phase) * wa : 0), bp.z);
+    });
+  });
+
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+</body>
+</html>

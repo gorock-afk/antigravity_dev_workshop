@@ -1,0 +1,1908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; background: #0c100e; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  powerPreference: 'high-performance'
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0f1512);
+scene.fog = new THREE.FogExp2(0x0f1512, 0.042);
+
+const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 60);
+camera.position.set(1.55, 1.35, 5.25);
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.055;
+controls.target.set(0.18, 0.65, 0.05);
+controls.minDistance = 2.0;
+controls.maxDistance = 12.0;
+controls.maxPolarAngle = Math.PI * 0.62;
+controls.update();
+
+// --- Procedural Studio + Forest Bokeh Environment Map ---
+function createStudioEnvironment() {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  pmrem.compileEquirectangularShader();
+  const envScene = new THREE.Scene();
+  envScene.background = new THREE.Color(0x18221c);
+
+  const domeGeo = new THREE.SphereGeometry(20, 32, 24);
+  const pos = domeGeo.attributes.position;
+  const cols = new Float32Array(pos.count * 3);
+  const cTop = new THREE.Color(0x526b5c);
+  const cMid = new THREE.Color(0x28362c);
+  const cBot = new THREE.Color(0x140e0a);
+  const tmp = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i) / 20;
+    if (y >= 0) {
+      tmp.lerpColors(cMid, cTop, Math.pow(y, 0.7));
+    } else {
+      tmp.lerpColors(cMid, cBot, Math.pow(-y, 0.7));
+    }
+    cols[i * 3] = tmp.r;
+    cols[i * 3 + 1] = tmp.g;
+    cols[i * 3 + 2] = tmp.b;
+  }
+  domeGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  const domeMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide });
+  envScene.add(new THREE.Mesh(domeGeo, domeMat));
+
+  // Studio softbox cards for crisp eye/nose reflections
+  const softbox1 = new THREE.Mesh(
+    new THREE.PlaneGeometry(7, 5),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(6.0, 5.4, 4.6), side: THREE.DoubleSide })
+  );
+  softbox1.position.set(6, 7, 8);
+  softbox1.lookAt(0, 0, 0);
+  envScene.add(softbox1);
+
+  const softbox2 = new THREE.Mesh(
+    new THREE.PlaneGeometry(6, 4),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.8, 3.8), side: THREE.DoubleSide })
+  );
+  softbox2.position.set(-8, 4, 5);
+  softbox2.lookAt(0, 0, 0);
+  envScene.add(softbox2);
+
+  const rimBox = new THREE.Mesh(
+    new THREE.PlaneGeometry(8, 5),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(5.0, 3.4, 1.8), side: THREE.DoubleSide })
+  );
+  rimBox.position.set(-4, 6, -8);
+  rimBox.lookAt(0, 0, 0);
+  envScene.add(rimBox);
+
+  const envRT = pmrem.fromScene(envScene, 0.035);
+  pmrem.dispose();
+  return envRT.texture;
+}
+scene.environment = createStudioEnvironment();
+
+// --- Three-Point Studio Lighting ---
+const hemiLight = new THREE.HemisphereLight(0xdbeed4, 0x3b281c, 0.85);
+scene.add(hemiLight);
+
+const keyLight = new THREE.DirectionalLight(0xfff1dc, 2.75);
+keyLight.position.set(4.2, 6.4, 5.2);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 1.0;
+keyLight.shadow.camera.far = 16.0;
+const d = 3.2;
+keyLight.shadow.camera.left = -d;
+keyLight.shadow.camera.right = d;
+keyLight.shadow.camera.top = d;
+keyLight.shadow.camera.bottom = -d;
+keyLight.shadow.bias = -0.0005;
+keyLight.shadow.normalBias = 0.015;
+scene.add(keyLight);
+
+const fillLight = new THREE.DirectionalLight(0xbad4ff, 1.25);
+fillLight.position.set(-5.2, 2.8, 3.8);
+scene.add(fillLight);
+
+const rimLight1 = new THREE.DirectionalLight(0xffb970, 2.35);
+rimLight1.position.set(-2.8, 4.6, -4.5);
+scene.add(rimLight1);
+
+const rimLight2 = new THREE.DirectionalLight(0xffe0b2, 1.35);
+rimLight2.position.set(3.8, 2.6, -3.6);
+scene.add(rimLight2);
+
+const underBounce = new THREE.PointLight(0x699b4c, 0.7, 5.0);
+underBounce.position.set(0.0, -0.2, 1.2);
+scene.add(underBounce);
+
+// --- Soft Contact Shadow Floor ---
+function createContactShadowPlane() {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 256;
+  const ctx = c.getContext('2d');
+  const grad = ctx.createRadialGradient(128, 128, 12, 128, 128, 124);
+  grad.addColorStop(0.0, 'rgba(3, 5, 4, 0.78)');
+  grad.addColorStop(0.55, 'rgba(3, 5, 4, 0.35)');
+  grad.addColorStop(1.0, 'rgba(3, 5, 4, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c);
+  const plane = new THREE.Mesh(
+    new THREE.PlaneGeometry(6.8, 3.6),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
+  );
+  plane.rotation.x = -Math.PI / 2;
+  plane.position.set(0.1, -1.68, 0.0);
+  scene.add(plane);
+}
+createContactShadowPlane();
+
+// --- Deterministic Pseudo-Random Helper ---
+let rngState = 133742;
+function srnd() {
+  rngState = (rngState * 1664525 + 1013904223) >>> 0;
+  return rngState / 4294967296;
+}
+function noise3D(x, y, z) {
+  const s = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+// --- Mossy Forest Log Segment ---
+const logGroup = new THREE.Group();
+logGroup.position.set(0.08, -1.02, 0.0);
+logGroup.rotation.y = 0.08;
+logGroup.rotation.z = -0.025;
+scene.add(logGroup);
+
+function buildMossyLog() {
+  const logLen = 3.85;
+  const logRad = 0.65;
+  const logGeo = new THREE.CylinderGeometry(logRad, logRad * 1.04, logLen, 64, 48, false);
+  logGeo.rotateZ(Math.PI / 2);
+
+  const pos = logGeo.attributes.position;
+  const uvs = logGeo.attributes.uv;
+  const colors = new Float32Array(pos.count * 3);
+  const cBarkDark = new THREE.Color(0x281911);
+  const cBarkMid = new THREE.Color(0x472d1e);
+  const cBarkHigh = new THREE.Color(0x5e3e2a);
+  const cWoodInner = new THREE.Color(0xb88652);
+  const cWoodRing = new THREE.Color(0x7d512b);
+  const cMossBase = new THREE.Color(0x2e591c);
+  const cMossBright = new THREE.Color(0x4f8228);
+  const tmpCol = new THREE.Color();
+
+  for (let i = 0; i < pos.count; i++) {
+    let x = pos.getX(i);
+    let y = pos.getY(i);
+    let z = pos.getZ(i);
+    const r = Math.hypot(y, z);
+    const angle = Math.atan2(z, y);
+    const isEndCap = Math.abs(x) > logLen * 0.498 && r < logRad * 0.96;
+
+    if (isEndCap) {
+      const ringWave = 0.5 + 0.5 * Math.sin(r * 42.0 + Math.sin(angle * 5.0) * 1.5);
+      const heartDark = r < 0.22 ? 0.78 : 1.0;
+      tmpCol.lerpColors(cWoodRing, cWoodInner, ringWave).multiplyScalar(heartDark);
+      x += Math.sin(r * 35.0) * 0.008 * Math.sign(x);
+      pos.setXYZ(i, x, y, z);
+    } else {
+      // Deep longitudinal bark furrows and organic knots
+      const furrow = Math.sin(angle * 18.0 + Math.sin(x * 2.4 + angle * 3.0) * 1.6) * 0.5 + 0.5;
+      const fineBark = Math.sin(angle * 42.0 + x * 6.0) * 0.5 + 0.5;
+      const knot1 = Math.exp(-((x + 0.95) * (x + 0.95) * 9.0 + (angle - 0.65) * (angle - 0.65) * 8.0));
+      const knot2 = Math.exp(-((x - 1.1) * (x - 1.1) * 8.0 + (angle + 0.5) * (angle + 0.5) * 7.0));
+      const archSwell = Math.cos(x * 0.8) * 0.03;
+
+      // Moss mask on upper surface
+      const upFactor = Math.max(0, y / (r + 0.0001));
+      const mossPatch = upFactor * (0.65 + 0.35 * Math.sin(x * 2.3 + z * 3.2) + 0.2 * Math.cos(x * 4.7 - z * 2.8));
+      const isMossy = mossPatch > 0.48;
+
+      const disp = (furrow * 0.038 + fineBark * 0.012 + (knot1 + knot2) * 0.065 + archSwell) * (isMossy ? 0.55 : 1.0) + (isMossy ? 0.025 : 0.0);
+      const scale = (r + disp) / (r + 0.0001);
+      y *= scale;
+      z *= scale;
+      pos.setXYZ(i, x, y, z);
+
+      const bMix = furrow * 0.7 + fineBark * 0.3;
+      tmpCol.lerpColors(cBarkDark, cBarkMid, bMix);
+      if (bMix > 0.65) tmpCol.lerp(cBarkHigh, (bMix - 0.65) * 2.0);
+
+      if (mossPatch > 0.40) {
+        const mBlend = THREE.MathUtils.smoothstep(mossPatch, 0.40, 0.62);
+        const mShade = 0.5 + 0.5 * Math.sin(x * 7.0 + angle * 9.0);
+        const mCol = cMossBase.clone().lerp(cMossBright, mShade);
+        tmpCol.lerp(mCol, mBlend);
+      }
+    }
+    colors[i * 3] = tmpCol.r;
+    colors[i * 3 + 1] = tmpCol.g;
+    colors[i * 3 + 2] = tmpCol.b;
+  }
+
+  logGeo.computeVertexNormals();
+  logGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+  const logMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.9,
+    metalness: 0.02
+  });
+  const logMesh = new THREE.Mesh(logGeo, logMat);
+  logMesh.castShadow = true;
+  logMesh.receiveShadow = true;
+  logGroup.add(logMesh);
+
+  // Add 3,600 Instanced 3D Moss Tufts on the top of the log
+  const mossCount = 3600;
+  const mossBladeGeo = new THREE.ConeGeometry(0.014, 0.075, 4, 2);
+  mossBladeGeo.translate(0, 0.0375, 0);
+  const mossMat = new THREE.MeshStandardMaterial({
+    roughness: 0.82,
+    metalness: 0.02
+  });
+  const mossInst = new THREE.InstancedMesh(mossBladeGeo, mossMat, mossCount);
+  mossInst.castShadow = false;
+  mossInst.receiveShadow = true;
+
+  const dummy = new THREE.Object3D();
+  const upVec = new THREE.Vector3(0, 1, 0);
+  const normVec = new THREE.Vector3();
+  const mossPalette = [
+    new THREE.Color(0x2d5a18),
+    new THREE.Color(0x3f7522),
+    new THREE.Color(0x568f2c),
+    new THREE.Color(0x6da638),
+    new THREE.Color(0x38661d)
+  ];
+
+  let mPlaced = 0;
+  while (mPlaced < mossCount) {
+    const lx = (srnd() - 0.5) * (logLen * 0.92);
+    const theta = (srnd() - 0.5) * 2.1; // top arc
+    const patchVal = Math.cos(theta) * (0.65 + 0.35 * Math.sin(lx * 2.3 + Math.sin(theta) * 2.1) + 0.2 * Math.cos(lx * 4.7));
+    if (patchVal < 0.43) continue;
+
+    const rSurf = logRad + 0.032 + Math.cos(lx * 0.8) * 0.03;
+    const ly = Math.cos(theta) * rSurf;
+    const lz = Math.sin(theta) * rSurf;
+
+    dummy.position.set(lx, ly, lz);
+    normVec.set((srnd() - 0.5) * 0.35, Math.cos(theta), Math.sin(theta)).normalize();
+    dummy.quaternion.setFromUnitVectors(upVec, normVec);
+    const s = 0.65 + srnd() * 0.85;
+    dummy.scale.set(s, s * (0.7 + patchVal * 0.6), s);
+    dummy.updateMatrix();
+    mossInst.setMatrixAt(mPlaced, dummy.matrix);
+
+    const mc = mossPalette[Math.floor(srnd() * mossPalette.length)].clone();
+    mc.offsetHSL((srnd() - 0.5) * 0.04, (srnd() - 0.5) * 0.1, (srnd() - 0.5) * 0.08);
+    mossInst.setColorAt(mPlaced, mc);
+    mPlaced++;
+  }
+  mossInst.instanceMatrix.needsUpdate = true;
+  mossInst.instanceColor.needsUpdate = true;
+  logGroup.add(mossInst);
+
+  // Cute Bracket Fungi / Woodland Mushrooms on the log side
+  const fungiMat = new THREE.MeshStandardMaterial({ color: 0xd9a166, roughness: 0.72 });
+  const fungiSpecs = [
+    { x: -1.32, y: 0.18, z: 0.64, s: 0.16, rz: -0.35 },
+    { x: -1.18, y: 0.06, z: 0.66, s: 0.11, rz: -0.42 },
+    { x: 1.28, y: 0.24, z: 0.61, s: 0.14, rz: -0.28 },
+    { x: 1.40, y: 0.12, z: 0.65, s: 0.09, rz: -0.38 }
+  ];
+  for (const f of fungiSpecs) {
+    const fGeo = new THREE.SphereGeometry(f.s, 18, 12, 0, Math.PI * 1.25, 0, Math.PI * 0.65);
+    fGeo.scale(1.2, 0.32, 0.85);
+    const fMesh = new THREE.Mesh(fGeo, fungiMat);
+    fMesh.position.set(f.x, f.y, f.z);
+    fMesh.rotation.set(0.2, -0.3, f.rz);
+    fMesh.castShadow = true;
+    fMesh.receiveShadow = true;
+    logGroup.add(fMesh);
+  }
+}
+buildMossyLog();
+
+// ============================================================================
+// BABY RED PANDA SKELETAL HIERARCHY & ANATOMY
+// ============================================================================
+const pandaRoot = new THREE.Group();
+pandaRoot.position.set(-0.08, -0.34, 0.04);
+scene.add(pandaRoot);
+
+// Bone index table (16 bones total):
+// 0: torsoBone
+// 1: headBone
+// 2: jawBone
+// 3: earLBone
+// 4: earRBone
+// 5: armLBone
+// 6: armRBone
+// 7: legLBone
+// 8: legRBone
+// 9..14: tailBones[0..5] (6 articulated tail segments)
+// 15: bambooTwigBone (for interactive leaf nibble)
+
+const bones = [];
+const torsoBone = new THREE.Group();
+torsoBone.position.set(0, 0, 0);
+pandaRoot.add(torsoBone);
+bones.push(torsoBone); // 0
+
+const headBone = new THREE.Group();
+headBone.position.set(0, 1.32, 0.22);
+torsoBone.add(headBone);
+bones.push(headBone); // 1
+
+const jawBone = new THREE.Group();
+jawBone.position.set(0, -0.02, 0.28);
+headBone.add(jawBone);
+bones.push(jawBone); // 2
+
+const earLBone = new THREE.Group();
+earLBone.position.set(-0.43, 0.48, -0.02);
+earLBone.rotation.set(0.12, 0.14, 0.44);
+headBone.add(earLBone);
+bones.push(earLBone); // 3
+
+const earRBone = new THREE.Group();
+earRBone.position.set(0.43, 0.48, -0.02);
+earRBone.rotation.set(0.12, -0.14, -0.44);
+headBone.add(earRBone);
+bones.push(earRBone); // 4
+
+const armLBone = new THREE.Group();
+armLBone.position.set(-0.38, 1.02, 0.16);
+torsoBone.add(armLBone);
+bones.push(armLBone); // 5
+
+const armRBone = new THREE.Group();
+armRBone.position.set(0.38, 1.02, 0.16);
+torsoBone.add(armRBone);
+bones.push(armRBone); // 6
+
+const legLBone = new THREE.Group();
+legLBone.position.set(-0.38, 0.26, 0.10);
+torsoBone.add(legLBone);
+bones.push(legLBone); // 7
+
+const legRBone = new THREE.Group();
+legRBone.position.set(0.38, 0.26, 0.10);
+torsoBone.add(legRBone);
+bones.push(legRBone); // 8
+
+// 6-bone articulated tail chain sweeping gracefully behind & alongside on the mossy log
+const tailBones = [];
+const tailOffsets = [
+  new THREE.Vector3(0.0, 0.24, -0.38),
+  new THREE.Vector3(0.16, -0.04, -0.36),
+  new THREE.Vector3(0.28, -0.03, -0.32),
+  new THREE.Vector3(0.34, 0.04, -0.24),
+  new THREE.Vector3(0.36, 0.10, -0.15),
+  new THREE.Vector3(0.34, 0.14, -0.08)
+];
+for (let i = 0; i < 6; i++) {
+  const tb = new THREE.Group();
+  tb.position.copy(tailOffsets[i]);
+  if (i === 0) {
+    torsoBone.add(tb);
+  } else {
+    tailBones[i - 1].add(tb);
+  }
+  tailBones.push(tb);
+  bones.push(tb); // 9..14
+}
+
+const bambooTwigBone = new THREE.Group();
+bambooTwigBone.position.set(0.0, 1.24, 0.68);
+torsoBone.add(bambooTwigBone);
+bones.push(bambooTwigBone); // 15
+
+// Compute rest-pose world matrices and their inverses for GPU delta skinning
+scene.updateMatrixWorld(true);
+for (let i = 0; i < bones.length; i++) {
+  bones[i].userData.restWorldMatrix = bones[i].matrixWorld.clone();
+  bones[i].userData.invRestMatrix = bones[i].matrixWorld.clone().invert();
+}
+
+// ============================================================================
+// MULTI-ZONE RED PANDA COLOR & FUR PARAMETER FUNCTION
+// ============================================================================
+// Zones:
+// - Rich rust / cinnamon-red fur on back, crown, shoulders, upper flanks
+// - Distinct bright white facial markings: eyebrow patches, muzzle, cheek patches, ear rims/tufts
+// - Dark russet-chocolate tear-tracks from eyes to jaw corners
+// - Dark chocolate-black legs, paws, chest, and belly
+// - Huge bushy tail with 6 alternating rust-red and cream-white rings + dark tip
+
+const COL_RUST_DEEP = new THREE.Color(0xa6300e);
+const COL_RUST_MID  = new THREE.Color(0xc94518);
+const COL_RUST_BRIGHT = new THREE.Color(0xe0642c);
+const COL_TEAR_TRACK = new THREE.Color(0x4f1507);
+const COL_WHITE_PURE = new THREE.Color(0xfcf8f0);
+const COL_WHITE_CREAM = new THREE.Color(0xf4e8d6);
+const COL_RING_CREAM = new THREE.Color(0xf5e5cc);
+const COL_CHOC_DARK = new THREE.Color(0x160e0b);
+const COL_CHOC_MID  = new THREE.Color(0x261812);
+const COL_PAW_SOLE  = new THREE.Color(0xa89b8e);
+
+function getPandaFurProps(part, localPos, localNormal, extraParam = 0) {
+  const color = new THREE.Color();
+  const flow = new THREE.Vector3();
+  let length = 0.16;
+  let thickness = 0.016;
+  let normalWeight = 0.55;
+
+  const x = localPos.x;
+  const y = localPos.y;
+  const z = localPos.z;
+  const ax = Math.abs(x);
+
+  if (part === 'head') {
+    // Head center is around (0, 0.18, 0.05), eyes at (±0.22, 0.18, 0.44), nose at (0, 0.10, 0.68)
+    // 1. Snout / Muzzle distance
+    const dMuzzle = Math.hypot(ax / 0.21, (y - 0.04) / 0.16, (z - 0.52) / 0.22);
+    // 2. Eyebrow oval patches above eyes: (±0.20, 0.31, 0.39), tilted outward
+    const bx = ax - 0.205;
+    const by = y - 0.315;
+    const rotBx = bx * 0.92 + by * 0.38;
+    const rotBy = -bx * 0.38 + by * 0.92;
+    const dBrow = (z > 0.20) ? Math.hypot(rotBx / 0.095, rotBy / 0.058) : 99.0;
+
+    // 3. Tear-tracks running from eye inner/lower corner (ax~0.20, y~0.16) down to mouth corner (ax~0.25, y~-0.06)
+    const tearTrackX = 0.195 + Math.max(0, 0.16 - y) * 0.26;
+    const dTear = (z > 0.22 && y > -0.10 && y < 0.19)
+      ? Math.hypot((ax - tearTrackX) / 0.062, (y - 0.04) / 0.145)
+      : 99.0;
+
+    // 4. White cheek patches lateral to tear-tracks
+    const isCheekWhite = (z > 0.02 && ax > tearTrackX + 0.045 && y < 0.21 && y > -0.18);
+    const cheekBlend = isCheekWhite
+      ? THREE.MathUtils.smoothstep(ax, tearTrackX + 0.03, tearTrackX + 0.10) *
+        THREE.MathUtils.smoothstep(z, -0.02, 0.16) *
+        (1.0 - THREE.MathUtils.smoothstep(y, 0.14, 0.23))
+      : 0.0;
+
+    // Base head color: rich cinnamon-rust
+    const crownVar = 0.5 + 0.5 * Math.sin(x * 9.0 + y * 7.0 + z * 8.0);
+    color.lerpColors(COL_RUST_MID, COL_RUST_BRIGHT, crownVar);
+    if (y > 0.34) color.lerp(COL_RUST_DEEP, 0.25);
+
+    // Apply cheek white patch
+    if (cheekBlend > 0.01) {
+      color.lerp(COL_WHITE_PURE, cheekBlend);
+    }
+    // Apply eyebrow white badge
+    if (dBrow < 1.15) {
+      const browMix = 1.0 - THREE.MathUtils.smoothstep(dBrow, 0.65, 1.15);
+      color.lerp(COL_WHITE_PURE, browMix);
+    }
+    // Apply white muzzle
+    if (dMuzzle < 1.15 && z > 0.34) {
+      const muzMix = 1.0 - THREE.MathUtils.smoothstep(dMuzzle, 0.7, 1.15);
+      color.lerp(COL_WHITE_PURE, muzMix);
+    }
+    // Apply dark russet tear-tracks (strongest priority around eye-to-cheek groove)
+    if (dTear < 1.08) {
+      const tearMix = (1.0 - THREE.MathUtils.smoothstep(dTear, 0.55, 1.08)) * THREE.MathUtils.smoothstep(z, 0.22, 0.34);
+      color.lerp(COL_TEAR_TRACK, tearMix * 0.92);
+    }
+
+    // Fur length & flow on head: short on snout & around eyes so eyes/nose shine clearly, super fluffy on cheeks!
+    const dEye = Math.hypot((ax - 0.22) / 0.11, (y - 0.18) / 0.11, (z - 0.44) / 0.12);
+    const dNose = Math.hypot(ax / 0.13, (y - 0.10) / 0.11, (z - 0.68) / 0.12);
+
+    if (dEye < 1.35 || dNose < 1.45 || (z > 0.45 && y < 0.16)) {
+      length = 0.055 + srnd() * 0.035;
+      thickness = 0.012;
+      normalWeight = 0.45;
+    } else if (ax > 0.36 && y < 0.22) {
+      // Iconic ultra-fluffy cheek ruffs!
+      length = 0.21 + srnd() * 0.09;
+      thickness = 0.019;
+      normalWeight = 0.68;
+    } else if (dBrow < 1.0) {
+      length = 0.12 + srnd() * 0.045;
+      thickness = 0.016;
+    } else {
+      length = 0.14 + srnd() * 0.065;
+      thickness = 0.016;
+    }
+
+    // Grooming flow: radially away from nose bridge, flaring out & down on cheeks
+    flow.set(x * 1.1, (y > 0.22 ? 0.35 : -0.55), -0.45).normalize();
+
+  } else if (part === 'jaw') {
+    color.copy(COL_WHITE_PURE);
+    if (z < -0.02 || y < -0.09) {
+      color.lerp(COL_CHOC_DARK, THREE.MathUtils.smoothstep(-z, -0.02, 0.12));
+    }
+    length = 0.065 + srnd() * 0.035;
+    thickness = 0.013;
+    flow.set(x * 0.5, -0.4, -0.8).normalize();
+
+  } else if (part === 'earL' || part === 'earR') {
+    // Ear local space: y from 0 to 0.34, x from -0.18 to 0.18, z > 0 is front/inner ear
+    const rimDist = Math.hypot(x / 0.16, (y - 0.14) / 0.18);
+    const isFrontOrRim = z > -0.005 || rimDist > 0.74;
+    if (isFrontOrRim) {
+      const whiteMix = THREE.MathUtils.clamp((z + 0.025) * 18.0 + Math.max(0, rimDist - 0.68) * 3.5, 0, 1);
+      color.lerpColors(COL_TEAR_TRACK, COL_WHITE_PURE, whiteMix);
+      length = 0.15 + srnd() * 0.095;
+      thickness = 0.017;
+      normalWeight = 0.72;
+    } else {
+      // Back of ear: deep chocolate-russet
+      color.lerpColors(COL_CHOC_MID, COL_TEAR_TRACK, 0.65);
+      length = 0.10 + srnd() * 0.045;
+      thickness = 0.015;
+    }
+    flow.set(x * 1.6, 0.85, 0.25).normalize();
+
+  } else if (part === 'torso') {
+    // Rich rust/cinnamon-red on back, neck, shoulders, flanks; dark chocolate-black on chest & belly
+    const bellyZone = THREE.MathUtils.smoothstep(z, 0.04, 0.28) *
+                      (1.0 - THREE.MathUtils.smoothstep(ax, 0.26, 0.48)) *
+                      (1.0 - THREE.MathUtils.smoothstep(y, 1.05, 1.28));
+    const underPelvis = 1.0 - THREE.MathUtils.smoothstep(y, 0.08, 0.28);
+    const darkMix = Math.min(1.0, bellyZone + underPelvis * 0.85);
+
+    const rustShade = 0.5 + 0.5 * Math.sin(x * 6.0 + y * 5.0 - z * 6.0);
+    color.lerpColors(COL_RUST_DEEP, COL_RUST_MID, rustShade);
+    if (y > 0.65 && z < 0.05) {
+      color.lerp(COL_RUST_BRIGHT, 0.38);
+    }
+    if (darkMix > 0.01) {
+      const chocCol = COL_CHOC_DARK.clone().lerp(COL_CHOC_MID, 0.35);
+      color.lerp(chocCol, darkMix);
+    }
+
+    length = 0.18 + srnd() * 0.095;
+    thickness = 0.019;
+    normalWeight = 0.58;
+    flow.set(x * 0.35, -0.82, -0.35).normalize();
+
+  } else if (part === 'armL' || part === 'armR') {
+    // extraParam = t along arm from shoulder (0) to paw (1)
+    const shoulderRust = 1.0 - THREE.MathUtils.smoothstep(extraParam, 0.0, 0.26);
+    color.lerpColors(COL_CHOC_DARK, COL_CHOC_MID, 0.3 + 0.4 * srnd());
+    if (shoulderRust > 0.01) {
+      color.lerp(COL_RUST_DEEP, shoulderRust * 0.78);
+    }
+    length = THREE.MathUtils.lerp(0.18, 0.075, THREE.MathUtils.smoothstep(extraParam, 0.45, 0.95)) * (0.85 + 0.3 * srnd());
+    thickness = 0.016;
+    flow.set(0.0, -0.55, 0.65).normalize();
+
+  } else if (part === 'legL' || part === 'legR') {
+    // extraParam = t along leg from hip (0) to hind paw (1)
+    const hipRust = (1.0 - THREE.MathUtils.smoothstep(extraParam, 0.0, 0.22)) * (localNormal.y > 0.1 ? 0.65 : 0.0);
+    color.lerpColors(COL_CHOC_DARK, COL_CHOC_MID, 0.28 + 0.45 * srnd());
+    if (hipRust > 0.01) {
+      color.lerp(COL_RUST_DEEP, hipRust);
+    }
+    // Pale fuzzy sole edge on bottom of hind feet
+    if (extraParam > 0.78 && localNormal.y < -0.25) {
+      color.lerp(COL_PAW_SOLE, 0.65);
+    }
+    length = THREE.MathUtils.lerp(0.19, 0.085, THREE.MathUtils.smoothstep(extraParam, 0.55, 0.96)) * (0.85 + 0.3 * srnd());
+    thickness = 0.017;
+    flow.set(0.0, -0.65, 0.55).normalize();
+
+  } else if (part === 'tail') {
+    // Huge bushy tail with 6 alternating rust-red and cream-white rings!
+    // extraParam = tailT from 0.0 (base) to 1.0 (tip)
+    const jitterT = THREE.MathUtils.clamp(extraParam + (srnd() - 0.5) * 0.022, 0.0, 1.0);
+    if (jitterT > 0.925) {
+      // Dark chocolate-russet tail tip
+      const tipMix = THREE.MathUtils.smoothstep(jitterT, 0.925, 0.96);
+      color.lerpColors(COL_RUST_DEEP, COL_CHOC_MID, tipMix);
+    } else {
+      // 6 alternating rust-red and cream-white rings across [0, 0.925]
+      const cyclePos = (jitterT / 0.925) * 6.0; // 0..6 cycles (6 rust + 6 cream rings)
+      const wave = Math.sin(cyclePos * Math.PI * 2.0);
+      // Smooth band transition
+      const ringMix = THREE.MathUtils.smoothstep(wave, -0.28, 0.28);
+      const rustCol = COL_RUST_MID.clone().lerp(COL_RUST_BRIGHT, 0.35 * srnd());
+      const creamCol = COL_RING_CREAM.clone().lerp(COL_WHITE_PURE, 0.45);
+      color.lerpColors(creamCol, rustCol, ringMix);
+    }
+
+    // Ultra-fluffy long plumes on the tail
+    const midSwell = Math.sin(Math.min(1.0, extraParam * 1.15) * Math.PI) * 0.08;
+    length = 0.23 + midSwell + srnd() * 0.11;
+    thickness = 0.021;
+    normalWeight = 0.66;
+    // Flow points along the tail toward the tip (+X / -Z in world)
+    flow.set(0.75, 0.05, -0.55).normalize();
+  }
+
+  // Slight organic per-strand tonal richness
+  color.offsetHSL((srnd() - 0.5) * 0.015, (srnd() - 0.5) * 0.05, (srnd() - 0.5) * 0.045);
+
+  return { color, flow, length, thickness, normalWeight };
+}
+
+// ============================================================================
+// BUILD UNDERLYING ANATOMICAL SKIN MESHES, EYES, NOSE, MOUTH, PAWS & BAMBOO
+// ============================================================================
+const hitMeshes = []; // Used for fast Raycaster fur-parting interaction
+const furSurfaces = []; // Registered surfaces for sampling 28,000+ 3D fur strands
+
+function createColoredSkinMaterial() {
+  return new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.92,
+    metalness: 0.01
+  });
+}
+const skinMaterial = createColoredSkinMaterial();
+
+// Helper to deform, color, attach to bone, and register a body part mesh for fur sampling
+function addFurryPartMesh(geo, boneIdxA, boneIdxB, partName, weightFn, extraParamFn) {
+  geo.computeVertexNormals();
+  const pos = geo.attributes.position;
+  const norm = geo.attributes.normal;
+  const cols = new Float32Array(pos.count * 3);
+  const vPos = new THREE.Vector3();
+  const vNorm = new THREE.Vector3();
+
+  for (let i = 0; i < pos.count; i++) {
+    vPos.fromBufferAttribute(pos, i);
+    vNorm.fromBufferAttribute(norm, i);
+    const ep = extraParamFn ? extraParamFn(vPos) : 0;
+    const props = getPandaFurProps(partName, vPos, vNorm, ep);
+    // Darken skin to match fur root undercoat (0.42x) so parted fur shows natural undercoat
+    cols[i * 3]     = props.color.r * 0.44;
+    cols[i * 3 + 1] = props.color.g * 0.44;
+    cols[i * 3 + 2] = props.color.b * 0.44;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+
+  const mesh = new THREE.Mesh(geo, skinMaterial);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  bones[boneIdxA].add(mesh);
+  hitMeshes.push(mesh);
+
+  furSurfaces.push({
+    mesh,
+    geo,
+    boneIdxA,
+    boneIdxB,
+    partName,
+    weightFn,
+    extraParamFn
+  });
+  return mesh;
+}
+
+// 1. TORSO MESH (Plump sitting baby Red Panda torso)
+{
+  const torsoGeo = new THREE.SphereGeometry(1.0, 44, 36);
+  const pos = torsoGeo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    let x = pos.getX(i);
+    let y = pos.getY(i); // -1 to 1
+    let z = pos.getZ(i);
+    const t = (y + 1.0) * 0.5; // 0 at bottom on log, 1 at neck
+    // Pear-shaped chubby baby panda body
+    const rx = THREE.MathUtils.lerp(0.62, 0.42, Math.pow(t, 1.25)) + Math.sin(t * Math.PI) * 0.08;
+    const rz = THREE.MathUtils.lerp(0.56, 0.38, Math.pow(t, 1.2)) + (z > 0 ? Math.sin(t * Math.PI) * 0.10 : 0.02);
+    x *= rx;
+    z = z * rz + Math.pow(t, 1.3) * 0.18; // gentle forward hunch
+    y = t * 1.32; // height from 0.0 to 1.32
+    if (y < 0.14) y = THREE.MathUtils.lerp(0.03, y, y / 0.14); // flatten slightly where sitting on log
+    pos.setXYZ(i, x, y, z);
+  }
+  addFurryPartMesh(
+    torsoGeo,
+    0,
+    1,
+    'torso',
+    (p) => THREE.MathUtils.smoothstep(p.y, 1.12, 1.32) * 0.5,
+    (p) => p.y / 1.32
+  );
+}
+
+// 2. HEAD MESH (Round cranium + broad fluffy cheek ruffs + compact cute white snout)
+{
+  const headGeo = new THREE.SphereGeometry(1.0, 48, 40);
+  const pos = headGeo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    let x = pos.getX(i);
+    let y = pos.getY(i);
+    let z = pos.getZ(i);
+
+    // Base round baby cranium
+    let hx = x * 0.52;
+    let hy = y * 0.44 + 0.18;
+    let hz = z * 0.46 + 0.05;
+
+    // Broad triangular-round cheek ruffs on sides/lower head
+    const cheekFactor = Math.exp(-((y + 0.15) * (y + 0.15) * 4.5 + (z - 0.05) * (z - 0.05) * 4.0)) * Math.pow(Math.abs(x), 0.75);
+    hx += Math.sign(x) * cheekFactor * 0.22;
+    hy -= cheekFactor * 0.04;
+
+    // Protruding cute compact snout in front (+z)
+    if (z > 0.2) {
+      const snoutFactor = Math.exp(-((x * x) * 5.2 + (y + 0.22) * (y + 0.22) * 6.5)) * Math.pow((z - 0.2) / 0.8, 1.1);
+      hz += snoutFactor * 0.25;
+      hy -= snoutFactor * 0.03;
+    }
+
+    // Subtle eye socket indentations around (±0.22, 0.18, 0.44)
+    const eyeSocket = Math.exp(-(((Math.abs(x) - 0.42) ** 2) * 14.0 + ((y - 0.02) ** 2) * 14.0)) * Math.max(0, z);
+    hz -= eyeSocket * 0.035;
+
+    pos.setXYZ(i, hx, hy, hz);
+  }
+  addFurryPartMesh(headGeo, 1, 1, 'head', null, null);
+}
+
+// 3. LOWER JAW / CHIN MESH
+{
+  const jawGeo = new THREE.SphereGeometry(1.0, 24, 18);
+  const pos = jawGeo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i) * 0.19;
+    const y = pos.getY(i) * 0.095 - 0.055;
+    const z = pos.getZ(i) * 0.21 + 0.15;
+    pos.setXYZ(i, x, y, z);
+  }
+  addFurryPartMesh(jawGeo, 2, 2, 'jaw', null, null);
+
+  // Cute pink tongue & inner mouth cavity on jawBone
+  const tongueGeo = new THREE.SphereGeometry(0.085, 16, 12);
+  tongueGeo.scale(0.95, 0.35, 1.45);
+  const tongueMat = new THREE.MeshStandardMaterial({ color: 0xe36b77, roughness: 0.35 });
+  const tongueMesh = new THREE.Mesh(tongueGeo, tongueMat);
+  tongueMesh.position.set(0, -0.01, 0.21);
+  jawBone.add(tongueMesh);
+
+  // Tiny white lower teeth
+  const toothGeo = new THREE.ConeGeometry(0.014, 0.032, 8);
+  const toothMat = new THREE.MeshStandardMaterial({ color: 0xfaf6ee, roughness: 0.2 });
+  for (const sx of [-1, 1]) {
+    const canine = new THREE.Mesh(toothGeo, toothMat);
+    canine.position.set(sx * 0.068, 0.008, 0.285);
+    jawBone.add(canine);
+  }
+}
+
+// 4. LEFT & RIGHT EARS (Rounded triangular cups with prominent white rims)
+function createEarGeometry() {
+  const geo = new THREE.SphereGeometry(1.0, 28, 24);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    let x = pos.getX(i);
+    let y = pos.getY(i);
+    let z = pos.getZ(i);
+    const h = (y + 1.0) * 0.5; // 0 at base, 1 at rounded tip
+    const widthProfile = Math.sin(Math.pow(h, 0.65) * Math.PI) * 0.20 + (1.0 - h) * 0.06;
+    x *= widthProfile;
+    y = h * 0.34 - 0.02;
+    // Cup the front of the ear slightly inward
+    const cup = (z > 0) ? -Math.sin(h * Math.PI) * (1.0 - Math.min(1.0, Math.abs(x) / 0.16)) * 0.035 : 0.0;
+    z = z * 0.065 + cup;
+    pos.setXYZ(i, x, y, z);
+  }
+  return geo;
+}
+addFurryPartMesh(createEarGeometry(), 3, 3, 'earL', null, null);
+addFurryPartMesh(createEarGeometry(), 4, 4, 'earR', null, null);
+
+// 5. GLOSSY DARK EYES WITH CATCHLIGHTS, EYELIDS, SHINY BLACK NOSE & WHISKERS
+{
+  const eyeMat = new THREE.MeshPhysicalMaterial({
+    color: 0x0c0705,
+    emissive: 0x120804,
+    emissiveIntensity: 0.25,
+    roughness: 0.035,
+    metalness: 0.02,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.02,
+    reflectivity: 1.0
+  });
+  const lidMat = new THREE.MeshStandardMaterial({
+    color: 0x1a0c08,
+    roughness: 0.65
+  });
+  const catchMat1 = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const catchMat2 = new THREE.MeshBasicMaterial({ color: 0xffe9d2 });
+
+  const eyeGroups = [];
+  for (const sx of [-1, 1]) {
+    const eyeGrp = new THREE.Group();
+    eyeGrp.position.set(sx * 0.215, 0.185, 0.455);
+    eyeGrp.rotation.y = sx * 0.24;
+    eyeGrp.rotation.x = -0.06;
+    headBone.add(eyeGrp);
+    eyeGroups.push(eyeGrp);
+
+    const eyeBall = new THREE.Mesh(new THREE.SphereGeometry(0.086, 28, 24), eyeMat);
+    eyeBall.scale.set(1.0, 1.04, 0.92);
+    eyeGrp.add(eyeBall);
+
+    // Subtle dark eyelid rim framing the eye
+    const lidRim = new THREE.Mesh(new THREE.TorusGeometry(0.084, 0.014, 10, 28), lidMat);
+    lidRim.position.z = 0.012;
+    lidRim.scale.set(1.02, 1.05, 0.8);
+    eyeGrp.add(lidRim);
+
+    // Primary bright white studio catchlight
+    const catch1 = new THREE.Mesh(new THREE.SphereGeometry(0.021, 14, 12), catchMat1);
+    catch1.position.set(0.024, 0.028, 0.074);
+    eyeGrp.add(catch1);
+
+    // Secondary lower catchlight dot
+    const catch2 = new THREE.Mesh(new THREE.SphereGeometry(0.010, 10, 10), catchMat2);
+    catch2.position.set(-0.026, -0.024, 0.075);
+    eyeGrp.add(catch2);
+  }
+  headBone.userData.eyeGroups = eyeGroups;
+
+  // Shiny Black Button Nose with Nostrils
+  const noseGeo = new THREE.SphereGeometry(1.0, 28, 22);
+  const nPos = noseGeo.attributes.position;
+  for (let i = 0; i < nPos.count; i++) {
+    let x = nPos.getX(i);
+    let y = nPos.getY(i);
+    let z = nPos.getZ(i);
+    // Cute heart-button shape: wider at top, tapered at bottom
+    const topWiden = 0.88 + 0.28 * THREE.MathUtils.clamp(y + 0.3, 0.0, 1.2);
+    x *= 0.095 * topWiden;
+    y *= 0.072;
+    z *= 0.075;
+    // Nostril dimples on front-sides
+    const nostril = Math.exp(-(((Math.abs(x) - 0.048) ** 2) * 1400.0 + ((y + 0.008) ** 2) * 1600.0)) * Math.max(0, z);
+    z -= nostril * 0.28;
+    nPos.setXYZ(i, x, y, z);
+  }
+  noseGeo.computeVertexNormals();
+  const noseMat = new THREE.MeshPhysicalMaterial({
+    color: 0x100c0b,
+    roughness: 0.12,
+    metalness: 0.04,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.08
+  });
+  const noseMesh = new THREE.Mesh(noseGeo, noseMat);
+  noseMesh.position.set(0, 0.11, 0.685);
+  headBone.add(noseMesh);
+
+  // Specular highlight dot on top of wet nose
+  const noseHighlight = new THREE.Mesh(
+    new THREE.SphereGeometry(0.015, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xfff5ea, transparent: true, opacity: 0.55 })
+  );
+  noseHighlight.scale.set(1.6, 0.65, 0.5);
+  noseHighlight.position.set(0.018, 0.148, 0.742);
+  headBone.add(noseHighlight);
+
+  // Dark upper lip philtrum groove
+  const philtrum = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.006, 0.006, 0.068, 8),
+    lidMat
+  );
+  philtrum.position.set(0, 0.055, 0.665);
+  philtrum.rotation.x = 0.22;
+  headBone.add(philtrum);
+
+  // Translucent Ivory Whiskers (Vibrissae)
+  const whiskerMat = new THREE.MeshStandardMaterial({
+    color: 0xfdfaf2,
+    roughness: 0.3,
+    transparent: true,
+    opacity: 0.85
+  });
+  for (const sx of [-1, 1]) {
+    for (let w = 0; w < 5; w++) {
+      const wy = 0.04 + (w - 2) * 0.022;
+      const wz = 0.56 - Math.abs(w - 2) * 0.025;
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(sx * 0.13, wy, wz),
+        new THREE.Vector3(sx * (0.28 + w * 0.02), wy - 0.015, wz - 0.02),
+        new THREE.Vector3(sx * (0.44 + w * 0.025), wy - 0.055 - w * 0.008, wz - 0.08)
+      ]);
+      const wGeo = new THREE.TubeGeometry(curve, 10, 0.0032, 5, false);
+      headBone.add(new THREE.Mesh(wGeo, whiskerMat));
+    }
+  }
+}
+
+// 6. FRONT ARMS & PAWS HOLDING THE BAMBOO STALK
+function buildArmAndPaw(isRight) {
+  const sx = isRight ? 1 : -1;
+  const boneIdx = isRight ? 6 : 5;
+  const armBone = bones[boneIdx];
+
+  // Curve from shoulder (0,0,0) in armBone space to front paw clasping bamboo at (-sx*0.25, 0.10 + (isRight?0.06:-0.02), 0.54)
+  const wristY = isRight ? 0.12 : 0.04;
+  const curve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(sx * 0.05, -0.06, 0.20),
+    new THREE.Vector3(-sx * 0.08, wristY * 0.5 - 0.02, 0.39),
+    new THREE.Vector3(-sx * 0.24, wristY, 0.53)
+  ]);
+
+  const armGeo = new THREE.TubeGeometry(curve, 24, 0.165, 20, false);
+  const pos = armGeo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const z = pos.getZ(i);
+    const t = THREE.MathUtils.clamp(z / 0.54, 0, 1);
+    const swell = 1.0 - t * 0.18 + Math.sin(t * Math.PI) * 0.12;
+    const pt = curve.getPointAt(t);
+    pos.setXYZ(
+      i,
+      pt.x + (pos.getX(i) - pt.x) * swell,
+      pt.y + (pos.getY(i) - pt.y) * swell,
+      pt.z + (pos.getZ(i) - pt.z) * swell
+    );
+  }
+  addFurryPartMesh(
+    armGeo,
+    boneIdx,
+    boneIdx,
+    isRight ? 'armR' : 'armL',
+    null,
+    (p) => THREE.MathUtils.clamp(p.z / 0.54, 0, 1)
+  );
+
+  // Rounded Front Paw & 5 Digits + Curved Ivory Claws gripping the bamboo
+  const pawTip = curve.getPointAt(1.0);
+  const pawGeo = new THREE.SphereGeometry(0.135, 18, 14);
+  pawGeo.scale(1.05, 0.82, 1.15);
+  pawGeo.translate(pawTip.x, pawTip.y, pawTip.z);
+  addFurryPartMesh(pawGeo, boneIdx, boneIdx, isRight ? 'armR' : 'armL', null, () => 0.92);
+
+  const clawMat = new THREE.MeshStandardMaterial({ color: 0xeee4d3, roughness: 0.35 });
+  const padMat = new THREE.MeshStandardMaterial({ color: 0x2b201c, roughness: 0.75 });
+  for (let d = 0; d < 4; d++) {
+    const dy = (d - 1.5) * 0.036;
+    const digit = new THREE.Mesh(new THREE.SphereGeometry(0.034, 10, 8), padMat);
+    digit.scale.set(1.2, 0.85, 1.3);
+    digit.position.set(pawTip.x - sx * 0.08, pawTip.y + dy, pawTip.z + 0.075);
+    armBone.add(digit);
+
+    const claw = new THREE.Mesh(new THREE.ConeGeometry(0.012, 0.048, 8), clawMat);
+    claw.position.set(pawTip.x - sx * 0.115, pawTip.y + dy, pawTip.z + 0.095);
+    claw.rotation.z = sx * 1.25;
+    claw.rotation.x = 0.35;
+    armBone.add(claw);
+  }
+}
+buildArmAndPaw(false);
+buildArmAndPaw(true);
+
+// 7. CHUBBY HIND LEGS & PIGEON-TOED PAWS RESTING ON THE MOSSY LOG
+function buildLegAndPaw(isRight) {
+  const sx = isRight ? 1 : -1;
+  const boneIdx = isRight ? 8 : 7;
+  const legBone = bones[boneIdx];
+
+  const curve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(sx * 0.08, -0.06, 0.22),
+    new THREE.Vector3(sx * 0.05, -0.14, 0.42),
+    new THREE.Vector3(sx * 0.01, -0.16, 0.56)
+  ]);
+
+  const legGeo = new THREE.TubeGeometry(curve, 22, 0.185, 20, false);
+  const pos = legGeo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const z = pos.getZ(i);
+    const t = THREE.MathUtils.clamp(z / 0.56, 0, 1);
+    const swell = 1.08 - t * 0.22;
+    const pt = curve.getPointAt(t);
+    pos.setXYZ(
+      i,
+      pt.x + (pos.getX(i) - pt.x) * swell,
+      pt.y + (pos.getY(i) - pt.y) * (t > 0.7 ? swell * 0.72 : swell),
+      pt.z + (pos.getZ(i) - pt.z) * swell
+    );
+  }
+  addFurryPartMesh(
+    legGeo,
+    boneIdx,
+    boneIdx,
+    isRight ? 'legR' : 'legL',
+    null,
+    (p) => THREE.MathUtils.clamp(p.z / 0.56, 0, 1)
+  );
+
+  // Cute pigeon-toed hind paw with 5 toes and curved claws
+  const ankle = curve.getPointAt(1.0);
+  const pawGeo = new THREE.SphereGeometry(0.15, 18, 14);
+  pawGeo.scale(1.12, 0.68, 1.25);
+  pawGeo.rotateY(-sx * 0.28); // pigeon-toed inward turn!
+  pawGeo.translate(ankle.x, ankle.y - 0.01, ankle.z + 0.05);
+  addFurryPartMesh(pawGeo, boneIdx, boneIdx, isRight ? 'legR' : 'legL', null, () => 0.92);
+
+  const clawMat = new THREE.MeshStandardMaterial({ color: 0xeee4d3, roughness: 0.35 });
+  for (let d = 0; d < 5; d++) {
+    const angle = (d - 2) * 0.22 - sx * 0.26;
+    const tx = ankle.x + Math.sin(angle) * 0.15;
+    const tz = ankle.z + 0.05 + Math.cos(angle) * 0.16;
+    const claw = new THREE.Mesh(new THREE.ConeGeometry(0.013, 0.052, 8), clawMat);
+    claw.position.set(tx, ankle.y - 0.025, tz);
+    claw.rotation.x = Math.PI * 0.42;
+    claw.rotation.z = -angle;
+    legBone.add(claw);
+  }
+}
+buildLegAndPaw(false);
+buildLegAndPaw(true);
+
+// 8. HUGE BUSHY RINGED TAIL MESH (Spanning the 6 articulated tail bones)
+{
+  // Collect the rest-pose world positions of tailBones[0..5] plus an extended tip point
+  const tailRestPts = [];
+  for (let i = 0; i < 6; i++) {
+    const p = new THREE.Vector3();
+    tailBones[i].getWorldPosition(p);
+    torsoBone.worldToLocal(p); // in torsoBone local space
+    tailRestPts.push(p);
+  }
+  // Add tail tip beyond bone 5
+  const tipPt = tailRestPts[5].clone().add(new THREE.Vector3(0.32, 0.14, -0.05));
+  tailRestPts.push(tipPt);
+
+  const tailCurve = new THREE.CatmullRomCurve3(tailRestPts);
+  const tailSegs = 64;
+  const tailRadSegs = 28;
+  const tailGeo = new THREE.TubeGeometry(tailCurve, tailSegs, 0.24, tailRadSegs, false);
+
+  // Plump cylindrical-plumed profile with rounded dome cap at tip
+  const pos = tailGeo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const ringIdx = Math.floor(i / (tailRadSegs + 1));
+    const u = ringIdx / tailSegs; // 0 at base, 1 at tip
+    const center = tailCurve.getPointAt(u);
+    // Swells from 0.72x at base to 1.22x in mid-tail, rounding smoothly to 0.15x at tip
+    let profile = Math.sin(Math.pow(u, 0.65) * Math.PI * 0.92) * 0.55 + 0.68;
+    if (u > 0.86) {
+      const capT = (u - 0.86) / 0.14;
+      profile *= Math.sqrt(Math.max(0.02, 1.0 - capT * capT));
+    }
+    pos.setXYZ(
+      i,
+      center.x + (pos.getX(i) - center.x) * profile,
+      center.y + (pos.getY(i) - center.y) * profile,
+      center.z + (pos.getZ(i) - center.z) * profile
+    );
+  }
+
+  // Register tail mesh on torsoBone with custom per-vertex 2-bone tail skinning lookup
+  tailGeo.computeVertexNormals();
+  const norm = tailGeo.attributes.normal;
+  const cols = new Float32Array(pos.count * 3);
+  const vPos = new THREE.Vector3();
+  const vNorm = new THREE.Vector3();
+
+  for (let i = 0; i < pos.count; i++) {
+    const ringIdx = Math.floor(i / (tailRadSegs + 1));
+    const u = ringIdx / tailSegs;
+    vPos.fromBufferAttribute(pos, i);
+    vNorm.fromBufferAttribute(norm, i);
+    const props = getPandaFurProps('tail', vPos, vNorm, u);
+    cols[i * 3]     = props.color.r * 0.44;
+    cols[i * 3 + 1] = props.color.g * 0.44;
+    cols[i * 3 + 2] = props.color.b * 0.44;
+  }
+  tailGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+
+  const tailSkinMesh = new THREE.Mesh(tailGeo, skinMaterial);
+  tailSkinMesh.castShadow = true;
+  tailSkinMesh.receiveShadow = true;
+  torsoBone.add(tailSkinMesh);
+  hitMeshes.push(tailSkinMesh);
+
+  furSurfaces.push({
+    mesh: tailSkinMesh,
+    geo: tailGeo,
+    isTail: true,
+    tailCurve,
+    partName: 'tail'
+  });
+}
+
+// ============================================================================
+// 9. FRESH GREEN BAMBOO STALK WITH NODES & LEAVES (HELD IN PAWS & NIBBLED)
+// ============================================================================
+const bambooLeaves = [];
+function buildBambooStalkAndLeaves() {
+  // Main stalk runs from (-0.42, 0.35, 0.56) through paws (0.0, 1.12, 0.70) to top (0.18, 1.54, 0.76) in torsoBone space
+  const stalkCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-0.44, 0.34, 0.56),
+    new THREE.Vector3(-0.20, 0.76, 0.65),
+    new THREE.Vector3(0.01, 1.13, 0.70),
+    new THREE.Vector3(0.16, 1.50, 0.75)
+  ]);
+
+  const stalkSegs = 48;
+  const stalkGeo = new THREE.TubeGeometry(stalkCurve, stalkSegs, 0.042, 18, false);
+  const pos = stalkGeo.attributes.position;
+  const cols = new Float32Array(pos.count * 3);
+  const cNode = new THREE.Color(0x88a844);
+  const cInternode = new THREE.Color(0x52872b);
+  const cHighlight = new THREE.Color(0x6fa638);
+  const tmp = new THREE.Color();
+
+  for (let i = 0; i < pos.count; i++) {
+    const ringIdx = Math.floor(i / 19);
+    const u = ringIdx / stalkSegs;
+    const center = stalkCurve.getPointAt(u);
+
+    // 5 bamboo culm nodal ridges along the stalk
+    const nodePhase = (u * 5.0) % 1.0;
+    const dNode = Math.min(nodePhase, 1.0 - nodePhase);
+    const nodeRidge = Math.exp(-(dNode * dNode) * 900.0) * 0.22;
+    const taper = (1.08 - u * 0.25) * (1.0 + nodeRidge);
+
+    pos.setXYZ(
+      i,
+      center.x + (pos.getX(i) - center.x) * taper,
+      center.y + (pos.getY(i) - center.y) * taper,
+      center.z + (pos.getZ(i) - center.z) * taper
+    );
+
+    tmp.lerpColors(cInternode, cHighlight, u * 0.65);
+    if (nodeRidge > 0.04) tmp.lerp(cNode, nodeRidge * 3.8);
+    cols[i * 3] = tmp.r;
+    cols[i * 3 + 1] = tmp.g;
+    cols[i * 3 + 2] = tmp.b;
+  }
+  stalkGeo.computeVertexNormals();
+  stalkGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+
+  const stalkMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.34,
+    metalness: 0.04
+  });
+  const stalkMesh = new THREE.Mesh(stalkGeo, stalkMat);
+  stalkMesh.castShadow = true;
+  stalkMesh.receiveShadow = true;
+  torsoBone.add(stalkMesh);
+  hitMeshes.push(stalkMesh);
+
+  // Helper to create a sculpted lance-shaped 3D bamboo leaf with midrib groove & arch
+  function createBambooLeafMesh(len = 0.34, wid = 0.068, arch = 0.06) {
+    const lGeo = new THREE.PlaneGeometry(wid, len, 6, 16);
+    lGeo.translate(0, len * 0.5, 0);
+    const lPos = lGeo.attributes.position;
+    const lCols = new Float32Array(lPos.count * 3);
+    const cBase = new THREE.Color(0x3d7320);
+    const cTip = new THREE.Color(0x7ab839);
+    const cVein = new THREE.Color(0x98cf4e);
+
+    for (let i = 0; i < lPos.count; i++) {
+      let lx = lPos.getX(i);
+      let ly = lPos.getY(i);
+      const t = ly / len; // 0 at petiole, 1 at pointed tip
+      // Lanceolate leaf profile
+      const profile = Math.sin(Math.pow(t, 0.65) * Math.PI) * (1.0 - t * 0.15);
+      lx *= profile;
+      // Natural downward arch + V-shaped midrib crease
+      const lz = -Math.pow(t, 1.75) * arch + Math.abs(lx) * 0.18;
+      lPos.setXYZ(i, lx, ly, lz);
+
+      const veinFactor = Math.exp(-(lx * lx) * 4500.0);
+      tmp.lerpColors(cBase, cTip, Math.pow(t, 0.85)).lerp(cVein, veinFactor * 0.55);
+      lCols[i * 3] = tmp.r;
+      lCols[i * 3 + 1] = tmp.g;
+      lCols[i * 3 + 2] = tmp.b;
+    }
+    lGeo.computeVertexNormals();
+    lGeo.setAttribute('color', new THREE.BufferAttribute(lCols, 3));
+
+    const leafMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.42,
+      metalness: 0.02,
+      side: THREE.DoubleSide
+    });
+    const leaf = new THREE.Mesh(lGeo, leafMat);
+    leaf.castShadow = true;
+    leaf.receiveShadow = true;
+    hitMeshes.push(leaf);
+    return leaf;
+  }
+
+  // Add side leaf clusters along the bamboo stalk
+  const leafConfigs = [
+    // Right in the baby Red Panda's mouth (attached to bambooTwigBone so it wiggles when chewed!)
+    { parent: bambooTwigBone, pos: [0.02, 0.14, 0.08], rot: [-1.15, -0.18, 0.25], len: 0.36, wid: 0.074, arch: 0.05, isNibbled: true },
+    { parent: bambooTwigBone, pos: [0.06, 0.16, 0.09], rot: [-0.85, -0.55, -0.35], len: 0.32, wid: 0.066, arch: 0.07, isNibbled: true },
+    { parent: bambooTwigBone, pos: [0.11, 0.20, 0.06], rot: [0.45, 0.35, -0.75], len: 0.35, wid: 0.068, arch: 0.08, isNibbled: false },
+    { parent: bambooTwigBone, pos: [0.14, 0.24, 0.07], rot: [0.25, -0.25, -1.15], len: 0.30, wid: 0.062, arch: 0.07, isNibbled: false },
+    // Mid-stalk cluster near upper paw
+    { parent: torsoBone, pos: [0.02, 1.15, 0.72], rot: [0.35, 0.45, -1.25], len: 0.34, wid: 0.068, arch: 0.08, isNibbled: false },
+    { parent: torsoBone, pos: [0.03, 1.16, 0.72], rot: [0.55, 0.15, -1.65], len: 0.29, wid: 0.060, arch: 0.07, isNibbled: false },
+    { parent: torsoBone, pos: [-0.05, 1.02, 0.69], rot: [0.30, -0.45, 1.25], len: 0.33, wid: 0.065, arch: 0.08, isNibbled: false },
+    // Lower stalk cluster
+    { parent: torsoBone, pos: [-0.22, 0.74, 0.65], rot: [0.40, -0.30, 1.40], len: 0.32, wid: 0.064, arch: 0.08, isNibbled: false },
+    { parent: torsoBone, pos: [-0.20, 0.75, 0.66], rot: [0.65, 0.20, 1.85], len: 0.27, wid: 0.056, arch: 0.06, isNibbled: false },
+    { parent: torsoBone, pos: [-0.36, 0.48, 0.60], rot: [0.35, 0.40, -1.35], len: 0.28, wid: 0.058, arch: 0.07, isNibbled: false }
+  ];
+
+  // Slender twig connecting main stalk to mouth leaves
+  const twigCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0.08, 0.02, 0.04),
+    new THREE.Vector3(0.05, 0.10, 0.07),
+    new THREE.Vector3(0.02, 0.15, 0.08)
+  ]);
+  const twigMesh = new THREE.Mesh(
+    new THREE.TubeGeometry(twigCurve, 10, 0.014, 8, false),
+    stalkMat
+  );
+  bambooTwigBone.add(twigMesh);
+
+  for (const cfg of leafConfigs) {
+    const leaf = createBambooLeafMesh(cfg.len, cfg.wid, cfg.arch);
+    leaf.position.set(...cfg.pos);
+    leaf.rotation.set(...cfg.rot);
+    leaf.userData.baseRot = leaf.rotation.clone();
+    leaf.userData.isNibbled = cfg.isNibbled;
+    cfg.parent.add(leaf);
+    bambooLeaves.push(leaf);
+  }
+}
+buildBambooStalkAndLeaves();
+
+// ============================================================================
+// 28,000+ INDIVIDUAL 3D FUR STRANDS VIA INSTANCEDMESH + CUSTOM GPU SHADER
+// ============================================================================
+const TOTAL_FUR_STRANDS = 28000;
+
+// Build a tapered, gently curved 3D fur blade/cone geometry (root at y=0, tip at y=1)
+function createFurStrandGeometry() {
+  const heightSegs = 5;
+  const radialSegs = 4;
+  const geo = new THREE.ConeGeometry(1.0, 1.0, radialSegs, heightSegs, true);
+  geo.translate(0, 0.5, 0); // now y goes from 0.0 at root to 1.0 at tip
+
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    let x = pos.getX(i);
+    let y = pos.getY(i);
+    let z = pos.getZ(i);
+    const h = THREE.MathUtils.clamp(y, 0.0, 1.0);
+    // Soft plush taper + natural curve along +Z
+    const taper = Math.pow(1.0 - h * 0.94, 0.65);
+    const r = Math.hypot(x, z) + 0.00001;
+    x = (x / r) * taper * 0.85; // slightly flattened blade
+    z = (z / r) * taper * 1.15 + h * h * 0.34;
+    pos.setXYZ(i, x, y, z);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+const furStrandGeo = createFurStrandGeometry();
+const aSkinInfo = new Float32Array(TOTAL_FUR_STRANDS * 4);
+const aFurRoot  = new Float32Array(TOTAL_FUR_STRANDS * 4);
+
+// Prepare GPU uniforms for bone animation & interactive mouse fur parting
+const uDeltaMatrices = [];
+for (let i = 0; i < 16; i++) uDeltaMatrices.push(new THREE.Matrix4());
+
+const NUM_BRUSH_NODES = 6;
+const uBrushCenters = [];
+const uBrushForces  = [];
+for (let i = 0; i < NUM_BRUSH_NODES; i++) {
+  uBrushCenters.push(new THREE.Vector4(0, 99, 0, 0.55));
+  uBrushForces.push(new THREE.Vector4(0, 1, 0, 0.0));
+}
+const uClickWave = new THREE.Vector4(0, 0, 0, -1.0);
+
+const furUniforms = {
+  uDeltaMatrices: { value: uDeltaMatrices },
+  uTime: { value: 0.0 },
+  uBrushCenters: { value: uBrushCenters },
+  uBrushForces: { value: uBrushForces },
+  uClickWave: { value: uClickWave }
+};
+
+const furMaterial = new THREE.MeshStandardMaterial({
+  roughness: 0.72,
+  metalness: 0.02,
+  side: THREE.DoubleSide
+});
+
+furMaterial.onBeforeCompile = (shader) => {
+  shader.uniforms.uDeltaMatrices = furUniforms.uDeltaMatrices;
+  shader.uniforms.uTime = furUniforms.uTime;
+  shader.uniforms.uBrushCenters = furUniforms.uBrushCenters;
+  shader.uniforms.uBrushForces = furUniforms.uBrushForces;
+  shader.uniforms.uClickWave = furUniforms.uClickWave;
+
+  shader.vertexShader = `
+    attribute vec4 aSkinInfo;
+    attribute vec4 aFurRoot;
+    uniform mat4 uDeltaMatrices[16];
+    uniform float uTime;
+    uniform vec4 uBrushCenters[6];
+    uniform vec4 uBrushForces[6];
+    uniform vec4 uClickWave;
+    varying float vFurH;
+    varying float vBrushMix;
+    varying vec3 vWorldNormal;
+  ` + shader.vertexShader;
+
+  // Replace normal transformation so normals blend strand geometry with macro fur direction & skinning
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <defaultnormal_vertex>',
+    `
+    int nIdxA = int(aSkinInfo.x + 0.5);
+    int nIdxB = int(aSkinInfo.y + 0.5);
+    float nWb = aSkinInfo.z;
+    mat4 nSkinMat = uDeltaMatrices[nIdxA] * (1.0 - nWb) + uDeltaMatrices[nIdxB] * nWb;
+
+    mat3 instMat3 = mat3(instanceMatrix);
+    vec3 geomWorldNorm = normalize(instMat3 * objectNormal);
+    vec3 strandWorldAxis = normalize(instMat3[1]);
+    vec3 plushRestNorm = normalize(mix(strandWorldAxis, geomWorldNorm, 0.34));
+    vec3 animWorldNorm = normalize(mat3(nSkinMat) * plushRestNorm);
+    vWorldNormal = animWorldNorm;
+    vec3 transformedNormal = normalize(normalMatrix * animWorldNorm);
+    #ifdef FLIP_SIDED
+      transformedNormal = -transformedNormal;
+    #endif
+    `
+  );
+
+  // Replace vertex projection with skeletal skinning + wind sway + interactive 3D mouse fur parting
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <project_vertex>',
+    `
+    vFurH = clamp(position.y, 0.0, 1.0);
+    float bendFactor = vFurH * vFurH;
+    float strandLen = aFurRoot.w;
+    float seed = aSkinInfo.w;
+
+    int idxA = int(aSkinInfo.x + 0.5);
+    int idxB = int(aSkinInfo.y + 0.5);
+    float wB = aSkinInfo.z;
+    mat4 skinMat = uDeltaMatrices[idxA] * (1.0 - wB) + uDeltaMatrices[idxB] * wB;
+
+    vec4 restWorldPos = instanceMatrix * vec4(transformed, 1.0);
+    vec4 worldPos = skinMat * restWorldPos;
+    vec3 rootWorld = (skinMat * vec4(aFurRoot.xyz, 1.0)).xyz;
+
+    // Gentle organic forest breeze + secondary motion fluff
+    vec3 breeze = vec3(
+      sin(uTime * 2.2 + seed + rootWorld.x * 2.8 + rootWorld.z * 2.1),
+      cos(uTime * 1.8 + seed * 1.3 + rootWorld.y * 3.0) * 0.45,
+      cos(uTime * 2.5 + seed * 0.7 + rootWorld.x * 2.2)
+    ) * (0.022 * strandLen * bendFactor);
+    worldPos.xyz += breeze;
+
+    // Interactive 3D Mouse Fur Parting (6-node spring brush trail)
+    float brushEffect = 0.0;
+    for (int k = 0; k < 6; k++) {
+      float bStrength = uBrushForces[k].w;
+      if (bStrength > 0.001) {
+        vec3 bCenter = uBrushCenters[k].xyz;
+        float bRadius = uBrushCenters[k].w;
+        vec3 toStrand = rootWorld - bCenter;
+        float dist = length(toStrand);
+        if (dist < bRadius) {
+          float tFall = 1.0 - dist / bRadius;
+          float falloff = tFall * tFall * (3.0 - 2.0 * tFall);
+          vec3 surfNorm = uBrushForces[k].xyz;
+          vec3 tangentVec = toStrand - surfNorm * dot(toStrand, surfNorm);
+          float tLen = length(tangentVec);
+          vec3 partDir = (tLen > 0.001) ? (tangentVec / tLen) : normalize(toStrand + vec3(0.01, 0.02, 0.01));
+          vec3 deflect = (partDir * 0.92 - surfNorm * 0.30) * (falloff * bStrength * strandLen * 1.45 * bendFactor);
+          worldPos.xyz += deflect;
+          brushEffect = max(brushEffect, falloff * bStrength);
+        }
+      }
+    }
+
+    // Playful click ripple wave through the coat
+    if (uClickWave.w >= 0.0 && uClickWave.w <= 1.0) {
+      vec3 toWave = rootWorld - uClickWave.xyz;
+      float wDist = length(toWave);
+      float waveRadius = uClickWave.w * 2.4;
+      float ring = exp(-pow((wDist - waveRadius) * 4.5, 2.0)) * (1.0 - uClickWave.w);
+      vec3 wDir = (wDist > 0.001) ? (toWave / wDist) : vec3(0.0, 1.0, 0.0);
+      worldPos.xyz += wDir * (ring * strandLen * 0.85 * bendFactor);
+      brushEffect = max(brushEffect, ring * 0.7);
+    }
+
+    vBrushMix = brushEffect;
+    vec4 mvPosition = modelViewMatrix * worldPos;
+    gl_Position = projectionMatrix * mvPosition;
+    `
+  );
+
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <worldpos_vertex>',
+    'vec4 worldPosition = worldPos;'
+  );
+
+  shader.fragmentShader = `
+    varying float vFurH;
+    varying float vBrushMix;
+    varying vec3 vWorldNormal;
+  ` + shader.fragmentShader;
+
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <color_fragment>',
+    `
+    #include <color_fragment>
+    // Plush root-to-tip ambient occlusion & luminous fur tips
+    float furRootTip = mix(0.42, 1.24, pow(clamp(vFurH, 0.0, 1.0), 0.65));
+    diffuseColor.rgb *= furRootTip;
+    // Subtle warm backlit velvet sheen on tips & brushed strands
+    diffuseColor.rgb += vec3(0.09, 0.045, 0.02) * (vFurH * vFurH * 0.35 + vBrushMix * vFurH * 0.55);
+    `
+  );
+};
+
+const furInstancedMesh = new THREE.InstancedMesh(furStrandGeo, furMaterial, TOTAL_FUR_STRANDS);
+furInstancedMesh.castShadow = true;
+furInstancedMesh.receiveShadow = true;
+furInstancedMesh.frustumCulled = false;
+scene.add(furInstancedMesh);
+
+// ============================================================================
+// DISTRIBUTE 28,000 FUR STRANDS UNIFORMLY ACROSS ALL ANATOMICAL ZONES
+// ============================================================================
+function populateRedPandaFurStrands() {
+  scene.updateMatrixWorld(true);
+
+  // Precompute cumulative triangle areas for each surface so sampling is area-uniform
+  const samplers = [];
+  for (const surf of furSurfaces) {
+    const geo = surf.geo;
+    const pos = geo.attributes.position;
+    const norm = geo.attributes.normal;
+    const idx = geo.index;
+    const triCount = idx ? idx.count / 3 : pos.count / 3;
+    const cdf = new Float32Array(triCount);
+    const vA = new THREE.Vector3();
+    const vB = new THREE.Vector3();
+    const vC = new THREE.Vector3();
+    const ab = new THREE.Vector3();
+    const ac = new THREE.Vector3();
+    let totalArea = 0;
+
+    for (let t = 0; t < triCount; t++) {
+      const i0 = idx ? idx.getX(t * 3) : t * 3;
+      const i1 = idx ? idx.getX(t * 3 + 1) : t * 3 + 1;
+      const i2 = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
+      vA.fromBufferAttribute(pos, i0);
+      vB.fromBufferAttribute(pos, i1);
+      vC.fromBufferAttribute(pos, i2);
+      ab.subVectors(vB, vA);
+      ac.subVectors(vC, vA);
+      const area = ab.cross(ac).length() * 0.5;
+      totalArea += area;
+      cdf[t] = totalArea;
+    }
+    samplers.push({ ...surf, cdf, totalArea, triCount });
+  }
+
+  // Exact allocation of 28,000 strands across body parts for maximum plushness & detail:
+  // furSurfaces order:
+  // 0: torso (7,600)
+  // 1: head (6,800)
+  // 2: jaw (500)
+  // 3: earL (950)
+  // 4: earR (950)
+  // 5: armL (900)
+  // 6: armL paw (250)
+  // 7: armR (900)
+  // 8: armR paw (250)
+  // 9: legL (950)
+  // 10: legL paw (250)
+  // 11: legR (950)
+  // 12: legR paw (250)
+  // 13: tail (6,500)
+  // Total = 28,000 strands!
+  const strandBudgets = [
+    7600, // torso
+    6800, // head
+    500,  // jaw
+    950,  // earL
+    950,  // earR
+    900,  // armL
+    250,  // armL paw
+    900,  // armR
+    250,  // armR paw
+    950,  // legL
+    250,  // legL paw
+    950,  // legR
+    250,  // legR paw
+    6500  // tail
+  ];
+
+  const vA = new THREE.Vector3();
+  const vB = new THREE.Vector3();
+  const vC = new THREE.Vector3();
+  const nA = new THREE.Vector3();
+  const nB = new THREE.Vector3();
+  const nC = new THREE.Vector3();
+  const localP = new THREE.Vector3();
+  const localN = new THREE.Vector3();
+  const worldP = new THREE.Vector3();
+  const worldN = new THREE.Vector3();
+  const worldFlow = new THREE.Vector3();
+  const dirY = new THREE.Vector3();
+  const dirX = new THREE.Vector3();
+  const dirZ = new THREE.Vector3();
+  const rotMat = new THREE.Matrix4();
+  const instMat = new THREE.Matrix4();
+  const scaleVec = new THREE.Vector3();
+  const normalMat3 = new THREE.Matrix3();
+
+  let strandIdx = 0;
+
+  for (let sIdx = 0; sIdx < samplers.length; sIdx++) {
+    const smp = samplers[sIdx];
+    const count = strandBudgets[sIdx];
+    const pos = smp.geo.attributes.position;
+    const norm = smp.geo.attributes.normal;
+    const idx = smp.geo.index;
+    const meshWorldMat = smp.mesh.matrixWorld;
+    normalMat3.getNormalMatrix(meshWorldMat);
+
+    for (let k = 0; k < count && strandIdx < TOTAL_FUR_STRANDS; k++) {
+      // Binary search triangle by area CDF
+      const targetArea = srnd() * smp.totalArea;
+      let lo = 0, hi = smp.triCount - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (smp.cdf[mid] < targetArea) lo = mid + 1;
+        else hi = mid;
+      }
+
+      const i0 = idx ? idx.getX(lo * 3) : lo * 3;
+      const i1 = idx ? idx.getX(lo * 3 + 1) : lo * 3 + 1;
+      const i2 = idx ? idx.getX(lo * 3 + 2) : lo * 3 + 2;
+
+      // Random barycentric coordinates
+      let r1 = Math.sqrt(srnd());
+      let u = 1.0 - r1;
+      let v = srnd() * r1;
+      let w = 1.0 - u - v;
+
+      vA.fromBufferAttribute(pos, i0);
+      vB.fromBufferAttribute(pos, i1);
+      vC.fromBufferAttribute(pos, i2);
+      localP.set(
+        vA.x * u + vB.x * v + vC.x * w,
+        vA.y * u + vB.y * v + vC.y * w,
+        vA.z * u + vB.z * v + vC.z * w
+      );
+
+      nA.fromBufferAttribute(norm, i0);
+      nB.fromBufferAttribute(norm, i1);
+      nC.fromBufferAttribute(norm, i2);
+      localN.set(
+        nA.x * u + nB.x * v + nC.x * w,
+        nA.y * u + nB.y * v + nC.y * w,
+        nA.z * u + nB.z * v + nC.z * w
+      ).normalize();
+
+      // Determine extraParam & skinning bones
+      let extraParam = 0;
+      let bIdxA = smp.boneIdxA || 0;
+      let bIdxB = smp.boneIdxB || 0;
+      let bWeight = 0.0;
+
+      if (smp.isTail) {
+        // Compute normalized tail parameter u along the 64-ring TubeGeometry
+        const ringIdx = Math.floor(i0 / 29);
+        extraParam = THREE.MathUtils.clamp(ringIdx / 64, 0.0, 1.0);
+        // Map extraParam (0..1) smoothly across tailBones[0..5] (bone indices 9..14)
+        const bonePos = extraParam * 5.0;
+        const seg = Math.min(4, Math.floor(bonePos));
+        bIdxA = 9 + seg;
+        bIdxB = 9 + seg + 1;
+        bWeight = bonePos - seg;
+      } else {
+        if (smp.extraParamFn) extraParam = smp.extraParamFn(localP);
+        if (smp.weightFn) bWeight = smp.weightFn(localP);
+      }
+
+      const props = getPandaFurProps(smp.partName, localP, localN, extraParam);
+
+      // Transform root position, normal, and flow direction to world space
+      // Sink root 0.014 units inside skin so parting never reveals gaps
+      worldP.copy(localP).addScaledVector(localN, -0.014).applyMatrix4(meshWorldMat);
+      worldN.copy(localN).applyMatrix3(normalMat3).normalize();
+      worldFlow.copy(props.flow).applyMatrix3(normalMat3).normalize();
+
+      // Combine outward surface normal + anatomical grooming flow + slight natural fluff jitter
+      dirY.copy(worldN).multiplyScalar(props.normalWeight)
+        .addScaledVector(worldFlow, 1.0 - props.normalWeight);
+      dirY.x += (srnd() - 0.5) * 0.24;
+      dirY.y += (srnd() - 0.5) * 0.24;
+      dirY.z += (srnd() - 0.5) * 0.24;
+      dirY.normalize();
+
+      // Orthogonal basis where +Y is strand growth and +Z is curl direction (toward worldFlow / gravity)
+      dirX.crossVectors(dirY, worldFlow);
+      if (dirX.lengthSq() < 0.001) dirX.crossVectors(dirY, new THREE.Vector3(0, 1, 0));
+      dirX.normalize();
+      dirZ.crossVectors(dirX, dirY).normalize();
+
+      rotMat.makeBasis(dirX, dirY, dirZ);
+      scaleVec.set(props.thickness, props.length, props.thickness);
+      instMat.compose(worldP, new THREE.Quaternion().setFromRotationMatrix(rotMat), scaleVec);
+
+      furInstancedMesh.setMatrixAt(strandIdx, instMat);
+      furInstancedMesh.setColorAt(strandIdx, props.color);
+
+      const i4 = strandIdx * 4;
+      aSkinInfo[i4]     = bIdxA;
+      aSkinInfo[i4 + 1] = bIdxB;
+      aSkinInfo[i4 + 2] = bWeight;
+      aSkinInfo[i4 + 3] = srnd() * Math.PI * 2.0;
+
+      aFurRoot[i4]     = worldP.x;
+      aFurRoot[i4 + 1] = worldP.y;
+      aFurRoot[i4 + 2] = worldP.z;
+      aFurRoot[i4 + 3] = props.length;
+
+      strandIdx++;
+    }
+  }
+
+  furStrandGeo.setAttribute('aSkinInfo', new THREE.InstancedBufferAttribute(aSkinInfo, 4));
+  furStrandGeo.setAttribute('aFurRoot', new THREE.InstancedBufferAttribute(aFurRoot, 4));
+  furInstancedMesh.instanceMatrix.needsUpdate = true;
+  furInstancedMesh.instanceColor.needsUpdate = true;
+}
+populateRedPandaFurStrands();
+
+// ============================================================================
+// INTERACTIVE MOUSE PHYSICS (RAYCASTER FUR PARTING + CLICK REACTION)
+// ============================================================================
+const raycaster = new THREE.Raycaster();
+const mouseNDC = new THREE.Vector2(99, 99);
+let isPointerOverPanda = false;
+let pointerDownPos = new THREE.Vector2();
+const targetHitPos = new THREE.Vector3(0, 99, 0);
+const targetHitNorm = new THREE.Vector3(0, 1, 0);
+let bambooDeflectVel = 0.0;
+let bambooDeflectAngle = 0.0;
+let clickBounceEnergy = 0.0;
+
+// 6-node spring brush chain for silky fur parting wake
+const brushNodes = [];
+for (let i = 0; i < NUM_BRUSH_NODES; i++) {
+  brushNodes.push({
+    pos: new THREE.Vector3(0, 99, 0),
+    vel: new THREE.Vector3(),
+    norm: new THREE.Vector3(0, 1, 0),
+    strength: 0.0,
+    strengthVel: 0.0,
+    radius: 0.56 - i * 0.055
+  });
+}
+
+function updateRaycast(clientX, clientY) {
+  mouseNDC.x = (clientX / window.innerWidth) * 2 - 1;
+  mouseNDC.y = -(clientY / window.innerHeight) * 2 + 1;
+
+  raycaster.setFromCamera(mouseNDC, camera);
+  const hits = raycaster.intersectObjects(hitMeshes, false);
+
+  if (hits.length > 0) {
+    const hit = hits[0];
+    if (!isPointerOverPanda) {
+      // Snap brush trail to entry point on first hover
+      for (const n of brushNodes) {
+        n.pos.copy(hit.point);
+        n.vel.set(0, 0, 0);
+      }
+    }
+    isPointerOverPanda = true;
+    targetHitPos.copy(hit.point);
+    if (hit.face) {
+      targetHitNorm.copy(hit.face.normal).transformDirection(hit.object.matrixWorld).normalize();
+    }
+    // If brushing over bamboo leaves/stalk, apply physical impulse to the bamboo!
+    if (bambooLeaves.includes(hit.object)) {
+      bambooDeflectVel += (Math.random() - 0.35) * 2.2;
+    }
+  } else {
+    isPointerOverPanda = false;
+  }
+}
+
+window.addEventListener('pointermove', (e) => {
+  updateRaycast(e.clientX, e.clientY);
+});
+
+window.addEventListener('pointerdown', (e) => {
+  pointerDownPos.set(e.clientX, e.clientY);
+  updateRaycast(e.clientX, e.clientY);
+  if (isPointerOverPanda) {
+    // Trigger click fur parting wave + happy bounce + ear perk + bamboo chomp!
+    uClickWave.set(targetHitPos.x, targetHitPos.y, targetHitPos.z, 0.0);
+    clickBounceEnergy = 1.0;
+    bambooDeflectVel += 3.5;
+  }
+});
+
+// ============================================================================
+// ANIMATION LOOP (CHEWING/NIBBLING, EAR TWITCHES, RINGED TAIL SWAY & FUR PHYSICS)
+// ============================================================================
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.getElapsedTime();
+  furUniforms.uTime.value = t;
+
+  // 1. Update Click Ripple Wave & Happy Bounce Energy
+  if (uClickWave.w >= 0.0) {
+    uClickWave.w += dt * 1.65;
+    if (uClickWave.w > 1.0) uClickWave.w = -1.0;
+  }
+  clickBounceEnergy = Math.max(0.0, clickBounceEnergy - dt * 1.1);
+
+  // 2. Breathing & Playful Sitting Bounce on Torso
+  const breath = Math.sin(t * 2.4) * 0.016;
+  const bounce = Math.sin(t * 14.0) * clickBounceEnergy * 0.045;
+  torsoBone.position.y = breath * 0.5 + bounce;
+  torsoBone.rotation.x = Math.sin(t * 1.8) * 0.022 - clickBounceEnergy * 0.06;
+  torsoBone.rotation.z = Math.cos(t * 1.1) * 0.018;
+
+  // 3. Chewing / Nibbling Mouth Motion on the Bamboo Leaf
+  // Adorable rhythmic munching bursts with brief cute pauses
+  const chewEnvelope = 0.65 + 0.35 * Math.sin(t * 1.35) + clickBounceEnergy * 0.5;
+  const chewWave = (0.5 + 0.5 * Math.sin(t * 13.5)) * Math.min(1.2, chewEnvelope);
+  jawBone.rotation.x = 0.05 + chewWave * 0.24;
+  jawBone.position.z = 0.28 - chewWave * 0.015;
+  jawBone.rotation.z = Math.sin(t * 6.75) * 0.035 * chewWave; // side-to-side molar grind!
+
+  // Head nodding with chewing + subtle curiosity tracking toward mouse cursor
+  const lookX = isPointerOverPanda ? THREE.MathUtils.clamp((targetHitPos.x - 0.0) * 0.12, -0.16, 0.16) : Math.sin(t * 0.7) * 0.07;
+  const lookY = isPointerOverPanda ? THREE.MathUtils.clamp((targetHitPos.y - 1.1) * 0.10, -0.12, 0.12) : Math.cos(t * 0.9) * 0.04;
+  headBone.rotation.y = THREE.MathUtils.lerp(headBone.rotation.y, lookX, dt * 5.0);
+  headBone.rotation.x = THREE.MathUtils.lerp(headBone.rotation.x, -0.05 - lookY + chewWave * 0.055, dt * 7.0);
+  headBone.rotation.z = Math.sin(t * 1.5) * 0.045 + Math.sin(t * 13.5) * 0.015 * chewWave;
+
+  // Periodic cute eye blink
+  const blinkCycle = (t + 1.2) % 4.4;
+  const blinkScaleY = (blinkCycle < 0.13) ? Math.max(0.08, Math.abs(Math.cos((blinkCycle / 0.13) * Math.PI))) : 1.04;
+  for (const eg of headBone.userData.eyeGroups) {
+    eg.scale.y = blinkScaleY;
+  }
+
+  // 4. Independent Organic Ear Twitches + Mouse Perk
+  const twitchL = Math.pow(Math.max(0, Math.sin(t * 3.1 + Math.sin(t * 7.3))), 14.0) * 0.28;
+  const twitchR = Math.pow(Math.max(0, Math.sin(t * 2.7 + 1.9 + Math.cos(t * 6.8))), 14.0) * 0.28;
+  const perk = (isPointerOverPanda ? 0.12 : 0.0) + clickBounceEnergy * 0.22;
+
+  earLBone.rotation.z = 0.44 - twitchL + perk;
+  earLBone.rotation.x = 0.12 + twitchL * 0.45;
+  earRBone.rotation.z = -0.44 + twitchR - perk;
+  earRBone.rotation.x = 0.12 + twitchR * 0.45;
+
+  // 5. Front Arms & Bamboo Leaf Nibble Motion
+  armLBone.rotation.x = Math.sin(t * 13.5) * 0.025 * chewWave + breath;
+  armRBone.rotation.x = -Math.sin(t * 13.5) * 0.028 * chewWave + breath;
+
+  // Spring physics on bamboo twig & leaves being nibbled
+  const bambooSpringForce = -45.0 * bambooDeflectAngle - 6.5 * bambooDeflectVel;
+  bambooDeflectVel += bambooSpringForce * dt;
+  bambooDeflectAngle += bambooDeflectVel * dt;
+
+  bambooTwigBone.rotation.x = chewWave * 0.11 + bambooDeflectAngle * 0.18;
+  bambooTwigBone.rotation.z = Math.sin(t * 13.5) * 0.06 * chewWave + bambooDeflectAngle * 0.22;
+
+  for (let i = 0; i < bambooLeaves.length; i++) {
+    const leaf = bambooLeaves[i];
+    const base = leaf.userData.baseRot;
+    if (leaf.userData.isNibbled) {
+      leaf.rotation.x = base.x + chewWave * 0.18 + Math.sin(t * 27.0 + i) * 0.04 * chewWave;
+      leaf.rotation.z = base.z + Math.cos(t * 13.5 + i) * 0.09 * chewWave + bambooDeflectAngle * 0.25;
+    } else {
+      leaf.rotation.z = base.z + Math.sin(t * 2.6 + i * 1.1) * 0.045 + bambooDeflectAngle * 0.15;
+    }
+  }
+
+  // 6. Bushy 6-Ringed Tail Swaying Side-to-Side (6-Segment Sinusoidal Traveling Wave)
+  const tailSpeed = 2.35 + clickBounceEnergy * 2.2;
+  for (let i = 0; i < 6; i++) {
+    const phase = t * tailSpeed - i * 0.48;
+    const amp = 0.13 + i * 0.032;
+    tailBones[i].rotation.y = Math.sin(phase) * amp;
+    tailBones[i].rotation.z = Math.cos(phase * 0.5) * 0.045;
+    tailBones[i].rotation.x = Math.sin(phase * 2.0) * 0.035;
+  }
+
+  // 7. Update 6-Node Spring Brush Trail for Interactive Fur Parting
+  for (let k = 0; k < NUM_BRUSH_NODES; k++) {
+    const node = brushNodes[k];
+    const target = (k === 0) ? targetHitPos : brushNodes[k - 1].pos;
+    const stiffness = (k === 0) ? 140.0 : 95.0;
+    const damping = (k === 0) ? 16.0 : 14.0;
+
+    if (isPointerOverPanda) {
+      const fx = (target.x - node.pos.x) * stiffness - node.vel.x * damping;
+      const fy = (target.y - node.pos.y) * stiffness - node.vel.y * damping;
+      const fz = (target.z - node.pos.z) * stiffness - node.vel.z * damping;
+      node.vel.x += fx * dt;
+      node.vel.y += fy * dt;
+      node.vel.z += fz * dt;
+      node.pos.x += node.vel.x * dt;
+      node.pos.y += node.vel.y * dt;
+      node.pos.z += node.vel.z * dt;
+      node.norm.lerp(targetHitNorm, dt * 12.0).normalize();
+    }
+
+    const targetStrength = isPointerOverPanda ? (1.0 - k * 0.14) : 0.0;
+    const sForce = (targetStrength - node.strength) * 65.0 - node.strengthVel * 9.5;
+    node.strengthVel += sForce * dt;
+    node.strength = Math.max(0.0, node.strength + node.strengthVel * dt);
+
+    uBrushCenters[k].set(node.pos.x, node.pos.y, node.pos.z, node.radius);
+    uBrushForces[k].set(node.norm.x, node.norm.y, node.norm.z, node.strength);
+  }
+
+  // 8. Update World Matrices & Upload Delta Skinning Matrices to GPU
+  scene.updateMatrixWorld(true);
+  for (let i = 0; i < bones.length; i++) {
+    uDeltaMatrices[i].multiplyMatrices(bones[i].matrixWorld, bones[i].userData.invRestMatrix);
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+animate();
+</script>
+</head>
+<body><canvas id="c"></canvas></body>
+</html>

@@ -1,0 +1,2011 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: #050d18;
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    outline: none;
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const canvas = document.getElementById('gl');
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  powerPreference: 'high-performance'
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x06101e);
+scene.fog = new THREE.FogExp2(0x061120, 0.028);
+
+const camera = new THREE.PerspectiveCamera(39, window.innerWidth / window.innerHeight, 0.1, 80);
+camera.position.set(2.4, -0.35, 9.6);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.045;
+controls.target.set(0, 0.15, 0);
+controls.minDistance = 3.2;
+controls.maxDistance = 20.0;
+controls.maxPolarAngle = Math.PI * 0.86;
+controls.minPolarAngle = Math.PI * 0.08;
+
+// ---------------------------------------------------------------------------
+// 1. Procedural Studio & Bioluminescent Environment Map + Textures
+// ---------------------------------------------------------------------------
+function buildStudioEnvMap() {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  pmrem.compileEquirectangularShader();
+
+  const envScene = new THREE.Scene();
+  envScene.background = new THREE.Color(0x071526);
+
+  // Soft overhead studio softbox
+  const keyPanel = new THREE.Mesh(
+    new THREE.PlaneGeometry(18, 18),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(3.6, 4.2, 4.8), side: THREE.DoubleSide })
+  );
+  keyPanel.position.set(6, 13, 7);
+  keyPanel.lookAt(0, 0, 0);
+  envScene.add(keyPanel);
+
+  // Pelagic cyan lateral fill strip
+  const fillPanel = new THREE.Mesh(
+    new THREE.PlaneGeometry(20, 10),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(0.7, 2.1, 3.4), side: THREE.DoubleSide })
+  );
+  fillPanel.position.set(-13, 3, 4);
+  fillPanel.lookAt(0, 0, 0);
+  envScene.add(fillPanel);
+
+  // Warm bioluminescent rim strip
+  const rimPanel = new THREE.Mesh(
+    new THREE.PlaneGeometry(22, 8),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(3.2, 2.0, 1.3), side: THREE.DoubleSide })
+  );
+  rimPanel.position.set(-3, 7, -14);
+  rimPanel.lookAt(0, 0, 0);
+  envScene.add(rimPanel);
+
+  // Subtle rose-aqua bottom bounce
+  const bouncePanel = new THREE.Mesh(
+    new THREE.CircleGeometry(14, 32),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(0.55, 0.75, 1.15), side: THREE.DoubleSide })
+  );
+  bouncePanel.position.set(0, -13, 0);
+  bouncePanel.rotation.x = -Math.PI * 0.5;
+  envScene.add(bouncePanel);
+
+  // Caustic arc ribbons for liquid-glass specular interest
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const ribbon = new THREE.Mesh(
+      new THREE.TorusGeometry(11 + (i % 2) * 1.5, 0.14, 8, 64, Math.PI * 0.45),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(1.4, 2.8, 3.8) })
+    );
+    ribbon.rotation.set(0.5 + i * 0.3, a, 0.2 * i);
+    envScene.add(ribbon);
+  }
+
+  const rt = pmrem.fromScene(envScene, 0.035);
+  pmrem.dispose();
+  return rt.texture;
+}
+
+scene.environment = buildStudioEnvMap();
+
+function createChromatophoreTextures() {
+  const size = 1024;
+  const colCanvas = document.createElement('canvas');
+  colCanvas.width = size;
+  colCanvas.height = size;
+  const ctx = colCanvas.getContext('2d');
+
+  const emCanvas = document.createElement('canvas');
+  emCanvas.width = size;
+  emCanvas.height = size;
+  const ectx = emCanvas.getContext('2d');
+
+  const nrmCanvas = document.createElement('canvas');
+  nrmCanvas.width = 512;
+  nrmCanvas.height = 512;
+  const nctx = nrmCanvas.getContext('2d');
+
+  // Subtle translucent aqua-opalescent dermal base
+  const grad = ctx.createLinearGradient(0, 0, 0, size);
+  grad.addColorStop(0.0, '#d8f4ff');
+  grad.addColorStop(0.55, '#e8f9ff');
+  grad.addColorStop(1.0, '#f7e9f3');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+
+  ectx.fillStyle = '#040c14';
+  ectx.fillRect(0, 0, size, size);
+
+  // Delicate collagen striations
+  for (let i = 0; i < 160; i++) {
+    const x = (i / 160) * size + Math.sin(i * 3.1) * 4;
+    ctx.strokeStyle = `rgba(195, 238, 255, ${0.06 + (i % 3) * 0.025})`;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.bezierCurveTo(x + 8, size * 0.33, x - 8, size * 0.66, x, size);
+    ctx.stroke();
+  }
+
+  // Deterministic pseudo-random helper for crisp repeatable chromatophores
+  let seed = 1337;
+  const rand = () => {
+    seed = (seed * 16807) % 2147483647;
+    return (seed - 1) / 2147483646;
+  };
+
+  const palettes = [
+    { core: 'rgba(255, 148, 42, 0.92)', halo: 'rgba(255, 180, 75, 0.0)', em: 'rgba(255, 140, 35, 0.85)' },
+    { core: 'rgba(255, 86, 122, 0.88)', halo: 'rgba(255, 120, 165, 0.0)', em: 'rgba(245, 75, 130, 0.75)' },
+    { core: 'rgba(188, 108, 255, 0.82)', halo: 'rgba(188, 140, 255, 0.0)', em: 'rgba(165, 95, 255, 0.72)' },
+    { core: 'rgba(85, 230, 255, 0.85)', halo: 'rgba(85, 230, 255, 0.0)', em: 'rgba(70, 215, 255, 0.80)' },
+    { core: 'rgba(255, 198, 92, 0.90)', halo: 'rgba(255, 210, 110, 0.0)', em: 'rgba(255, 190, 70, 0.82)' }
+  ];
+
+  // Scatter ~950 iridescent chromatophore speckles (stellate & punctate)
+  for (let i = 0; i < 950; i++) {
+    const cx = rand() * size;
+    const cy = rand() * size;
+    const r = 1.4 + Math.pow(rand(), 2.2) * 5.2;
+    const pal = palettes[Math.floor(rand() * palettes.length)];
+
+    // Wrap horizontally so UV seam has continuous speckles
+    const wraps = cx < 12 ? [cx, cx + size] : (cx > size - 12 ? [cx, cx - size] : [cx]);
+    for (const wx of wraps) {
+      const rg = ctx.createRadialGradient(wx, cy, 0, wx, cy, r * 1.6);
+      rg.addColorStop(0.0, pal.core);
+      rg.addColorStop(0.55, pal.core);
+      rg.addColorStop(1.0, pal.halo);
+      ctx.fillStyle = rg;
+      ctx.beginPath();
+      ctx.ellipse(wx, cy, r * (0.85 + rand() * 0.4), r * (0.8 + rand() * 0.35), rand() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+
+      const erg = ectx.createRadialGradient(wx, cy, 0, wx, cy, r * 1.8);
+      erg.addColorStop(0.0, pal.em);
+      erg.addColorStop(1.0, 'rgba(0,0,0,0)');
+      ectx.fillStyle = erg;
+      ectx.beginPath();
+      ectx.arc(wx, cy, r * 1.8, 0, Math.PI * 2);
+      ectx.fill();
+    }
+  }
+
+  // Subtle organic normal map for gelatinous skin sheen
+  nctx.fillStyle = 'rgb(128, 128, 255)';
+  nctx.fillRect(0, 0, 512, 512);
+  for (let y = 0; y < 512; y += 2) {
+    for (let x = 0; x < 512; x += 2) {
+      const u = (x / 512) * Math.PI * 2;
+      const v = (y / 512) * Math.PI * 2;
+      const nx = Math.sin(u * 14 + Math.cos(v * 6)) * 10 + Math.cos(u * 29 - v * 11) * 5;
+      const ny = Math.cos(v * 12 + Math.sin(u * 8)) * 10 + Math.sin(v * 25 + u * 9) * 5;
+      nctx.fillStyle = `rgb(${Math.round(128 + nx)}, ${Math.round(128 + ny)}, 252)`;
+      nctx.fillRect(x, y, 2, 2);
+    }
+  }
+
+  const colorMap = new THREE.CanvasTexture(colCanvas);
+  colorMap.colorSpace = THREE.SRGBColorSpace;
+  colorMap.wrapS = THREE.RepeatWrapping;
+  colorMap.wrapT = THREE.ClampToEdgeWrapping;
+
+  const emissiveMap = new THREE.CanvasTexture(emCanvas);
+  emissiveMap.colorSpace = THREE.SRGBColorSpace;
+  emissiveMap.wrapS = THREE.RepeatWrapping;
+  emissiveMap.wrapT = THREE.ClampToEdgeWrapping;
+
+  const normalMap = new THREE.CanvasTexture(nrmCanvas);
+  normalMap.wrapS = THREE.RepeatWrapping;
+  normalMap.wrapT = THREE.RepeatWrapping;
+
+  return { colorMap, emissiveMap, normalMap };
+}
+
+function createCoreOrganTexture() {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 512;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, 512);
+  g.addColorStop(0.0, '#ffd470');
+  g.addColorStop(0.35, '#ff9824');
+  g.addColorStop(0.75, '#d95409');
+  g.addColorStop(1.0, '#ffae38');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Bioluminescent golden vascular filaments on the visceral core
+  for (let i = 0; i < 48; i++) {
+    const x = (i / 48) * 512;
+    ctx.strokeStyle = i % 2 === 0 ? 'rgba(255, 238, 165, 0.55)' : 'rgba(160, 48, 5, 0.35)';
+    ctx.lineWidth = 1.5 + (i % 3);
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    for (let y = 0; y <= 512; y += 32) {
+      ctx.lineTo(x + Math.sin(y * 0.03 + i) * 14, y);
+    }
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+}
+
+function createSoftShadowTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(128, 128, 4, 128, 128, 126);
+  g.addColorStop(0.0, 'rgba(1, 4, 10, 0.72)');
+  g.addColorStop(0.35, 'rgba(2, 6, 15, 0.42)');
+  g.addColorStop(0.7, 'rgba(3, 8, 18, 0.12)');
+  g.addColorStop(1.0, 'rgba(3, 8, 18, 0.0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c);
+  return tex;
+}
+
+const { colorMap: dermalColorMap, emissiveMap: dermalEmissiveMap, normalMap: dermalNormalMap } = createChromatophoreTextures();
+const coreOrganTex = createCoreOrganTexture();
+const softShadowTex = createSoftShadowTexture();
+
+// ---------------------------------------------------------------------------
+// 2. Backdrop Dome, Studio Three-Point Lighting & Soft Contact Shadows
+// ---------------------------------------------------------------------------
+// Subtle studio gradient dome so transmissive glass refracts real background tonal depth
+{
+  const domeGeo = new THREE.SphereGeometry(36, 48, 32);
+  const pos = domeGeo.attributes.position;
+  const cols = new Float32Array(pos.count * 3);
+  const cTop = new THREE.Color(0x0b213b);
+  const cMid = new THREE.Color(0x071528);
+  const cBot = new THREE.Color(0x030811);
+  const tmp = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const ny = THREE.MathUtils.clamp((pos.getY(i) / 36 + 1) * 0.5, 0, 1);
+    if (ny > 0.45) {
+      tmp.lerpColors(cMid, cTop, (ny - 0.45) / 0.55);
+    } else {
+      tmp.lerpColors(cBot, cMid, ny / 0.45);
+    }
+    // Subtle luminous pelagic glow behind the center
+    const nz = pos.getZ(i) / 36;
+    if (nz < 0) {
+      const backGlow = Math.pow(-nz, 3.0) * Math.exp(-Math.pow((ny - 0.55) * 4.0, 2)) * 0.12;
+      tmp.r += backGlow * 0.35;
+      tmp.g += backGlow * 0.75;
+      tmp.b += backGlow * 1.1;
+    }
+    cols[i * 3] = tmp.r;
+    cols[i * 3 + 1] = tmp.g;
+    cols[i * 3 + 2] = tmp.b;
+  }
+  domeGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  const domeMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, depthWrite: false });
+  const dome = new THREE.Mesh(domeGeo, domeMat);
+  scene.add(dome);
+}
+
+// Studio Three-Point Lighting + Subsurface Under-Bounce
+const hemiLight = new THREE.HemisphereLight(0x9ee2ff, 0x201830, 0.72);
+scene.add(hemiLight);
+
+// 1. Key Light (Studio Crisp Cool-Daylight + Soft Shadow Caster)
+const keyLight = new THREE.DirectionalLight(0xe4f5ff, 2.9);
+keyLight.position.set(5.5, 9.2, 6.2);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 2.0;
+keyLight.shadow.camera.far = 22.0;
+keyLight.shadow.camera.left = -5.5;
+keyLight.shadow.camera.right = 5.5;
+keyLight.shadow.camera.top = 5.5;
+keyLight.shadow.camera.bottom = -5.5;
+keyLight.shadow.bias = -0.0005;
+keyLight.shadow.radius = 5.0;
+scene.add(keyLight);
+
+// 2. Fill Light (Cerulean-Lavender Lateral Soft Fill)
+const fillLight = new THREE.DirectionalLight(0x74b4ff, 1.45);
+fillLight.position.set(-7.0, 2.2, 4.8);
+scene.add(fillLight);
+
+// 3. Rim / Back Light (Grazing Bioluminescent Aqua-Ice Edge Highlight)
+const rimLight = new THREE.DirectionalLight(0xaaf4ff, 3.3);
+rimLight.position.set(-2.2, 5.8, -8.0);
+scene.add(rimLight);
+
+// Oral Underside Bounce Light (illuminates concave pink/white 3D suction cups)
+const underFillLight = new THREE.PointLight(0xffd2e4, 2.2, 14.0, 1.4);
+underFillLight.position.set(0.6, -3.1, 3.2);
+scene.add(underFillLight);
+
+// Studio Floor with Shadow Reception + Dynamic Multi-Lobe Soft Contact Shadows
+const FLOOR_Y = -3.48;
+const floorMesh = new THREE.Mesh(
+  new THREE.CircleGeometry(24, 64),
+  new THREE.MeshStandardMaterial({
+    color: 0x071324,
+    roughness: 0.85,
+    metalness: 0.08
+  })
+);
+floorMesh.rotation.x = -Math.PI * 0.5;
+floorMesh.position.y = FLOOR_Y;
+floorMesh.receiveShadow = true;
+scene.add(floorMesh);
+
+const contactShadowMat = new THREE.MeshBasicMaterial({
+  map: softShadowTex,
+  transparent: true,
+  opacity: 0.78,
+  depthWrite: false
+});
+const mainContactShadow = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 5.2), contactShadowMat);
+mainContactShadow.rotation.x = -Math.PI * 0.5;
+mainContactShadow.position.y = FLOOR_Y + 0.005;
+scene.add(mainContactShadow);
+
+const armContactShadows = [];
+for (let k = 0; k < 8; k++) {
+  const mat = contactShadowMat.clone();
+  mat.opacity = 0.42;
+  const sm = new THREE.Mesh(new THREE.PlaneGeometry(1.75, 1.75), mat);
+  sm.rotation.x = -Math.PI * 0.5;
+  sm.position.y = FLOOR_Y + 0.008 + k * 0.0005;
+  scene.add(sm);
+  armContactShadows.push(sm);
+}
+
+// Sparse subtle pelagic studio dust motes
+const moteCount = 85;
+const moteGeo = new THREE.BufferGeometry();
+const motePos = new Float32Array(moteCount * 3);
+const motePhase = new Float32Array(moteCount);
+for (let i = 0; i < moteCount; i++) {
+  const r = 2.2 + Math.random() * 6.5;
+  const th = Math.random() * Math.PI * 2;
+  motePos[i * 3] = Math.cos(th) * r;
+  motePos[i * 3 + 1] = -3.0 + Math.random() * 6.8;
+  motePos[i * 3 + 2] = Math.sin(th) * r;
+  motePhase[i] = Math.random() * Math.PI * 2;
+}
+moteGeo.setAttribute('position', new THREE.BufferAttribute(motePos, 3));
+const moteMat = new THREE.PointsMaterial({
+  color: 0x9ce8ff,
+  size: 0.032,
+  transparent: true,
+  opacity: 0.32,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending
+});
+const motes = new THREE.Points(moteGeo, moteMat);
+scene.add(motes);
+
+// ---------------------------------------------------------------------------
+// 3. Shared Physical Materials for Vitreledonella richardi (Glass Octopus)
+// ---------------------------------------------------------------------------
+// Bulbous gelatinous mantle/head material: high transmission + subsurface glow + chromatophores
+const mantleGlassMat = new THREE.MeshPhysicalMaterial({
+  color: 0xeaf9ff,
+  map: dermalColorMap,
+  emissive: 0x4588aa,
+  emissiveMap: dermalEmissiveMap,
+  emissiveIntensity: 0.55,
+  normalMap: dermalNormalMap,
+  normalScale: new THREE.Vector2(0.11, 0.11),
+  transmission: 0.92,
+  ior: 1.375,
+  thickness: 2.15,
+  attenuationColor: new THREE.Color(0x7ae2ff),
+  attenuationDistance: 2.8,
+  roughness: 0.065,
+  metalness: 0.0,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.04,
+  iridescence: 0.92,
+  iridescenceIOR: 1.34,
+  iridescenceThicknessRange: [170, 540],
+  envMapIntensity: 1.5
+});
+
+// Tentacle translucent gelatinous material (with vertex color tinting dorsal aqua -> oral blush)
+const tentacleGlassMat = new THREE.MeshPhysicalMaterial({
+  color: 0xffffff,
+  vertexColors: true,
+  map: dermalColorMap,
+  emissive: 0x3b7090,
+  emissiveMap: dermalEmissiveMap,
+  emissiveIntensity: 0.42,
+  normalMap: dermalNormalMap,
+  normalScale: new THREE.Vector2(0.09, 0.09),
+  transmission: 0.85,
+  ior: 1.37,
+  thickness: 0.95,
+  attenuationColor: new THREE.Color(0x90e4ff),
+  attenuationDistance: 1.8,
+  roughness: 0.09,
+  metalness: 0.0,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.06,
+  iridescence: 0.78,
+  iridescenceIOR: 1.34,
+  iridescenceThicknessRange: [180, 480],
+  envMapIntensity: 1.35
+});
+
+// Thin translucent interbrachial web material
+const webGlassMat = new THREE.MeshPhysicalMaterial({
+  color: 0xe6f6ff,
+  map: dermalColorMap,
+  emissive: 0x356888,
+  emissiveMap: dermalEmissiveMap,
+  emissiveIntensity: 0.35,
+  transmission: 0.90,
+  ior: 1.35,
+  thickness: 0.28,
+  attenuationColor: new THREE.Color(0x9be8ff),
+  attenuationDistance: 1.6,
+  roughness: 0.08,
+  metalness: 0.0,
+  clearcoat: 0.9,
+  clearcoatRoughness: 0.07,
+  iridescence: 0.88,
+  iridescenceIOR: 1.33,
+  iridescenceThicknessRange: [150, 460],
+  side: THREE.DoubleSide,
+  envMapIntensity: 1.3
+});
+
+// Internal glowing amber-gold core & optic nerve materials (transmission = 0 so refracted cleanly!)
+const amberCoreMat = new THREE.MeshPhysicalMaterial({
+  color: 0xffa62b,
+  map: coreOrganTex,
+  emissive: 0xff6e08,
+  emissiveMap: coreOrganTex,
+  emissiveIntensity: 1.35,
+  roughness: 0.25,
+  metalness: 0.12,
+  clearcoat: 0.85,
+  clearcoatRoughness: 0.15
+});
+
+const opticNerveMat = new THREE.MeshPhysicalMaterial({
+  color: 0xffca62,
+  emissive: 0xff8c14,
+  emissiveIntensity: 1.55,
+  roughness: 0.22,
+  metalness: 0.08,
+  clearcoat: 0.7
+});
+
+const coreHaloMat = new THREE.MeshBasicMaterial({
+  color: 0xff9d2e,
+  transparent: true,
+  opacity: 0.24,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false
+});
+
+// White/Pink 3D Suction Cup Material (transmission = 0 so cups refract cleanly behind web/arms)
+const suctionCupMat = new THREE.MeshPhysicalMaterial({
+  color: 0xffffff,
+  vertexColors: true,
+  roughness: 0.23,
+  metalness: 0.0,
+  clearcoat: 0.88,
+  clearcoatRoughness: 0.12,
+  sheen: 0.75,
+  sheenColor: new THREE.Color(0xffbad2),
+  sheenRoughness: 0.32,
+  emissive: new THREE.Color(0x421526),
+  emissiveIntensity: 0.22
+});
+
+// ---------------------------------------------------------------------------
+// 4. Octopus Root Group & Internal Anatomy + Bulbous Mantle + Eyes + Siphons
+// ---------------------------------------------------------------------------
+const octopusGroup = new THREE.Group();
+// Slight natural pelagic diagonal poise (~10 deg backward tilt so face, eyes & suction cups shine)
+octopusGroup.rotation.x = 0.11;
+scene.add(octopusGroup);
+
+// Upper body group (Mantle, Head, Internal Organs, Eyes, Siphons)
+const bodyGroup = new THREE.Group();
+octopusGroup.add(bodyGroup);
+
+// --- 4A. Unified Seamless Bulbous Mantle + Neck Collar + Head Capsule ---
+const MANTLE_NU = 76;
+const MANTLE_NV = 72;
+const mantleVertCount = (MANTLE_NV + 1) * (MANTLE_NU + 1);
+const mantleBasePos = new Float32Array(mantleVertCount * 3);
+const mantleLivePos = new Float32Array(mantleVertCount * 3);
+const mantleUVs = new Float32Array(mantleVertCount * 2);
+const mantleIndices = [];
+
+// Anatomical profile of Vitreledonella richardi from brachial crown (v=0) to apex (v=1)
+function evalMantleProfile(v, theta) {
+  // Height from y = +0.34 (crown) up to y = +2.98 (bulbous mantle dome tip)
+  const y = 0.34 + v * 2.64;
+
+  // Base crown -> ocular head flare (v ~ 0.15) -> neck constriction (v ~ 0.26) -> bulbous bell (v ~ 0.62) -> dome apex (v = 1)
+  const crown = 0.37 * Math.exp(-Math.pow(v / 0.12, 2));
+  const headBulge = 0.56 * Math.exp(-Math.pow((v - 0.155) / 0.11, 2));
+  const neckDip = -0.14 * Math.exp(-Math.pow((v - 0.265) / 0.065, 2));
+  const bell = 0.96 * Math.pow(Math.max(0, Math.sin(Math.min(1, Math.max(0, (v - 0.18) / 0.82)) * Math.PI)), 0.68);
+  // Slight apical papilla near top
+  const tipPapilla = 0.045 * Math.exp(-Math.pow((v - 0.975) / 0.028, 2));
+
+  let rx = crown + headBulge + neckDip + bell + tipPapilla;
+  let rz = rx * (0.88 + 0.06 * Math.sin(v * Math.PI));
+
+  // Lateral ocular stalk bulges around v = 0.16 at x = +-1 (cos(theta) near +-1)
+  const eyeBand = Math.exp(-Math.pow((v - 0.16) / 0.058, 2));
+  const lateralMask = Math.pow(Math.abs(Math.cos(theta)), 3.2);
+  rx += eyeBand * lateralMask * 0.22;
+
+  // Subtle organic bilobed dorsal contour along mantle
+  const organic = 1.0 + 0.025 * Math.cos(2.0 * theta) * Math.sin(v * Math.PI);
+  const zShift = 0.08 * Math.sin(v * Math.PI) - 0.04 * eyeBand;
+
+  return {
+    x: rx * organic * Math.cos(theta),
+    y,
+    z: rz * organic * Math.sin(theta) + zShift
+  };
+}
+
+for (let i = 0; i <= MANTLE_NV; i++) {
+  const v = i / MANTLE_NV;
+  for (let j = 0; j <= MANTLE_NU; j++) {
+    const u = j / MANTLE_NU;
+    const theta = u * Math.PI * 2;
+    const p = evalMantleProfile(v, theta);
+    const idx = i * (MANTLE_NU + 1) + j;
+    mantleBasePos[idx * 3] = p.x;
+    mantleBasePos[idx * 3 + 1] = p.y;
+    mantleBasePos[idx * 3 + 2] = p.z;
+    mantleLivePos[idx * 3] = p.x;
+    mantleLivePos[idx * 3 + 1] = p.y;
+    mantleLivePos[idx * 3 + 2] = p.z;
+    mantleUVs[idx * 2] = u * 2.0;
+    mantleUVs[idx * 2 + 1] = v;
+  }
+}
+
+for (let i = 0; i < MANTLE_NV; i++) {
+  for (let j = 0; j < MANTLE_NU; j++) {
+    const v00 = i * (MANTLE_NU + 1) + j;
+    const v01 = v00 + 1;
+    const v10 = (i + 1) * (MANTLE_NU + 1) + j;
+    const v11 = v10 + 1;
+    mantleIndices.push(v00, v10, v01, v10, v11, v01);
+  }
+}
+
+const mantleGeo = new THREE.BufferGeometry();
+mantleGeo.setAttribute('position', new THREE.BufferAttribute(mantleLivePos, 3));
+mantleGeo.setAttribute('uv', new THREE.BufferAttribute(mantleUVs, 2));
+mantleGeo.setIndex(mantleIndices);
+mantleGeo.computeVertexNormals();
+mantleGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1.6, 0), 3.0);
+
+function stitchUVSeamNormals(geo, nu, nv) {
+  const nrm = geo.attributes.normal.array;
+  for (let i = 0; i <= nv; i++) {
+    const i0 = (i * (nu + 1)) * 3;
+    const iN = (i * (nu + 1) + nu) * 3;
+    let nx = nrm[i0] + nrm[iN];
+    let ny = nrm[i0 + 1] + nrm[iN + 1];
+    let nz = nrm[i0 + 2] + nrm[iN + 2];
+    const len = Math.hypot(nx, ny, nz) || 1;
+    nx /= len; ny /= len; nz /= len;
+    nrm[i0] = nrm[iN] = nx;
+    nrm[i0 + 1] = nrm[iN + 1] = ny;
+    nrm[i0 + 2] = nrm[iN + 2] = nz;
+  }
+  geo.attributes.normal.needsUpdate = true;
+}
+stitchUVSeamNormals(mantleGeo, MANTLE_NU, MANTLE_NV);
+
+const mantleMesh = new THREE.Mesh(mantleGeo, mantleGlassMat);
+mantleMesh.castShadow = true;
+mantleMesh.frustumCulled = false;
+bodyGroup.add(mantleMesh);
+
+// Rolled Mantle Aperture Collar Lip around neck (authentic octopus mantle opening)
+{
+  const collarPts = [
+    new THREE.Vector2(0.50, 1.12),
+    new THREE.Vector2(0.58, 1.07),
+    new THREE.Vector2(0.63, 0.99),
+    new THREE.Vector2(0.61, 0.94),
+    new THREE.Vector2(0.56, 0.95),
+    new THREE.Vector2(0.51, 1.04)
+  ];
+  const collarGeo = new THREE.LatheGeometry(collarPts, 56);
+  collarGeo.scale(1.04, 1.0, 0.92);
+  const collarMesh = new THREE.Mesh(collarGeo, mantleGlassMat);
+  bodyGroup.add(collarMesh);
+}
+
+// --- 4B. Flanking Siphon Tubes (Paired Muscular Funnel Tubes with Hollow Flared Apertures) ---
+const siphonEntries = [];
+function createSiphonTube(sideSign) {
+  const curve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(sideSign * 0.36, 1.10, -0.08),
+    new THREE.Vector3(sideSign * 0.50, 0.92, -0.15),
+    new THREE.Vector3(sideSign * 0.61, 0.72, -0.20),
+    new THREE.Vector3(sideSign * 0.69, 0.53, -0.23)
+  ]);
+
+  const segT = 28;
+  const segR = 24;
+  // Build double-walled hollow flared siphon tube (outer wall + rolled lip + inner lumen)
+  const ringProfile = [];
+  // t = 0..20 outer wall from base to flared mouth
+  for (let k = 0; k <= 20; k++) {
+    const s = k / 20;
+    const r = 0.145 * (1.0 - 0.25 * s) + 0.048 * Math.sin(s * Math.PI) + 0.042 * Math.pow(s, 5.0);
+    ringProfile.push({ s, r, inner: false });
+  }
+  // Rolled rim into inner hollow cavity back up to s = 0.35
+  ringProfile.push({ s: 1.0, r: 0.125, inner: true });
+  for (let k = 8; k >= 0; k--) {
+    const s = 0.35 + (k / 8) * 0.63;
+    const r = 0.082 * (0.7 + 0.3 * (k / 8));
+    ringProfile.push({ s, r, inner: true });
+  }
+
+  const nP = ringProfile.length;
+  const vCount = nP * (segR + 1);
+  const basePos = new Float32Array(vCount * 3);
+  const livePos = new Float32Array(vCount * 3);
+  const uvs = new Float32Array(vCount * 2);
+  const indices = [];
+
+  const frames = curve.computeFrenetFrames(64, false);
+  function sampleFrame(s) {
+    const pt = curve.getPointAt(s);
+    const fi = Math.min(64, Math.max(0, Math.round(s * 64)));
+    return { pt, N: frames.normals[fi], B: frames.binormals[fi] };
+  }
+
+  for (let i = 0; i < nP; i++) {
+    const { s, r } = ringProfile[i];
+    const { pt, N, B } = sampleFrame(s);
+    for (let j = 0; j <= segR; j++) {
+      const u = j / segR;
+      const phi = u * Math.PI * 2;
+      const dx = (Math.cos(phi) * N.x + Math.sin(phi) * B.x) * r;
+      const dy = (Math.cos(phi) * N.y + Math.sin(phi) * B.y) * r;
+      const dz = (Math.cos(phi) * N.z + Math.sin(phi) * B.z) * r;
+      const idx = i * (segR + 1) + j;
+      basePos[idx * 3] = livePos[idx * 3] = pt.x + dx;
+      basePos[idx * 3 + 1] = livePos[idx * 3 + 1] = pt.y + dy;
+      basePos[idx * 3 + 2] = livePos[idx * 3 + 2] = pt.z + dz;
+      uvs[idx * 2] = u;
+      uvs[idx * 2 + 1] = s;
+    }
+  }
+
+  for (let i = 0; i < nP - 1; i++) {
+    for (let j = 0; j < segR; j++) {
+      const a = i * (segR + 1) + j;
+      const b = a + 1;
+      const c = (i + 1) * (segR + 1) + j;
+      const d = c + 1;
+      indices.push(a, b, c, b, d, c);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(livePos, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+
+  const mesh = new THREE.Mesh(geo, mantleGlassMat);
+  mesh.frustumCulled = false;
+  bodyGroup.add(mesh);
+
+  siphonEntries.push({ geo, basePos, livePos, curve, ringProfile, segR, sideSign });
+}
+createSiphonTube(-1);
+createSiphonTube(1);
+
+// --- 4C. Two Prominent Eyes (Characteristic Vitreledonella Semi-Elongated Pelagic Eyes) ---
+const eyePivots = [];
+function createProminentEye(sideSign) {
+  const pivot = new THREE.Group();
+  pivot.position.set(sideSign * 0.78, 0.77, 0.14);
+  bodyGroup.add(pivot);
+
+  const eyeRig = new THREE.Group();
+  // Orient outward laterally and slightly forward
+  eyeRig.rotation.y = sideSign * 1.18;
+  eyeRig.rotation.z = -sideSign * 0.12;
+  pivot.add(eyeRig);
+
+  // Metallic bronze-gold-silver iridescent scleral eye capsule
+  const scleraGeo = new THREE.SphereGeometry(0.195, 36, 28);
+  scleraGeo.scale(0.92, 1.24, 0.88);
+  const scleraMat = new THREE.MeshPhysicalMaterial({
+    color: 0xd9a15b,
+    emissive: 0x3b1f05,
+    emissiveIntensity: 0.35,
+    roughness: 0.18,
+    metalness: 0.78,
+    clearcoat: 1.0,
+    iridescence: 0.95,
+    iridescenceIOR: 1.5,
+    iridescenceThicknessRange: [220, 620]
+  });
+  const sclera = new THREE.Mesh(scleraGeo, scleraMat);
+  eyeRig.add(sclera);
+
+  // Golden-amber iris collar around pupil
+  const irisGeo = new THREE.TorusGeometry(0.115, 0.032, 16, 36);
+  irisGeo.scale(1.18, 0.78, 0.75);
+  const irisMat = new THREE.MeshPhysicalMaterial({
+    color: 0xffbe55,
+    emissive: 0xcc6600,
+    emissiveIntensity: 0.65,
+    roughness: 0.22,
+    metalness: 0.55
+  });
+  const iris = new THREE.Mesh(irisGeo, irisMat);
+  iris.position.z = 0.142;
+  eyeRig.add(iris);
+
+  // Deep velvety black horizontal octopus slit pupil
+  const pupilGeo = new THREE.SphereGeometry(0.11, 24, 20);
+  pupilGeo.scale(1.12, 0.54, 0.45);
+  const pupilMat = new THREE.MeshStandardMaterial({
+    color: 0x030408,
+    roughness: 0.15,
+    metalness: 0.1
+  });
+  const pupil = new THREE.Mesh(pupilGeo, pupilMat);
+  pupil.position.z = 0.148;
+  eyeRig.add(pupil);
+
+  // Protruding crystal-clear spherical crystalline lens catching studio highlights
+  const lensGeo = new THREE.SphereGeometry(0.132, 32, 24);
+  const lensMat = new THREE.MeshPhysicalMaterial({
+    color: 0xf4fbff,
+    transmission: 0.94,
+    ior: 1.48,
+    thickness: 0.35,
+    roughness: 0.015,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.01,
+    envMapIntensity: 2.0
+  });
+  const lens = new THREE.Mesh(lensGeo, lensMat);
+  lens.position.z = 0.125;
+  eyeRig.add(lens);
+
+  eyePivots.push({ pivot, eyeRig, sideSign });
+}
+createProminentEye(-1);
+createProminentEye(1);
+
+// --- 4D. Glowing Amber-Gold Internal Core, Brain, Optic Nerves & Visceral Anatomy ---
+const internalsGroup = new THREE.Group();
+bodyGroup.add(internalsGroup);
+
+// 1. Spindle-shaped Amber-Gold Digestive Gland (Signature Core of Vitreledonella richardi)
+const coreGroup = new THREE.Group();
+coreGroup.position.set(0, 1.92, 0.04);
+coreGroup.rotation.z = 0.16;
+coreGroup.rotation.x = -0.08;
+internalsGroup.add(coreGroup);
+
+{
+  const spindlePts = [];
+  for (let i = 0; i <= 32; i++) {
+    const t = i / 32;
+    const y = (t - 0.5) * 1.18;
+    // Tapered cigar/spindle silhouette, slightly fuller below middle
+    const env = Math.sin(t * Math.PI);
+    const asym = 1.0 - 0.22 * (t - 0.4);
+    const r = Math.max(0.002, 0.255 * Math.pow(env, 0.78) * asym);
+    spindlePts.push(new THREE.Vector2(r, y));
+  }
+  const coreGeo = new THREE.LatheGeometry(spindlePts, 40);
+  // Subtle organic lobulation
+  const cp = coreGeo.attributes.position;
+  for (let i = 0; i < cp.count; i++) {
+    const x = cp.getX(i), y = cp.getY(i), z = cp.getZ(i);
+    const ang = Math.atan2(z, x);
+    const mod = 1.0 + 0.05 * Math.cos(ang * 5.0 + y * 3.5);
+    cp.setXYZ(i, x * mod, y, z * mod * 0.92);
+  }
+  coreGeo.computeVertexNormals();
+  const coreMesh = new THREE.Mesh(coreGeo, amberCoreMat);
+  coreGroup.add(coreMesh);
+
+  // Soft additive bioluminescent subsurface aura around the amber core
+  const haloGeo = coreGeo.clone();
+  haloGeo.scale(1.18, 1.09, 1.18);
+  const haloMesh = new THREE.Mesh(haloGeo, coreHaloMat);
+  coreGroup.add(haloMesh);
+}
+
+// Internal subsurface PointLight illuminating the inside of the mantle & surrounding organs
+const internalCoreLight = new THREE.PointLight(0xff9624, 3.2, 4.8, 1.6);
+internalCoreLight.position.set(0, 1.65, 0.06);
+internalsGroup.add(internalCoreLight);
+
+// 2. Cerebral Ganglion (Brain) + Branching Glowing Amber-Gold Optic Nerve Tracts
+const brainMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(0.145, 24, 20),
+  opticNerveMat
+);
+brainMesh.scale.set(1.45, 0.82, 1.05);
+brainMesh.position.set(0, 0.80, 0.08);
+internalsGroup.add(brainMesh);
+
+// Circumesophageal nerve ring at base of head feeding the 8 tentacle nerves
+const nerveRingMesh = new THREE.Mesh(
+  new THREE.TorusGeometry(0.24, 0.024, 12, 36),
+  opticNerveMat
+);
+nerveRingMesh.rotation.x = Math.PI * 0.5;
+nerveRingMesh.position.set(0, 0.44, 0.02);
+internalsGroup.add(nerveRingMesh);
+
+// Connect brain to nerve ring (4 descending neural commissures) & brain up to visceral core
+for (let c = 0; c < 4; c++) {
+  const ang = (c / 4) * Math.PI * 2 + 0.4;
+  const tractCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(Math.cos(ang) * 0.08, 0.80, 0.08 + Math.sin(ang) * 0.06),
+    new THREE.Vector3(Math.cos(ang) * 0.19, 0.62, 0.05 + Math.sin(ang) * 0.16),
+    new THREE.Vector3(Math.cos(ang) * 0.24, 0.44, 0.02 + Math.sin(ang) * 0.24)
+  ]);
+  internalsGroup.add(new THREE.Mesh(new THREE.TubeGeometry(tractCurve, 18, 0.016, 8, false), opticNerveMat));
+}
+
+// Dorsal visceral nerve + cephalic aorta connecting brain up into the amber-gold core
+for (let s = -1; s <= 1; s++) {
+  const visceralCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(s * 0.04, 0.84, 0.08),
+    new THREE.Vector3(s * 0.09, 1.15, 0.04),
+    new THREE.Vector3(s * 0.06, 1.48, 0.03),
+    new THREE.Vector3(0, 1.75, 0.04)
+  ]);
+  internalsGroup.add(new THREE.Mesh(new THREE.TubeGeometry(visceralCurve, 24, s === 0 ? 0.024 : 0.013, 8, false), opticNerveMat));
+}
+
+// Prominent Multi-Fascicle Amber-Gold Optic Nerve Tracts + Optic Lobes to Both Eyes
+for (const side of [-1, 1]) {
+  // Pedunculate optic lobe nestled right behind each eye
+  const opticLobe = new THREE.Mesh(new THREE.SphereGeometry(0.095, 20, 16), amberCoreMat);
+  opticLobe.scale.set(0.85, 1.22, 0.92);
+  opticLobe.position.set(side * 0.61, 0.77, 0.13);
+  internalsGroup.add(opticLobe);
+
+  // 4 braided/branching glowing amber-gold optic nerve fibers from brain to optic lobe & retina
+  for (let f = 0; f < 4; f++) {
+    const fAng = (f / 4) * Math.PI * 2;
+    const dy = Math.sin(fAng) * 0.042;
+    const dz = Math.cos(fAng) * 0.038;
+    const nCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(side * 0.10, 0.80 + dy * 0.4, 0.08 + dz * 0.4),
+      new THREE.Vector3(side * 0.28, 0.81 + dy * 1.1, 0.11 + dz * 1.1),
+      new THREE.Vector3(side * 0.46, 0.78 - dy * 0.7, 0.13 - dz * 0.6),
+      new THREE.Vector3(side * 0.63, 0.77 + dy * 0.5, 0.14 + dz * 0.5),
+      new THREE.Vector3(side * 0.74, 0.77 + dy * 0.9, 0.14 + dz * 0.8)
+    ]);
+    const radius = f === 0 ? 0.022 : 0.013;
+    const nerveMesh = new THREE.Mesh(new THREE.TubeGeometry(nCurve, 28, radius, 8, false), opticNerveMat);
+    internalsGroup.add(nerveMesh);
+  }
+}
+
+// 3. Pulsing Branchial Hearts & Delicate Translucent Gill Lamellae inside Lower Mantle
+const branchialHearts = [];
+const gillMat = new THREE.MeshPhysicalMaterial({
+  color: 0xffd79a,
+  emissive: 0xd97218,
+  emissiveIntensity: 0.68,
+  roughness: 0.3,
+  clearcoat: 0.6
+});
+for (const side of [-1, 1]) {
+  const heart = new THREE.Mesh(new THREE.SphereGeometry(0.072, 16, 14), opticNerveMat);
+  heart.position.set(side * 0.26, 1.34, -0.02);
+  internalsGroup.add(heart);
+  branchialHearts.push(heart);
+
+  // Pleated feather-like ctenidia (gill arch) ascending from each branchial heart
+  const gillGroup = new THREE.Group();
+  gillGroup.position.set(side * 0.33, 1.54, -0.03);
+  gillGroup.rotation.z = -side * 0.18;
+  internalsGroup.add(gillGroup);
+
+  for (let l = 0; l < 9; l++) {
+    const lt = l / 8;
+    const lamella = new THREE.Mesh(new THREE.TorusGeometry(0.055 * (1.0 - 0.35 * Math.abs(lt - 0.5)), 0.011, 8, 16, Math.PI * 1.3), gillMat);
+    lamella.position.y = (lt - 0.5) * 0.36;
+    lamella.rotation.x = 1.25;
+    lamella.rotation.z = side * 0.4;
+    gillGroup.add(lamella);
+  }
+}
+
+// 4. Oral Cone & Dark Chitinous Beak tucked inside the center of the 8-tentacle crown
+{
+  const oralCone = new THREE.Mesh(
+    new THREE.SphereGeometry(0.24, 24, 18),
+    new THREE.MeshPhysicalMaterial({
+      color: 0xf6c4d4,
+      emissive: 0x38111e,
+      emissiveIntensity: 0.25,
+      roughness: 0.28,
+      clearcoat: 0.85
+    })
+  );
+  oralCone.scale.set(1.0, 0.65, 1.0);
+  oralCone.position.set(0, 0.27, 0);
+  bodyGroup.add(oralCone);
+
+  const beakMat = new THREE.MeshStandardMaterial({ color: 0x1c0d12, roughness: 0.2, metalness: 0.25 });
+  const beakUpper = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.13, 16), beakMat);
+  beakUpper.rotation.x = Math.PI;
+  beakUpper.position.set(0, 0.17, 0.015);
+  bodyGroup.add(beakUpper);
+}
+
+// ---------------------------------------------------------------------------
+// 5. Distinct 3D Cup-Shaped Suction Cup (빨판) Geometry & InstancedMesh
+// ---------------------------------------------------------------------------
+function create3DSuctionCupGeometry() {
+  // True concave anatomical octopus suction cup (peduncle stalk + acetabulum + flared rim + deep concave infundibulum cavity)
+  // Normals verified: (normal_radial = +dy, normal_y = -dx) -> strictly outward everywhere!
+  const pts = [
+    new THREE.Vector2(0.000, 0.000),
+    new THREE.Vector2(0.460, 0.000), // peduncle base
+    new THREE.Vector2(0.420, 0.180), // muscular stalk waist
+    new THREE.Vector2(0.580, 0.360), // bulbous acetabular chamber
+    new THREE.Vector2(0.550, 0.520), // sphincter constriction
+    new THREE.Vector2(0.760, 0.720), // flaring infundibulum wall
+    new THREE.Vector2(0.960, 0.890), // wide fleshy outer cup rim
+    new THREE.Vector2(1.000, 0.965), // outer lip peak
+    new THREE.Vector2(0.930, 1.000), // top cushion of rim
+    new THREE.Vector2(0.800, 0.975), // inner rim overhang
+    new THREE.Vector2(0.620, 0.810), // plunging down concave suction cavity
+    new THREE.Vector2(0.420, 0.610), // deep inner cup wall
+    new THREE.Vector2(0.220, 0.470), // inner acetabular orifice depression
+    new THREE.Vector2(0.000, 0.430)  // center floor of suction cavity
+  ];
+
+  const geo = new THREE.LatheGeometry(pts, 22);
+  const pos = geo.attributes.position;
+  const nrm = geo.attributes.normal;
+  const colors = new Float32Array(pos.count * 3);
+
+  const cStalk = new THREE.Color(0xf095b3);   // soft translucent rose-pink base
+  const cOuter = new THREE.Color(0xffd7e5);   // blush pink-ivory wall
+  const cRim = new THREE.Color(0xfff9fb);     // pearlescent creamy white rim
+  const cCavity = new THREE.Color(0xdf5883);  // deep coral-pink inner suction cavity
+  const tmp = new THREE.Color();
+
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const r = Math.hypot(x, z);
+    const nr = (x * nrm.getX(i) + z * nrm.getZ(i)) / (r || 1);
+
+    if (y > 0.88 && r > 0.72) {
+      // Creamy white outer/top suction rim
+      tmp.copy(cRim);
+    } else if (nr < -0.05 || (y > 0.40 && y < 0.92 && r < 0.74 && nrm.getY(i) > 0.25)) {
+      // Concave inner suction cup depression
+      const depth = THREE.MathUtils.clamp((0.92 - y) / 0.50, 0, 1);
+      tmp.lerpColors(cRim, cCavity, 0.35 + 0.65 * depth);
+    } else if (y < 0.38) {
+      tmp.lerpColors(cStalk, cOuter, y / 0.38);
+    } else {
+      tmp.lerpColors(cOuter, cRim, (y - 0.38) / 0.55);
+    }
+
+    colors[i * 3] = tmp.r;
+    colors[i * 3 + 1] = tmp.g;
+    colors[i * 3 + 2] = tmp.b;
+  }
+
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geo;
+}
+
+// Precompute adaptive staggered suction cup positions u along each tentacle (two staggered rows!)
+const cupSchedule = [];
+{
+  let u = 0.042;
+  let idx = 0;
+  while (u < 0.935) {
+    // Anatomical tentacle radius profile
+    const rArm = 0.168 * Math.pow(1.0 - u, 1.28) + 0.008;
+    // Slight anatomical enlargement of suckers in proximal-mid region (u ~ 0.14..0.32)
+    const midSwelling = 1.0 + 0.24 * Math.exp(-Math.pow((u - 0.20) / 0.12, 2));
+    const cupRad = rArm * 0.44 * midSwelling;
+    const cupHeight = cupRad * 0.92;
+    const rowSign = (idx % 2 === 0) ? -1 : 1;
+
+    cupSchedule.push({ u, cupRad, cupHeight, rowSign });
+
+    // Step u proportionally to cup radius so staggered rows stay evenly spaced from base to whip tip
+    u += Math.max(0.0075, cupRad * 0.255);
+    idx++;
+  }
+}
+
+const NUM_ARMS = 8;
+const CUPS_PER_ARM = cupSchedule.length;
+const TOTAL_CUPS = NUM_ARMS * CUPS_PER_ARM;
+
+const suctionCupGeo = create3DSuctionCupGeometry();
+const suctionCupInstanced = new THREE.InstancedMesh(suctionCupGeo, suctionCupMat, TOTAL_CUPS);
+suctionCupInstanced.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+suctionCupInstanced.castShadow = true;
+suctionCupInstanced.receiveShadow = true;
+suctionCupInstanced.frustumCulled = false;
+octopusGroup.add(suctionCupInstanced);
+
+// ---------------------------------------------------------------------------
+// 6. Eight Articulated Tentacles + Internal Golden Nerves + Interbrachial Web
+// ---------------------------------------------------------------------------
+const SPINE_N = 64; // 65 nodes (0..64)
+const RING_M = 18;  // 19 radial vertices around each tentacle ring
+
+// Precompute organic tentacle cross-section (rounded dorsal arch, muscular lateral ridges, slightly flatter oral face)
+const crossCos = new Float32Array(RING_M + 1);
+const crossSin = new Float32Array(RING_M + 1);
+const crossRadScale = new Float32Array(RING_M + 1);
+for (let j = 0; j <= RING_M; j++) {
+  const phi = (j / RING_M) * Math.PI * 2;
+  // phi = 0 is dorsal (-N_oral), phi = PI is oral underside (+N_oral)
+  const c = Math.cos(phi);
+  const s = Math.sin(phi);
+  crossCos[j] = c;
+  crossSin[j] = s;
+  // Slightly flatten oral underside (c < 0 => phi near PI) & subtle lateral muscular fullness
+  const oralFlat = c < 0 ? (1.0 - 0.12 * c * c) : 1.0;
+  const latFull = 1.0 + 0.06 * s * s;
+  crossRadScale[j] = oralFlat * latFull;
+}
+
+function getArmRadius(u) {
+  const baseFlare = 0.042 * Math.exp(-Math.pow(u / 0.09, 2));
+  return baseFlare + 0.162 * Math.pow(1.0 - u, 1.32) + 0.0065;
+}
+
+const arms = [];
+const tentacleMeshes = [];
+
+for (let k = 0; k < NUM_ARMS; k++) {
+  const theta = (k / NUM_ARMS) * Math.PI * 2 + Math.PI * 0.125;
+  // Slight organic variation in arm length (4.45 .. 4.80 units)
+  const length = 4.62 + 0.16 * Math.sin(k * 1.57);
+  const ds = length / SPINE_N;
+
+  const vertCount = (SPINE_N + 1) * (RING_M + 1);
+  const posArr = new Float32Array(vertCount * 3);
+  const nrmArr = new Float32Array(vertCount * 3);
+  const uvArr = new Float32Array(vertCount * 2);
+  const colArr = new Float32Array(vertCount * 3);
+  const indices = [];
+
+  const cDorsal = new THREE.Color(0xdcf5ff);
+  const cOral = new THREE.Color(0xffeaf1);
+  const cTip = new THREE.Color(0xeefaff);
+  const cTmp = new THREE.Color();
+
+  for (let i = 0; i <= SPINE_N; i++) {
+    const u = i / SPINE_N;
+    for (let j = 0; j <= RING_M; j++) {
+      const v = j / RING_M;
+      const idx = i * (RING_M + 1) + j;
+      uvArr[idx * 2] = v;
+      uvArr[idx * 2 + 1] = u * 3.0;
+
+      // Blend dorsal aqua-glass to warm pearlescent blush on the suction-cup underside
+      const oralWeight = 0.5 - 0.5 * crossCos[j];
+      cTmp.lerpColors(cDorsal, cOral, Math.pow(oralWeight, 1.4));
+      cTmp.lerp(cTip, u * 0.35);
+      colArr[idx * 3] = cTmp.r;
+      colArr[idx * 3 + 1] = cTmp.g;
+      colArr[idx * 3 + 2] = cTmp.b;
+    }
+  }
+
+  for (let i = 0; i < SPINE_N; i++) {
+    for (let j = 0; j < RING_M; j++) {
+      const v00 = i * (RING_M + 1) + j;
+      const v01 = v00 + 1;
+      const v10 = (i + 1) * (RING_M + 1) + j;
+      const v11 = v10 + 1;
+      // Verified outward counter-clockwise winding: (v00, v01, v10), (v01, v11, v10)
+      indices.push(v00, v01, v10, v01, v11, v10);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nrmArr, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvArr, 2));
+  geo.setAttribute('color', new THREE.BufferAttribute(colArr, 3));
+  geo.setIndex(indices);
+  // Generous static bounding volume so Raycaster always tests exact deformed triangles
+  geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, -0.8, 0), 7.5);
+  geo.boundingBox = new THREE.Box3(new THREE.Vector3(-7, -7, -7), new THREE.Vector3(7, 5, 7));
+
+  const mesh = new THREE.Mesh(geo, tentacleGlassMat);
+  mesh.castShadow = true;
+  mesh.frustumCulled = false;
+  mesh.userData.armIndex = k;
+  octopusGroup.add(mesh);
+  tentacleMeshes.push(mesh);
+
+  // Spine arrays + stateful spring-damper physics arrays for mouse deflection & curling
+  const P = Array.from({ length: SPINE_N + 1 }, () => new THREE.Vector3());
+  const Pkin = Array.from({ length: SPINE_N + 1 }, () => new THREE.Vector3());
+  const disp = Array.from({ length: SPINE_N + 1 }, () => new THREE.Vector3());
+  const vel = Array.from({ length: SPINE_N + 1 }, () => new THREE.Vector3());
+  const T = Array.from({ length: SPINE_N + 1 }, () => new THREE.Vector3());
+  const Noral = Array.from({ length: SPINE_N + 1 }, () => new THREE.Vector3());
+  const Blat = Array.from({ length: SPINE_N + 1 }, () => new THREE.Vector3());
+
+  arms.push({
+    k,
+    theta,
+    length,
+    ds,
+    geo,
+    mesh,
+    posArr,
+    nrmArr,
+    P,
+    Pkin,
+    disp,
+    vel,
+    T,
+    Noral,
+    Blat,
+    // Independent multi-harmonic wave & autonomous curl parameters
+    phase1: k * 0.88 + 0.25 * Math.sin(k * 2.1),
+    phase2: k * 1.73 + 1.1,
+    phase3: k * 2.61 + 0.4,
+    curlPhase: k * 1.45 + 0.7 * (k % 3),
+    freqScale: 0.92 + 0.16 * ((k * 37) % 7) / 6,
+    reactiveCurl: 0,
+    reactiveCurlVel: 0,
+    reactiveTwist: 0,
+    reactiveTwistVel: 0
+  });
+}
+
+// Unified Internal Glowing Amber-Gold Axial Brachial Nerve Cords inside all 8 Tentacles
+const NERVE_NODES = 48; // Covers proximal 78% of each tentacle where internal nerve glows clearly
+const NERVE_SIDES = 6;
+{
+  const nvPerArm = (NERVE_NODES + 1) * (NERVE_SIDES + 1);
+  const nvTotal = NUM_ARMS * nvPerArm;
+  const nervePos = new Float32Array(nvTotal * 3);
+  const nerveNrm = new Float32Array(nvTotal * 3);
+  const nerveIdx = [];
+
+  for (let k = 0; k < NUM_ARMS; k++) {
+    const base = k * nvPerArm;
+    for (let i = 0; i < NERVE_NODES; i++) {
+      for (let j = 0; j < NERVE_SIDES; j++) {
+        const v00 = base + i * (NERVE_SIDES + 1) + j;
+        const v01 = v00 + 1;
+        const v10 = base + (i + 1) * (NERVE_SIDES + 1) + j;
+        const v11 = v10 + 1;
+        nerveIdx.push(v00, v01, v10, v01, v11, v10);
+      }
+    }
+  }
+
+  const armNerveGeo = new THREE.BufferGeometry();
+  armNerveGeo.setAttribute('position', new THREE.BufferAttribute(nervePos, 3));
+  armNerveGeo.setAttribute('normal', new THREE.BufferAttribute(nerveNrm, 3));
+  armNerveGeo.setIndex(nerveIdx);
+  const armNerveMesh = new THREE.Mesh(armNerveGeo, opticNerveMat);
+  armNerveMesh.frustumCulled = false;
+  octopusGroup.add(armNerveMesh);
+
+  octopusGroup.userData.armNerveGeo = armNerveGeo;
+  octopusGroup.userData.nervePos = nervePos;
+  octopusGroup.userData.nerveNrm = nerveNrm;
+}
+
+// --- Thin Translucent Interbrachial Web connecting all 8 Tentacles near Base ---
+const WEB_S = 14; // radial subdivisions from crown (0) to scalloped web margin (1)
+const WEB_W = 14; // circumferential subdivisions across each of the 8 sectors
+const webSectorVerts = (WEB_S + 1) * (WEB_W + 1);
+const webTotalVerts = NUM_ARMS * webSectorVerts;
+const webPosArr = new Float32Array(webTotalVerts * 3);
+const webUVArr = new Float32Array(webTotalVerts * 2);
+const webIndices = [];
+
+for (let k = 0; k < NUM_ARMS; k++) {
+  const base = k * webSectorVerts;
+  for (let is = 0; is <= WEB_S; is++) {
+    for (let iw = 0; iw <= WEB_W; iw++) {
+      const idx = base + is * (WEB_W + 1) + iw;
+      webUVArr[idx * 2] = (k + iw / WEB_W) / NUM_ARMS * 2.0;
+      webUVArr[idx * 2 + 1] = is / WEB_S * 0.45;
+    }
+  }
+  for (let is = 0; is < WEB_S; is++) {
+    for (let iw = 0; iw < WEB_W; iw++) {
+      const a = base + is * (WEB_W + 1) + iw;
+      const b = a + 1;
+      const c = base + (is + 1) * (WEB_W + 1) + iw;
+      const d = c + 1;
+      webIndices.push(a, c, b, b, c, d);
+    }
+  }
+}
+
+const webGeo = new THREE.BufferGeometry();
+webGeo.setAttribute('position', new THREE.BufferAttribute(webPosArr, 3));
+webGeo.setAttribute('uv', new THREE.BufferAttribute(webUVArr, 2));
+webGeo.setIndex(webIndices);
+webGeo.computeVertexNormals();
+webGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, -0.2, 0), 4.5);
+
+const webMesh = new THREE.Mesh(webGeo, webGlassMat);
+webMesh.frustumCulled = false;
+octopusGroup.add(webMesh);
+
+// ---------------------------------------------------------------------------
+// 7. Interactive Mouse Raycaster & Hydro-Gelatinous / Tentacle Physics State
+// ---------------------------------------------------------------------------
+const raycaster = new THREE.Raycaster();
+const pointerNDC = new THREE.Vector2(99, 99);
+const prevPointerNDC = new THREE.Vector2(99, 99);
+let pointerActive = false;
+let pointerDown = false;
+let pointerSpeed = 0;
+
+// Jelly wobble modes on mantle/head + jet propulsion impulse on click
+const jellyState = {
+  wobbleAmp: 0,
+  wobbleVel: 0,
+  hitLocal: new THREE.Vector3(0, 1.8, 0.8),
+  jetPulse: 0,
+  jetVel: 0,
+  blushGlow: 0
+};
+
+const raycastTargets = [mantleMesh, webMesh, ...tentacleMeshes];
+const invOctopusMat = new THREE.Matrix4();
+const localRay = new THREE.Ray();
+
+window.addEventListener('pointermove', (e) => {
+  const nx = (e.clientX / window.innerWidth) * 2 - 1;
+  const ny = -(e.clientY / window.innerHeight) * 2 + 1;
+  if (pointerActive) {
+    const dx = nx - prevPointerNDC.x;
+    const dy = ny - prevPointerNDC.y;
+    pointerSpeed = Math.min(2.5, pointerSpeed * 0.55 + Math.hypot(dx, dy) * 26.0);
+  }
+  prevPointerNDC.set(nx, ny);
+  pointerNDC.set(nx, ny);
+  pointerActive = true;
+});
+
+window.addEventListener('pointerleave', () => {
+  pointerActive = false;
+});
+
+window.addEventListener('pointerdown', (e) => {
+  pointerDown = true;
+  const nx = (e.clientX / window.innerWidth) * 2 - 1;
+  const ny = -(e.clientY / window.innerHeight) * 2 + 1;
+  pointerNDC.set(nx, ny);
+  pointerActive = true;
+
+  // Raycast check on click for physical jelly pulse & tentacle recoil/curl
+  raycaster.setFromCamera(pointerNDC, camera);
+  const hits = raycaster.intersectObjects(raycastTargets, false);
+  if (hits.length > 0) {
+    const hit = hits[0];
+    const localPt = octopusGroup.worldToLocal(hit.point.clone());
+    jellyState.hitLocal.copy(localPt);
+    jellyState.wobbleVel += 4.2;
+    jellyState.jetVel += 2.6;
+    jellyState.blushGlow = Math.min(1.5, jellyState.blushGlow + 0.95);
+
+    // Physical impulse on tentacles near the clicked 3D hit point
+    for (let k = 0; k < NUM_ARMS; k++) {
+      const arm = arms[k];
+      let minDist = Infinity;
+      for (let i = 3; i <= SPINE_N; i++) {
+        const d = arm.P[i].distanceTo(localPt);
+        if (d < minDist) minDist = d;
+        if (d < 1.8) {
+          const pushDir = arm.P[i].clone().sub(localPt);
+          const distSafe = Math.max(0.15, pushDir.length());
+          pushDir.divideScalar(distSafe);
+          const falloff = Math.pow(1.0 - d / 1.8, 1.6) * (i / SPINE_N);
+          arm.vel[i].addScaledVector(pushDir, 5.2 * falloff);
+          arm.vel[i].y += 1.4 * falloff;
+        }
+      }
+      if (minDist < 2.2) {
+        // Expressive defensive recoil curl away from click!
+        arm.reactiveCurlVel += (k % 2 === 0 ? -1 : 1) * 5.5 * (1.0 - minDist / 2.2);
+        arm.reactiveTwistVel += (k % 2 === 0 ? 1 : -1) * 4.0;
+      }
+    }
+  }
+});
+
+window.addEventListener('pointerup', () => {
+  pointerDown = false;
+});
+
+// ---------------------------------------------------------------------------
+// 8. Kinematic & Physical Simulation Helpers (Zero-Allocation Scratch Vectors)
+// ---------------------------------------------------------------------------
+const vTmp1 = new THREE.Vector3();
+const vTmp2 = new THREE.Vector3();
+const vTmp3 = new THREE.Vector3();
+const vClosestOnRay = new THREE.Vector3();
+const qRot = new THREE.Quaternion();
+const m4Cup = new THREE.Matrix4();
+const vCupRight = new THREE.Vector3();
+const vCupUp = new THREE.Vector3();
+const vCupFwd = new THREE.Vector3();
+const vCupPos = new THREE.Vector3();
+const vCupScale = new THREE.Vector3();
+
+// Evaluate interpolated position and Bishop frame on an arm at continuous parameter u in [0, 1]
+function sampleArmAt(arm, u, outPos, outT, outNoral, outBlat) {
+  const f = THREE.MathUtils.clamp(u, 0, 1) * SPINE_N;
+  const i0 = Math.min(SPINE_N - 1, Math.floor(f));
+  const i1 = i0 + 1;
+  const a = f - i0;
+
+  outPos.lerpVectors(arm.P[i0], arm.P[i1], a);
+  outT.lerpVectors(arm.T[i0], arm.T[i1], a).normalize();
+  outNoral.lerpVectors(arm.Noral[i0], arm.Noral[i1], a);
+  // Ensure strict orthogonality after linear interpolation
+  outNoral.addScaledVector(outT, -outNoral.dot(outT)).normalize();
+  outBlat.crossVectors(outNoral, outT).normalize();
+  // Note: At base, Noral = T x Blat => Blat = - (Noral x T)? Let's match arm.Blat sign!
+  if (outBlat.dot(arm.Blat[i0]) < 0) outBlat.negate();
+}
+
+const clock = new THREE.Clock();
+let elapsed = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  const dt = Math.min(clock.getDelta(), 0.045);
+  elapsed += dt;
+  pointerSpeed *= Math.pow(0.06, dt);
+
+  // --- A. Breathing, Hydro-Jetting & Hovering Body Motion ---
+  // Spring-damper integration for click jet-pulse & jelly wobble
+  jellyState.jetVel += (-5.8 * jellyState.jetPulse - 2.9 * jellyState.jetVel) * dt;
+  jellyState.jetPulse += jellyState.jetVel * dt;
+
+  jellyState.wobbleVel += (-26.0 * jellyState.wobbleAmp - 3.6 * jellyState.wobbleVel) * dt;
+  jellyState.wobbleAmp += jellyState.wobbleVel * dt;
+  jellyState.blushGlow *= Math.pow(0.22, dt);
+
+  const breathPhase = elapsed * 1.45;
+  // Asymmetric organic breath: smooth expansion, brisk gentle jet contraction
+  const breathWave = Math.sin(breathPhase) + 0.25 * Math.sin(breathPhase * 2.0 - 0.6);
+  const jetExpand = -0.11 * jellyState.jetPulse;
+
+  // Graceful mid-water buoyancy hover
+  const hoverY = 0.16 * Math.sin(elapsed * 0.95 - 0.5) + 0.06 * Math.sin(elapsed * 0.43) + 0.22 * jellyState.jetPulse;
+  const hoverX = 0.08 * Math.sin(elapsed * 0.51);
+  const hoverZ = 0.06 * Math.cos(elapsed * 0.63);
+  octopusGroup.position.set(hoverX, hoverY, hoverZ);
+  octopusGroup.rotation.z = 0.045 * Math.sin(elapsed * 0.57) + 0.02 * Math.cos(elapsed * 1.15);
+  octopusGroup.rotation.y = 0.14 * Math.sin(elapsed * 0.29);
+  octopusGroup.updateMatrixWorld(true);
+
+  // Raycast against live 3D meshes when pointer is active
+  let hoveredHitLocal = null;
+  let hoveredMesh = null;
+  if (pointerActive) {
+    raycaster.setFromCamera(pointerNDC, camera);
+    invOctopusMat.copy(octopusGroup.matrixWorld).invert();
+    localRay.copy(raycaster.ray).applyMatrix4(invOctopusMat);
+
+    const hits = raycaster.intersectObjects(raycastTargets, false);
+    if (hits.length > 0) {
+      hoveredMesh = hits[0].object;
+      hoveredHitLocal = hits[0].point.clone().applyMatrix4(invOctopusMat);
+
+      // Moving over the bulbous gelatinous mantle excites continuous jelly ripples!
+      if (hoveredMesh === mantleMesh && pointerSpeed > 0.015) {
+        jellyState.hitLocal.lerp(hoveredHitLocal, 0.45);
+        jellyState.wobbleVel += pointerSpeed * 1.35;
+        jellyState.blushGlow = Math.min(1.2, jellyState.blushGlow + pointerSpeed * 0.18);
+      }
+    }
+  }
+
+  // --- B. Deform Bulbous Translucent Mantle & Siphon Tubes ---
+  for (let i = 0; i <= MANTLE_NV; i++) {
+    const v = i / MANTLE_NV;
+    // Mantle breathes mostly above neck (v > 0.24)
+    const mantleMask = THREE.MathUtils.smoothstep(v, 0.18, 0.42) * (1.0 - 0.25 * Math.pow(v, 4.0));
+    const radialBreath = 1.0 + mantleMask * (0.048 * breathWave + jetExpand);
+    const axialStretch = 1.0 - mantleMask * (0.026 * breathWave + jetExpand * 0.6);
+
+    for (let j = 0; j <= MANTLE_NU; j++) {
+      const idx = (i * (MANTLE_NU + 1) + j) * 3;
+      let bx = mantleBasePos[idx];
+      let by = mantleBasePos[idx + 1];
+      let bz = mantleBasePos[idx + 2];
+
+      // Subtle travelling gelatinous surface undulation
+      const theta = (j / MANTLE_NU) * Math.PI * 2;
+      const shimmer = 1.0 + mantleMask * 0.012 * Math.sin(v * 9.0 - elapsed * 2.8 + theta * 2.0);
+
+      let px = bx * radialBreath * shimmer;
+      let py = 0.34 + (by - 0.34) * axialStretch;
+      let pz = bz * radialBreath * shimmer;
+
+      // Localized interactive mouse jelly wobble around hitLocal
+      if (Math.abs(jellyState.wobbleAmp) > 0.0005) {
+        const dx = px - jellyState.hitLocal.x;
+        const dy = py - jellyState.hitLocal.y;
+        const dz = pz - jellyState.hitLocal.z;
+        const d = Math.hypot(dx, dy, dz);
+        const ripple = Math.exp(-d * 1.45) * Math.cos(d * 6.5 - elapsed * 14.0) * jellyState.wobbleAmp * 0.095;
+        const rHoriz = Math.hypot(px, pz) || 1;
+        px += (px / rHoriz) * ripple;
+        pz += (pz / rHoriz) * ripple;
+        py += ripple * 0.35;
+      }
+
+      mantleLivePos[idx] = px;
+      mantleLivePos[idx + 1] = py;
+      mantleLivePos[idx + 2] = pz;
+    }
+  }
+  mantleGeo.attributes.position.needsUpdate = true;
+  mantleGeo.computeVertexNormals();
+  stitchUVSeamNormals(mantleGeo, MANTLE_NU, MANTLE_NV);
+
+  // Pulse paired siphon tubes out-of-phase with mantle inhale (flare on exhale/jet!)
+  const siphonPulse = -0.14 * breathWave + 0.28 * Math.max(0, jellyState.jetPulse);
+  for (const sEntry of siphonEntries) {
+    const { geo, basePos, livePos, curve, ringProfile, segR } = sEntry;
+    for (let i = 0; i < ringProfile.length; i++) {
+      const s = ringProfile[i].s;
+      const pt = curve.getPointAt(s);
+      const flare = 1.0 + siphonPulse * (0.35 + 0.65 * s) + 0.04 * Math.sin(elapsed * 4.2 - s * 4.0);
+      for (let j = 0; j <= segR; j++) {
+        const idx = (i * (segR + 1) + j) * 3;
+        livePos[idx] = pt.x + (basePos[idx] - pt.x) * flare;
+        livePos[idx + 1] = pt.y + (basePos[idx + 1] - pt.y) * flare;
+        livePos[idx + 2] = pt.z + (basePos[idx + 2] - pt.z) * flare;
+      }
+    }
+    geo.attributes.position.needsUpdate = true;
+    geo.computeVertexNormals();
+  }
+
+  // Pulse internal bioluminescent amber-gold core, chromatophores & branchial hearts
+  const heartBeat = 0.5 + 0.5 * Math.sin(elapsed * 5.2);
+  for (let h = 0; h < branchialHearts.length; h++) {
+    const s = 0.90 + 0.22 * Math.sin(elapsed * 5.2 + h * 0.8);
+    branchialHearts[h].scale.setScalar(s);
+  }
+  // Subtle silhouette-counteracting tilt of spindle digestive gland
+  coreGroup.rotation.z = 0.16 - octopusGroup.rotation.z * 0.65 + 0.03 * Math.sin(elapsed * 0.9);
+  amberCoreMat.emissiveIntensity = 1.28 + 0.22 * heartBeat + 0.85 * jellyState.blushGlow;
+  opticNerveMat.emissiveIntensity = 1.45 + 0.28 * heartBeat + 0.95 * jellyState.blushGlow;
+  internalCoreLight.intensity = 2.9 + 0.65 * heartBeat + 2.2 * jellyState.blushGlow;
+  mantleGlassMat.emissiveIntensity = 0.50 + 0.45 * jellyState.blushGlow;
+
+  // Subtle living eye tracking toward mouse ray
+  for (const ep of eyePivots) {
+    let targetYaw = ep.sideSign * 1.18 + 0.06 * Math.sin(elapsed * 0.7 + ep.sideSign);
+    let targetPitch = 0.04 * Math.cos(elapsed * 0.55);
+    if (pointerActive) {
+      targetYaw += THREE.MathUtils.clamp(pointerNDC.x * 0.18, -0.2, 0.2);
+      targetPitch -= THREE.MathUtils.clamp(pointerNDC.y * 0.16, -0.18, 0.18);
+    }
+    ep.eyeRig.rotation.y += (targetYaw - ep.eyeRig.rotation.y) * Math.min(1, dt * 6.0);
+    ep.eyeRig.rotation.x += (targetPitch - ep.eyeRig.rotation.x) * Math.min(1, dt * 6.0);
+  }
+
+  // --- C. Multi-Harmonic 3D Sine/Helix Tentacle Kinematics + Reactive Mouse Curling ---
+  let cupInstanceIdx = 0;
+  const nervePos = octopusGroup.userData.nervePos;
+  const nerveNrm = octopusGroup.userData.nerveNrm;
+  const nvPerArm = (NERVE_NODES + 1) * (NERVE_SIDES + 1);
+
+  for (let k = 0; k < NUM_ARMS; k++) {
+    const arm = arms[k];
+    const th = arm.theta;
+    const cosTh = Math.cos(th);
+    const sinTh = Math.sin(th);
+    const ds = arm.ds;
+    const wFreq = arm.freqScale;
+
+    // 1. Crown anchor & initial anatomical tangent/frame
+    //Pkin[0] sits on the brachial crown at y = 0.34, radius = 0.35
+    arm.Pkin[0].set(cosTh * 0.35, 0.34, sinTh * 0.35);
+
+    // Base spread opens/closes gracefully with breathing & jet propulsion
+    const jetClose = 0.24 * jellyState.jetPulse;
+    const openAngle = 0.84 - 0.07 * breathWave - jetClose;
+    vTmp1.set(cosTh * Math.sin(openAngle), -Math.cos(openAngle), sinTh * Math.sin(openAngle)).normalize();
+    // Lateral unit vector (+Blat points CCW toward arm k+1)
+    vTmp2.set(-sinTh, 0, cosTh);
+    // Oral underside unit vector (strictly inward/downward: T0 x Blat0)
+    vTmp3.crossVectors(vTmp1, vTmp2).normalize();
+
+    let curT = vTmp1.clone();
+    let curB = vTmp2.clone();
+    let curN = vTmp3.clone();
+
+    // Update mouse reactive curl spring-damper for this tentacle
+    let curlTarget = 0;
+    let twistTarget = 0;
+
+    if (pointerActive) {
+      // Find closest approach between 3D cursor ray and this tentacle's current distal half
+      let bestDist = Infinity;
+      let bestI = 32;
+      const bestRayPt = vTmp1; // temporary reuse avoided below; use dedicated local vars
+      const rayPt = new THREE.Vector3();
+      const candRayPt = new THREE.Vector3();
+
+      for (let i = 10; i <= SPINE_N; i += 2) {
+        localRay.closestPointToPoint(arm.P[i], candRayPt);
+        const d = candRayPt.distanceTo(arm.P[i]);
+        if (d < bestDist) {
+          bestDist = d;
+          bestI = i;
+          rayPt.copy(candRayPt);
+        }
+      }
+
+      if (bestDist < 2.35) {
+        const prox = 1.0 - bestDist / 2.35;
+        const toRay = rayPt.clone().sub(arm.P[bestI]);
+        const oralDot = toRay.dot(arm.Noral[bestI]);
+        const latDot = toRay.dot(arm.Blat[bestI]);
+
+        if (pointerDown || pointerSpeed > 0.38) {
+          // Fast swipe or click/drag: curl AWAY defensively & deflect hydrodynamically!
+          curlTarget = -Math.sign(oralDot || 1) * 1.85 * prox;
+          twistTarget = -Math.sign(latDot || 1) * 1.2 * prox;
+        } else {
+          // Gentle hover: curious organic tentacle curling TOWARD the cursor!
+          curlTarget = (oralDot >= 0 ? 1.45 : -1.35) * prox;
+          twistTarget = THREE.MathUtils.clamp(latDot * 1.4, -1.1, 1.1) * prox;
+        }
+      }
+    }
+
+    arm.reactiveCurlVel += (18.0 * (curlTarget - arm.reactiveCurl) - 4.8 * arm.reactiveCurlVel) * dt;
+    arm.reactiveCurl += arm.reactiveCurlVel * dt;
+
+    arm.reactiveTwistVel += (16.0 * (twistTarget - arm.reactiveTwist) - 4.8 * arm.reactiveTwistVel) * dt;
+    arm.reactiveTwist += arm.reactiveTwistVel * dt;
+
+    // Autonomous slow curl/uncurl envelope (some tentacles curl outward showing suction cups, others spiral inward)
+    const autoCurlWave = Math.sin(elapsed * 0.52 * wFreq + arm.curlPhase) +
+                         0.45 * Math.cos(elapsed * 0.31 + arm.phase2);
+
+    // 2. Intrinsic Bishop-Frame Curvature Integration (100% inextensible multi-harmonic 3D wave + helix!)
+    for (let i = 1; i <= SPINE_N; i++) {
+      const u = i / SPINE_N;
+
+      // Proximal bell arch (flares gracefully outward near web u < 0.26, then drapes downward)
+      const bellFlare = -0.82 * Math.exp(-Math.pow((u - 0.11) / 0.10, 2)) +
+                         0.62 * Math.exp(-Math.pow((u - 0.34) / 0.16, 2));
+
+      // Multi-harmonic travelling waves from base to tip
+      const env = THREE.MathUtils.smoothstep(u, 0.04, 0.32) * (0.65 + 0.95 * u);
+      const w1 = Math.sin(u * 7.2 - elapsed * 2.05 * wFreq + arm.phase1);
+      const w2 = Math.sin(u * 13.5 - elapsed * 3.35 * wFreq + arm.phase2);
+      const w3 = Math.sin(u * 21.0 - elapsed * 4.80 * wFreq + arm.phase3);
+
+      // Out-of-plane 90-degree-shifted harmonic creates genuine 3D travelling helices!
+      const h1 = Math.cos(u * 7.2 - elapsed * 2.05 * wFreq + arm.phase1);
+      const h2 = Math.sin(u * 10.8 - elapsed * 2.65 * wFreq + arm.phase3);
+
+      // Distal curling & uncurling (both oral curls & reverse/outward curls displaying suction cups!)
+      const tipMask = Math.pow(THREE.MathUtils.smoothstep(u, 0.36, 0.96), 1.45);
+      const distalCurl = tipMask * (1.28 * autoCurlWave + 2.15 * arm.reactiveCurl);
+      const distalHelix = tipMask * (0.72 * Math.sin(elapsed * 0.68 + arm.phase1) + 1.45 * arm.reactiveTwist);
+
+      const kappaOral = bellFlare + env * (0.58 * w1 + 0.26 * w2 + 0.13 * w3) + distalCurl;
+      const kappaLat = env * (0.44 * h1 + 0.22 * h2) + distalHelix;
+
+      // Rotate tangent in Bishop frame by curvature * ds
+      const dOral = kappaOral * ds;
+      const dLat = kappaLat * ds;
+
+      const nextT = curT.clone()
+        .addScaledVector(curN, dOral)
+        .addScaledVector(curB, dLat)
+        .normalize();
+
+      qRot.setFromUnitVectors(curT, nextT);
+      curN.applyQuaternion(qRot).normalize();
+      curB.crossVectors(curN, nextT).normalize();
+      if (curB.dot(vTmp2) < 0 && i === 1) curB.negate();
+      // Keep strict right-handedness matching base (curN = curT x curB => curB = curN.cross(curT) negated)
+      curB.crossVectors(curN, nextT).negate().normalize();
+      curT.copy(nextT);
+
+      arm.Pkin[i].copy(arm.Pkin[i - 1]).addScaledVector(curT, ds);
+    }
+
+    // 3. Apply Stateful Physical Mouse Brushing / Deflection Forces & Length-Preserving Integration
+    arm.P[0].copy(arm.Pkin[0]);
+    for (let i = 1; i <= SPINE_N; i++) {
+      const u = i / SPINE_N;
+      const compliance = Math.pow(u, 1.15);
+
+      if (pointerActive) {
+        // Compute current world/local point proximity to Raycaster ray
+        const curPos = vTmp1.copy(arm.Pkin[i]).add(arm.disp[i]);
+        localRay.closestPointToPoint(curPos, vClosestOnRay);
+        vTmp2.subVectors(curPos, vClosestOnRay);
+        const d = vTmp2.length();
+
+        const brushRadius = 0.85;
+        if (d < brushRadius && d > 1e-5) {
+          vTmp2.divideScalar(d);
+          const falloff = Math.pow(1.0 - d / brushRadius, 1.8) * compliance;
+          // Physical brushing & hydrodynamic deflection away from cursor contact core
+          const strength = pointerDown ? 18.0 : (4.2 + pointerSpeed * 12.5);
+          arm.vel[i].addScaledVector(vTmp2, strength * falloff * dt);
+        } else if (!pointerDown && pointerSpeed < 0.25 && d < 2.1 && u > 0.35) {
+          // Gentle curious fluid pull of distal tips toward nearby hovering cursor
+          vTmp2.negate().divideScalar(d || 1);
+          const attract = (1.0 - d / 2.1) * (u - 0.35) * 2.6;
+          arm.vel[i].addScaledVector(vTmp2, attract * dt);
+        }
+      }
+
+      // Fluid spring-damper restoring toward kinematic wave target
+      const springK = 22.0;
+      const waterDrag = 5.4;
+      arm.vel[i].x += (-springK * arm.disp[i].x - waterDrag * arm.vel[i].x) * dt;
+      arm.vel[i].y += (-springK * arm.disp[i].y - waterDrag * arm.vel[i].y) * dt;
+      arm.vel[i].z += (-springK * arm.disp[i].z - waterDrag * arm.vel[i].z) * dt;
+
+      arm.disp[i].addScaledVector(arm.vel[i], dt);
+      // Clamp maximum displacement for stability
+      if (arm.disp[i].lengthSq() > 4.0) arm.disp[i].setLength(2.0);
+
+      arm.P[i].copy(arm.Pkin[i]).add(arm.disp[i]);
+    }
+
+    // Enforce exact inextensible segment lengths along final physical spine P[i]
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 1; i <= SPINE_N; i++) {
+        vTmp1.subVectors(arm.P[i], arm.P[i - 1]);
+        const len = vTmp1.length();
+        if (len > 1e-6) {
+          arm.P[i].copy(arm.P[i - 1]).addScaledVector(vTmp1, ds / len);
+        }
+      }
+    }
+    // Sync disp back to constrained positions so velocity integrates cleanly
+    for (let i = 1; i <= SPINE_N; i++) {
+      arm.disp[i].subVectors(arm.P[i], arm.Pkin[i]);
+    }
+
+    // 4. Compute Smooth Parallel-Transport (Bishop) Frames along Final Physical Spine P[i]
+    for (let i = 0; i <= SPINE_N; i++) {
+      if (i === 0) {
+        arm.T[0].subVectors(arm.P[1], arm.P[0]).normalize();
+      } else if (i === SPINE_N) {
+        arm.T[i].subVectors(arm.P[i], arm.P[i - 1]).normalize();
+      } else {
+        arm.T[i].subVectors(arm.P[i + 1], arm.P[i - 1]).normalize();
+      }
+    }
+
+    // Initial anatomical frame at crown (Noral strictly inward/downward, Blat CCW)
+    vTmp2.set(-sinTh, 0, cosTh);
+    arm.Noral[0].crossVectors(arm.T[0], vTmp2);
+    if (arm.Noral[0].lengthSq() < 1e-6) {
+      arm.Noral[0].set(-cosTh, -0.5, -sinTh).normalize();
+    } else {
+      arm.Noral[0].normalize();
+    }
+    arm.Blat[0].crossVectors(arm.Noral[0], arm.T[0]).negate().normalize();
+
+    for (let i = 1; i <= SPINE_N; i++) {
+      qRot.setFromUnitVectors(arm.T[i - 1], arm.T[i]);
+      arm.Noral[i].copy(arm.Noral[i - 1]).applyQuaternion(qRot);
+      arm.Noral[i].addScaledVector(arm.T[i], -arm.Noral[i].dot(arm.T[i])).normalize();
+      arm.Blat[i].crossVectors(arm.Noral[i], arm.T[i]).negate().normalize();
+    }
+
+    // Add gentle organic axial twist along distal arm so staggered suction cups spiral gracefully in 3D
+    for (let i = 1; i <= SPINE_N; i++) {
+      const u = i / SPINE_N;
+      const twistAng = Math.pow(u, 1.35) * (0.55 * Math.sin(elapsed * 0.85 * wFreq + arm.phase1) + 0.65 * arm.reactiveTwist);
+      if (Math.abs(twistAng) > 1e-4) {
+        const ct = Math.cos(twistAng);
+        const st = Math.sin(twistAng);
+        const nx = arm.Noral[i].x * ct + arm.Blat[i].x * st;
+        const ny = arm.Noral[i].y * ct + arm.Blat[i].y * st;
+        const nz = arm.Noral[i].z * ct + arm.Blat[i].z * st;
+        const bx = -arm.Noral[i].x * st + arm.Blat[i].x * ct;
+        const by = -arm.Noral[i].y * st + arm.Blat[i].y * ct;
+        const bz = -arm.Noral[i].z * st + arm.Blat[i].z * ct;
+        arm.Noral[i].set(nx, ny, nz);
+        arm.Blat[i].set(bx, by, bz);
+      }
+    }
+
+    // 5. Skin the Translucent Tentacle Mesh + Internal Glowing Golden Nerve Cord
+    const posArr = arm.posArr;
+    const nrmArr = arm.nrmArr;
+    const Nx = arm.Noral;
+    const Bx = arm.Blat;
+    const Px = arm.P;
+
+    for (let i = 0; i <= SPINE_N; i++) {
+      const u = i / SPINE_N;
+      const rBase = getArmRadius(u);
+      const p = Px[i];
+      const no = Nx[i];
+      const bl = Bx[i];
+      const tg = arm.T[i];
+      // Taper slope contribution along tangent for accurate specular normals
+      const slope = i === SPINE_N ? 0.35 : 0.045;
+
+      for (let j = 0; j <= RING_M; j++) {
+        // radialDir(phi) = -cos(phi) * Noral + sin(phi) * Blat
+        const c = -crossCos[j];
+        const s = crossSin[j];
+        const r = rBase * crossRadScale[j];
+
+        const rx = c * no.x + s * bl.x;
+        const ry = c * no.y + s * bl.y;
+        const rz = c * no.z + s * bl.z;
+
+        const idx = (i * (RING_M + 1) + j) * 3;
+        posArr[idx] = p.x + rx * r;
+        posArr[idx + 1] = p.y + ry * r;
+        posArr[idx + 2] = p.z + rz * r;
+
+        let nx = rx + tg.x * slope;
+        let ny = ry + tg.y * slope;
+        let nz = rz + tg.z * slope;
+        const invL = 1.0 / (Math.hypot(nx, ny, nz) || 1);
+        nrmArr[idx] = nx * invL;
+        nrmArr[idx + 1] = ny * invL;
+        nrmArr[idx + 2] = nz * invL;
+      }
+    }
+    arm.geo.attributes.position.needsUpdate = true;
+    arm.geo.attributes.normal.needsUpdate = true;
+
+    // Update this arm's internal glowing amber-gold axial nerve cord
+    const nerveArmBase = k * nvPerArm;
+    for (let i = 0; i <= NERVE_NODES; i++) {
+      const u = (i / NERVE_NODES) * 0.78;
+      sampleArmAt(arm, u, vTmp1, vTmp2, vTmp3, vCupRight);
+      const rNerve = 0.022 * Math.pow(1.0 - i / NERVE_NODES, 0.85) + 0.002;
+      for (let j = 0; j <= NERVE_SIDES; j++) {
+        const ang = (j / NERVE_SIDES) * Math.PI * 2;
+        const ca = Math.cos(ang);
+        const sa = Math.sin(ang);
+        const rx = ca * vTmp3.x + sa * vCupRight.x;
+        const ry = ca * vTmp3.y + sa * vCupRight.y;
+        const rz = ca * vTmp3.z + sa * vCupRight.z;
+        const nIdx = (nerveArmBase + i * (NERVE_SIDES + 1) + j) * 3;
+        nervePos[nIdx] = vTmp1.x + rx * rNerve;
+        nervePos[nIdx + 1] = vTmp1.y + ry * rNerve;
+        nervePos[nIdx + 2] = vTmp1.z + rz * rNerve;
+        nerveNrm[nIdx] = rx;
+        nerveNrm[nIdx + 1] = ry;
+        nerveNrm[nIdx + 2] = rz;
+      }
+    }
+
+    // 6. Place Two Staggered Rows of 3D Cup-Shaped White/Pink Suction Cups along Underside!
+    for (let c = 0; c < CUPS_PER_ARM; c++) {
+      const spec = cupSchedule[c];
+      sampleArmAt(arm, spec.u, vCupPos, vCupFwd, vTmp1, vTmp2);
+
+      // Staggered biserial zigzag rows along the oral underside (+-24 deg around Noral)
+      const rowAngle = spec.rowSign * 0.42;
+      const ca = Math.cos(rowAngle);
+      const sa = Math.sin(rowAngle);
+
+      // vCupUp points strictly out from the tentacle's oral underside along the cup axis
+      vCupUp.set(
+        ca * vTmp1.x + sa * vTmp2.x,
+        ca * vTmp1.y + sa * vTmp2.y,
+        ca * vTmp1.z + sa * vTmp2.z
+      ).normalize();
+
+      // Proper orthonormal rotation basis: det([vCupRight, vCupUp, vCupFwd]) = +1
+      vCupRight.crossVectors(vCupUp, vCupFwd).normalize();
+
+      // Anchor peduncle base slightly embedded into the flattened oral skin of the tentacle
+      const localArmR = getArmRadius(spec.u) * 0.86;
+      vCupPos.addScaledVector(vCupUp, localArmR * 0.84);
+
+      // Subtle living micro-flex of individual suction cups
+      const cupPulse = 1.0 + 0.05 * Math.sin(elapsed * 3.1 - spec.u * 14.0 + k + c * 0.7);
+      vCupScale.set(spec.cupRad * cupPulse, spec.cupHeight, spec.cupRad * cupPulse);
+
+      m4Cup.makeBasis(vCupRight, vCupUp, vCupFwd);
+      m4Cup.scale(vCupScale);
+      m4Cup.setPosition(vCupPos);
+
+      suctionCupInstanced.setMatrixAt(cupInstanceIdx++, m4Cup);
+    }
+
+    // Update dynamic floor contact shadow lobe for this tentacle
+    const midNode = arm.P[28];
+    const worldArmPt = vTmp1.copy(midNode).applyMatrix4(octopusGroup.matrixWorld);
+    const armShadow = armContactShadows[k];
+    armShadow.position.x = worldArmPt.x + 0.25;
+    armShadow.position.z = worldArmPt.z + 0.20;
+    const hAboveFloor = Math.max(0.2, worldArmPt.y - FLOOR_Y);
+    const sScale = 0.75 + hAboveFloor * 0.22;
+    armShadow.scale.setScalar(sScale);
+    armShadow.material.opacity = THREE.MathUtils.clamp(0.46 - hAboveFloor * 0.075, 0.08, 0.42);
+  }
+
+  suctionCupInstanced.instanceMatrix.needsUpdate = true;
+  octopusGroup.userData.armNerveGeo.attributes.position.needsUpdate = true;
+  octopusGroup.userData.armNerveGeo.attributes.normal.needsUpdate = true;
+
+  // Update main body soft contact shadow
+  mainContactShadow.position.x = octopusGroup.position.x + 0.22;
+  mainContactShadow.position.z = octopusGroup.position.z + 0.18;
+  const bodyScale = 1.0 + octopusGroup.position.y * 0.12;
+  mainContactShadow.scale.setScalar(bodyScale);
+  mainContactShadow.material.opacity = THREE.MathUtils.clamp(0.76 - octopusGroup.position.y * 0.14, 0.45, 0.85);
+
+  // --- D. Update Translucent Scalloped Interbrachial Web Connecting All 8 Arms ---
+  const pA = new THREE.Vector3();
+  const tA = new THREE.Vector3();
+  const nA = new THREE.Vector3();
+  const bA = new THREE.Vector3();
+
+  const pB = new THREE.Vector3();
+  const tB = new THREE.Vector3();
+  const nB = new THREE.Vector3();
+  const bB = new THREE.Vector3();
+
+  for (let k = 0; k < NUM_ARMS; k++) {
+    const armA = arms[k];
+    const armB = arms[(k + 1) % NUM_ARMS];
+    const base = k * webSectorVerts;
+
+    for (let iw = 0; iw <= WEB_W; iw++) {
+      const w = iw / WEB_W;
+      // Parabolic scalloped crescent margin: reaches u=0.29 along each arm, scallops to u=0.165 at mid-web
+      const archFactor = 1.0 - 0.43 * (4.0 * w * (1.0 - w));
+      const uMax = 0.29 * archFactor;
+
+      for (let is = 0; is <= WEB_S; is++) {
+        const s = is / WEB_S;
+        const uCur = s * uMax;
+
+        // Evaluate anchor along armA (+Blat side facing armB) & armB (-Blat side facing armA)
+        sampleArmAt(armA, uCur, pA, tA, nA, bA);
+        sampleArmAt(armB, uCur, pB, tB, nB, bB);
+
+        const rA = getArmRadius(uCur);
+        const rB = getArmRadius(uCur);
+
+        pA.addScaledVector(bA, rA * 0.72).addScaledVector(nA, -rA * 0.18);
+        pB.addScaledVector(bB, -rB * 0.72).addScaledVector(nB, -rB * 0.18);
+
+        // Smooth interpolation across sector + organic radial parachute billow
+        let wx = THREE.MathUtils.lerp(pA.x, pB.x, w);
+        let wy = THREE.MathUtils.lerp(pA.y, pB.y, w);
+        let wz = THREE.MathUtils.lerp(pA.z, pB.z, w);
+
+        const midMask = 4.0 * w * (1.0 - w);
+        const radialLen = Math.hypot(wx, wz) || 1;
+        // Cylindrical rounding + hydrodynamic parachute billow during pulse/hover
+        const billow = midMask * Math.sin(s * Math.PI) * (0.11 + 0.08 * jellyState.jetPulse - 0.03 * breathWave);
+        wx += (wx / radialLen) * (billow + midMask * 0.05 * radialLen);
+        wz += (wz / radialLen) * (billow + midMask * 0.05 * radialLen);
+        wy += billow * 0.65;
+
+        const vIdx = (base + is * (WEB_W + 1) + iw) * 3;
+        webPosArr[vIdx] = wx;
+        webPosArr[vIdx + 1] = wy;
+        webPosArr[vIdx + 2] = wz;
+      }
+    }
+  }
+  webGeo.attributes.position.needsUpdate = true;
+  webGeo.computeVertexNormals();
+
+  // Gentle drift of pelagic motes
+  const mp = moteGeo.attributes.position.array;
+  for (let i = 0; i < moteCount; i++) {
+    mp[i * 3 + 1] += Math.sin(elapsed * 0.4 + motePhase[i]) * 0.0018;
+    mp[i * 3] += Math.cos(elapsed * 0.25 + motePhase[i]) * 0.0012;
+  }
+  moteGeo.attributes.position.needsUpdate = true;
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+});
+
+animate();
+</script>
+</body>
+</html>

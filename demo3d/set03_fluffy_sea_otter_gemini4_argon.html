@@ -1,0 +1,1627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; background: #071c24; }
+  canvas { display: block; width: 100vw; height: 100vh; cursor: grab; }
+  canvas:active { cursor: grabbing; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ============================================================================
+// 1. RENDERER, SCENE, CAMERA & CONTROLS
+// ============================================================================
+const canvas = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  powerPreference: 'high-performance'
+});
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b2530);
+scene.fog = new THREE.FogExp2(0x0b2530, 0.042);
+
+const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(2.35, 2.75, -2.95);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.target.set(0, 0.22, -0.15);
+controls.minDistance = 1.8;
+controls.maxDistance = 11.0;
+controls.maxPolarAngle = Math.PI * 0.49;
+
+// ============================================================================
+// 2. PROCEDURAL ENVIRONMENT MAP & STUDIO THREE-POINT LIGHTING
+// ============================================================================
+function createStudioEnvironment(renderer) {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  pmrem.compileEquirectangularShader();
+
+  const envScene = new THREE.Scene();
+  const skyGeo = new THREE.SphereGeometry(20, 32, 24);
+  const pos = skyGeo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const cTop = new THREE.Color(0xdaf3ff);
+  const cHorizon = new THREE.Color(0x6ad6d0);
+  const cBottom = new THREE.Color(0x073b44);
+  const tmp = new THREE.Color();
+
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i) / 20;
+    if (y >= 0) {
+      tmp.copy(cHorizon).lerp(cTop, Math.pow(y, 0.55));
+    } else {
+      tmp.copy(cHorizon).lerp(cBottom, Math.pow(-y, 0.65));
+    }
+    colors[i * 3] = tmp.r;
+    colors[i * 3 + 1] = tmp.g;
+    colors[i * 3 + 2] = tmp.b;
+  }
+  skyGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const skyMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide });
+  envScene.add(new THREE.Mesh(skyGeo, skyMat));
+
+  // Warm sun panel & cool fill panel for specular eye/nose/water reflections
+  const sunBox = new THREE.Mesh(
+    new THREE.SphereGeometry(2.8, 16, 16),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(4.5, 4.1, 3.4) })
+  );
+  sunBox.position.set(8, 11, -7);
+  envScene.add(sunBox);
+
+  const rimBox = new THREE.Mesh(
+    new THREE.SphereGeometry(2.2, 16, 16),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(1.8, 3.0, 3.2) })
+  );
+  rimBox.position.set(-9, 7, 8);
+  envScene.add(rimBox);
+
+  const rt = pmrem.fromScene(envScene, 0.03);
+  pmrem.dispose();
+  return rt.texture;
+}
+
+scene.environment = createStudioEnvironment(renderer);
+
+// Studio 3-Point Lighting + Aquamarine Water Bounce
+const ambientLight = new THREE.HemisphereLight(0xdff6ff, 0x0d4f56, 0.68);
+scene.add(ambientLight);
+
+// 1. Key Light (warm golden coastal sunlight)
+const keyLight = new THREE.DirectionalLight(0xfff1dc, 2.55);
+keyLight.position.set(4.2, 6.8, -4.0);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 1.0;
+keyLight.shadow.camera.far = 18.0;
+const d = 3.6;
+keyLight.shadow.camera.left = -d;
+keyLight.shadow.camera.right = d;
+keyLight.shadow.camera.top = d;
+keyLight.shadow.camera.bottom = -d;
+keyLight.shadow.bias = -0.0005;
+keyLight.shadow.normalBias = 0.015;
+scene.add(keyLight);
+
+// 2. Fill Light (soft cool sky blue from opposite side)
+const fillLight = new THREE.DirectionalLight(0x9ce5ff, 1.05);
+fillLight.position.set(-5.0, 3.5, -2.2);
+scene.add(fillLight);
+
+// 3. Rim / Back Light (highlights fluffy cheek & back fur halo)
+const rimLight = new THREE.DirectionalLight(0xffeed4, 1.55);
+rimLight.position.set(-1.5, 4.2, 5.5);
+scene.add(rimLight);
+
+// Aquamarine subsurface water bounce light
+const waterBounceLight = new THREE.PointLight(0x28e0d0, 1.6, 7.0, 1.5);
+waterBounceLight.position.set(0, -0.5, 0);
+scene.add(waterBounceLight);
+
+// ============================================================================
+// 3. DETERMINISTIC PRNG FOR ORGANIC FUR DISTRIBUTION
+// ============================================================================
+let seed = 133742;
+function rand() {
+  seed = (seed * 1664525 + 1013904223) >>> 0;
+  return seed / 4294967296;
+}
+function randRange(min, max) {
+  return min + (max - min) * rand();
+}
+
+// ============================================================================
+// 4. OTTER HIERARCHY & BASE ANATOMICAL SCULPT
+// ============================================================================
+const otterRoot = new THREE.Group();
+scene.add(otterRoot);
+
+const torsoGroup = new THREE.Group();
+otterRoot.add(torsoGroup);
+
+const chestBreathGroup = new THREE.Group();
+torsoGroup.add(chestBreathGroup);
+
+const headGroup = new THREE.Group();
+headGroup.position.set(0, 0.34, -1.08);
+headGroup.rotation.x = 0.38;
+torsoGroup.add(headGroup);
+
+const leftArmGroup = new THREE.Group();
+leftArmGroup.position.set(-0.56, 0.35, -0.52);
+torsoGroup.add(leftArmGroup);
+
+const rightArmGroup = new THREE.Group();
+rightArmGroup.position.set(0.56, 0.35, -0.52);
+torsoGroup.add(rightArmGroup);
+
+const leftFlipperGroup = new THREE.Group();
+leftFlipperGroup.position.set(-0.52, 0.16, 1.08);
+torsoGroup.add(leftFlipperGroup);
+
+const rightFlipperGroup = new THREE.Group();
+rightFlipperGroup.position.set(0.52, 0.16, 1.08);
+torsoGroup.add(rightFlipperGroup);
+
+const tailGroup = new THREE.Group();
+tailGroup.position.set(0, -0.02, 1.32);
+torsoGroup.add(tailGroup);
+
+// Under-skin base materials so zero gaps ever show between fur roots
+const darkSkinMat = new THREE.MeshStandardMaterial({
+  color: 0x26150c,
+  roughness: 0.92,
+  metalness: 0.0
+});
+const creamSkinMat = new THREE.MeshStandardMaterial({
+  color: 0xa88a68,
+  roughness: 0.9,
+  metalness: 0.0
+});
+const midSkinMat = new THREE.MeshStandardMaterial({
+  color: 0x452817,
+  roughness: 0.9,
+  metalness: 0.0
+});
+
+const raycastTargets = [];
+
+// Helper to create ellipsoid meshes and record metaball definitions for fur generation
+function makeEllipsoid(parent, cx, cy, cz, rx, ry, rz, mat, rotX = 0, rotY = 0, rotZ = 0) {
+  const geo = new THREE.SphereGeometry(1, 28, 20);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(cx, cy, cz);
+  mesh.rotation.set(rotX, rotY, rotZ);
+  mesh.scale.set(rx, ry, rz);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  parent.add(mesh);
+  raycastTargets.push(mesh);
+  mesh.updateMatrix();
+  return {
+    mesh,
+    cx, cy, cz,
+    rx, ry, rz,
+    rotX, rotY, rotZ,
+    matrix: mesh.matrix.clone(),
+    invMatrix: mesh.matrix.clone().invert(),
+    normalMatrix: new THREE.Matrix3().getNormalMatrix(mesh.matrix)
+  };
+}
+
+// --- 4A. TORSO METABALLS (Plump floating baby sea otter body) ---
+const torsoBlobs = [
+  // Main plump belly & floating back
+  makeEllipsoid(torsoGroup, 0, 0.02, 0.08, 0.87, 0.62, 1.08, darkSkinMat, 0.04, 0, 0),
+  // Upper chest & shoulders (creamy-cinnamon transition)
+  makeEllipsoid(torsoGroup, 0, 0.14, -0.62, 0.76, 0.56, 0.68, midSkinMat, -0.15, 0, 0),
+  // Cozy neck cradle
+  makeEllipsoid(torsoGroup, 0, 0.25, -0.96, 0.58, 0.46, 0.45, creamSkinMat, -0.25, 0, 0),
+  // Soft puffed tummy dome
+  makeEllipsoid(torsoGroup, 0, 0.22, -0.14, 0.68, 0.52, 0.76, midSkinMat, 0.0, 0, 0),
+  // Plump lower hips / pelvis
+  makeEllipsoid(torsoGroup, 0, 0.02, 0.88, 0.72, 0.52, 0.62, darkSkinMat, 0.12, 0, 0),
+  // Left & Right buoyant flank rolls
+  makeEllipsoid(torsoGroup, -0.45, -0.02, 0.15, 0.52, 0.44, 0.88, darkSkinMat, 0, 0.08, 0),
+  makeEllipsoid(torsoGroup, 0.45, -0.02, 0.15, 0.52, 0.44, 0.88, darkSkinMat, 0, -0.08, 0)
+];
+
+// --- 4B. HEAD, CHUBBY CHEEKS, MUZZLE & EARS ---
+const headBlobs = [
+  // Main round baby cranium
+  makeEllipsoid(headGroup, 0, 0.05, 0.0, 0.64, 0.56, 0.58, creamSkinMat, 0, 0, 0),
+  // Crown / back of head
+  makeEllipsoid(headGroup, 0, -0.04, -0.18, 0.60, 0.52, 0.48, midSkinMat, 0, 0, 0),
+  // Iconic sea-otter chubby left & right cheeks
+  makeEllipsoid(headGroup, -0.36, -0.02, 0.18, 0.36, 0.30, 0.34, creamSkinMat, 0, -0.2, 0.15),
+  makeEllipsoid(headGroup, 0.36, -0.02, 0.18, 0.36, 0.30, 0.34, creamSkinMat, 0, 0.2, -0.15),
+  // Plump peanut whisker pads (left & right muzzle)
+  makeEllipsoid(headGroup, -0.17, 0.06, 0.44, 0.23, 0.19, 0.24, creamSkinMat, 0.1, -0.15, 0),
+  makeEllipsoid(headGroup, 0.17, 0.06, 0.44, 0.23, 0.19, 0.24, creamSkinMat, 0.1, 0.15, 0),
+  // Nose bridge & forehead slope
+  makeEllipsoid(headGroup, 0, 0.20, 0.32, 0.28, 0.22, 0.30, creamSkinMat, -0.25, 0, 0),
+  // Cute lower jaw / chin
+  makeEllipsoid(headGroup, 0, -0.12, 0.36, 0.26, 0.16, 0.24, creamSkinMat, 0, 0, 0),
+  // Left & Right cute rounded ears (low on sides of head)
+  makeEllipsoid(headGroup, -0.60, 0.02, -0.08, 0.15, 0.18, 0.12, darkSkinMat, 0.2, -0.3, 0.4),
+  makeEllipsoid(headGroup, 0.60, 0.02, -0.08, 0.15, 0.18, 0.12, darkSkinMat, 0.2, 0.3, -0.4)
+];
+
+// Inner pink-tan ear hollows
+const innerEarMat = new THREE.MeshStandardMaterial({ color: 0xb87e72, roughness: 0.75 });
+[-1, 1].forEach((side) => {
+  const innerEar = new THREE.Mesh(new THREE.SphereGeometry(0.085, 14, 12), innerEarMat);
+  innerEar.scale.set(0.7, 1.1, 0.5);
+  innerEar.position.set(side * 0.62, 0.04, -0.02);
+  innerEar.rotation.set(0.2, side * 0.3, side * -0.4);
+  headGroup.add(innerEar);
+});
+
+// --- 4C. EXPRESSIVE FACE: DIAMOND NOSE, GLOSSY DUAL-CATCHLIGHT EYES, MOUTH, WHISKERS ---
+// 1. Diamond-shaped black sea otter nose
+function createDiamondNose() {
+  const geo = new THREE.SphereGeometry(1, 32, 24);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    let x = pos.getX(i);
+    let y = pos.getY(i);
+    let z = pos.getZ(i);
+
+    // Sculpt into rounded diamond shape in X-Y plane (wider horizontally, pointed top & bottom)
+    const diamondFactor = 1.0 - 0.28 * Math.abs(x) * Math.abs(y);
+    x *= 0.145 * (1.0 - 0.22 * y * y);
+    y *= 0.125 * (1.0 - 0.30 * x * x);
+    z *= 0.095 * diamondFactor;
+
+    // Subtle top ridge and lower philtrum point
+    if (y < 0) {
+      x *= 1.0 + 0.35 * y;
+    }
+    // Nostril dimples on lower sides
+    const leftNostril = Math.hypot(x + 0.055, y + 0.02, z - 0.05);
+    const rightNostril = Math.hypot(x - 0.055, y + 0.02, z - 0.05);
+    if (leftNostril < 0.038) z -= (0.038 - leftNostril) * 0.55;
+    if (rightNostril < 0.038) z -= (0.038 - rightNostril) * 0.55;
+
+    pos.setXYZ(i, x, y, z);
+  }
+  geo.computeVertexNormals();
+
+  const noseMat = new THREE.MeshPhysicalMaterial({
+    color: 0x110e0f,
+    roughness: 0.20,
+    metalness: 0.04,
+    clearcoat: 0.85,
+    clearcoatRoughness: 0.15
+  });
+  const noseMesh = new THREE.Mesh(geo, noseMat);
+  noseMesh.position.set(0, 0.17, 0.585);
+  noseMesh.rotation.x = -0.18;
+  noseMesh.castShadow = true;
+  headGroup.add(noseMesh);
+}
+createDiamondNose();
+
+// 2. Glossy Dark Eyes with Dual Catchlights
+function createExpressiveEyes() {
+  const eyeSocketMat = new THREE.MeshStandardMaterial({ color: 0x160c07, roughness: 0.85 });
+  const eyeballMat = new THREE.MeshPhysicalMaterial({
+    color: 0x0b0503,
+    roughness: 0.03,
+    metalness: 0.02,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.02,
+    envMapIntensity: 2.2
+  });
+  const irisMat = new THREE.MeshBasicMaterial({ color: 0x261208 });
+  const catchlightMat1 = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const catchlightMat2 = new THREE.MeshBasicMaterial({ color: 0xd8f4ff });
+
+  [-1, 1].forEach((side) => {
+    const eyeCluster = new THREE.Group();
+    eyeCluster.position.set(side * 0.255, 0.24, 0.445);
+    eyeCluster.lookAt(side * 0.36, 0.48, 1.35);
+    headGroup.add(eyeCluster);
+
+    // Dark eyelid / lash rim nestled in fur
+    const socket = new THREE.Mesh(new THREE.SphereGeometry(0.098, 24, 20), eyeSocketMat);
+    socket.scale.set(1.08, 0.96, 0.82);
+    eyeCluster.add(socket);
+
+    // Glossy dark eyeball
+    const eyeball = new THREE.Mesh(new THREE.SphereGeometry(0.088, 28, 24), eyeballMat);
+    eyeball.position.z = 0.014;
+    eyeCluster.add(eyeball);
+
+    // Subtle warm espresso iris crescent
+    const iris = new THREE.Mesh(new THREE.RingGeometry(0.038, 0.062, 24), irisMat);
+    iris.position.z = 0.096;
+    eyeCluster.add(iris);
+
+    // Primary large bright catchlight (upper outer)
+    const catch1 = new THREE.Mesh(new THREE.CircleGeometry(0.023, 18), catchlightMat1);
+    catch1.position.set(side * 0.024, 0.028, 0.101);
+    catch1.rotation.set(-0.25, side * 0.25, 0);
+    eyeCluster.add(catch1);
+
+    // Secondary smaller soft catchlight (lower inner)
+    const catch2 = new THREE.Mesh(new THREE.CircleGeometry(0.011, 16), catchlightMat2);
+    catch2.position.set(-side * 0.022, -0.024, 0.100);
+    catch2.rotation.set(0.25, -side * 0.22, 0);
+    eyeCluster.add(catch2);
+  });
+}
+createExpressiveEyes();
+
+// 3. Cute Mouth Crease & Tiny Pink Tongue Peek
+function createCuteMouth() {
+  const lipMat = new THREE.MeshStandardMaterial({ color: 0x24130c, roughness: 0.7 });
+  [-1, 1].forEach((side) => {
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, 0.06, 0.565),
+      new THREE.Vector3(side * 0.065, 0.015, 0.555),
+      new THREE.Vector3(side * 0.135, 0.035, 0.515)
+    ]);
+    const geo = new THREE.TubeGeometry(curve, 12, 0.012, 8, false);
+    const mesh = new THREE.Mesh(geo, lipMat);
+    headGroup.add(mesh);
+  });
+
+  const tongueMat = new THREE.MeshStandardMaterial({ color: 0xe87a90, roughness: 0.45 });
+  const tongue = new THREE.Mesh(new THREE.SphereGeometry(0.042, 14, 12), tongueMat);
+  tongue.scale.set(1.1, 0.55, 0.8);
+  tongue.position.set(0, 0.005, 0.542);
+  headGroup.add(tongue);
+}
+createCuteMouth();
+
+// 4. Long White Vibrissae Whiskers around the Snout & Brows
+const whiskerMeshes = [];
+function createWhiskers() {
+  const whiskerMat = new THREE.MeshPhysicalMaterial({
+    color: 0xfcfaf5,
+    roughness: 0.25,
+    metalness: 0.0,
+    clearcoat: 0.6,
+    transparent: true,
+    opacity: 0.92
+  });
+
+  function makeTaperedWhisker(points, baseRadius) {
+    const curve = new THREE.CatmullRomCurve3(points);
+    const tubularSegments = 16;
+    const radialSegments = 6;
+    const geo = new THREE.TubeGeometry(curve, tubularSegments, baseRadius, radialSegments, false);
+    const pos = geo.attributes.position;
+    const ringCount = radialSegments + 1;
+    for (let i = 0; i <= tubularSegments; i++) {
+      const t = i / tubularSegments;
+      const center = curve.getPointAt(t);
+      const taper = Math.pow(1.0 - t, 0.72);
+      for (let j = 0; j < ringCount; j++) {
+        const idx = i * ringCount + j;
+        const vx = pos.getX(idx);
+        const vy = pos.getY(idx);
+        const vz = pos.getZ(idx);
+        pos.setXYZ(
+          idx,
+          center.x + (vx - center.x) * taper,
+          center.y + (vy - center.y) * taper,
+          center.z + (vz - center.z) * taper
+        );
+      }
+    }
+    geo.computeVertexNormals();
+    return new THREE.Mesh(geo, whiskerMat);
+  }
+
+  // Muzzle whisker rows on both plump whisker pads
+  [-1, 1].forEach((side) => {
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 4; col++) {
+        const startX = side * (0.11 + col * 0.048);
+        const startY = 0.11 - row * 0.036 + col * 0.008;
+        const startZ = 0.545 - col * 0.028;
+
+        const len = 0.28 + col * 0.065 + (3 - row) * 0.025;
+        const spreadY = -0.08 - row * 0.055;
+        const spreadZ = 0.06 - col * 0.045;
+
+        const p0 = new THREE.Vector3(startX, startY, startZ);
+        const p1 = new THREE.Vector3(
+          startX + side * len * 0.45,
+          startY + spreadY * 0.25 + 0.02,
+          startZ + spreadZ * 0.4
+        );
+        const p2 = new THREE.Vector3(
+          startX + side * len * 0.82,
+          startY + spreadY * 0.75,
+          startZ + spreadZ * 0.75 - 0.03
+        );
+        const p3 = new THREE.Vector3(
+          startX + side * len,
+          startY + spreadY * 1.25 - 0.04,
+          startZ + spreadZ - 0.07
+        );
+
+        const wMesh = makeTaperedWhisker([p0, p1, p2, p3], 0.0068);
+        headGroup.add(wMesh);
+        whiskerMeshes.push({
+          mesh: wMesh,
+          side,
+          phase: row * 0.9 + col * 0.6,
+          baseRotZ: wMesh.rotation.z
+        });
+      }
+    }
+
+    // Superciliary (eyebrow) whiskers
+    for (let b = 0; b < 3; b++) {
+      const p0 = new THREE.Vector3(side * (0.17 + b * 0.04), 0.34, 0.43 - b * 0.02);
+      const p1 = new THREE.Vector3(side * (0.26 + b * 0.06), 0.43 + b * 0.02, 0.42);
+      const p2 = new THREE.Vector3(side * (0.37 + b * 0.07), 0.45 + b * 0.01, 0.37);
+      const wMesh = makeTaperedWhisker([p0, p1, p2], 0.0052);
+      headGroup.add(wMesh);
+      whiskerMeshes.push({
+        mesh: wMesh,
+        side,
+        phase: b * 1.1 + 2.0,
+        baseRotZ: 0
+      });
+    }
+  });
+}
+createWhiskers();
+
+// --- 4D. RIBBED PURPLE-PINK SCALLOP SHELL ON THE BELLY ---
+const shellGroup = new THREE.Group();
+shellGroup.position.set(0, 0.65, -0.22);
+shellGroup.rotation.set(-0.22, 0.0, 0.0);
+chestBreathGroup.add(shellGroup);
+
+function createRibbedScallopShell() {
+  function buildValveGeometry(isTop) {
+    const uSegs = 68;
+    const vSegs = 36;
+    const geo = new THREE.BufferGeometry();
+    const positions = [];
+    const colors = [];
+    const uvs = [];
+    const indices = [];
+
+    const cUmbo = new THREE.Color(0x5e1f5d);      // Deep royal violet at hinge
+    const cMidPurple = new THREE.Color(0xa8387b); // Rich orchid purple-pink
+    const cCoralPink = new THREE.Color(0xe86b9c); // Warm rose-pink ribs
+    const cGroove = new THREE.Color(0xfad4e4);    // Creamy nacre grooves
+    const cMargin = new THREE.Color(0xffeef5);    // Pearlescent edge
+    const tmpColor = new THREE.Color();
+
+    const sign = isTop ? 1 : -1;
+
+    for (let iv = 0; iv <= vSegs; iv++) {
+      const v = iv / vSegs; // 0 = hinge (umbo), 1 = outer scalloped margin
+      for (let iu = 0; iu <= uSegs; iu++) {
+        const u = (iu / uSegs) * 2 - 1; // -1 to 1 across fan angle
+        const maxAngle = 1.24; // ~142 degree fan
+        const theta = u * maxAngle;
+
+        // Classic scallop fan radius with fluted edge
+        const ribFreq = 15;
+        const ribWave = Math.cos(u * ribFreq * Math.PI);
+        const outerFlute = 1.0 + 0.028 * Math.pow(v, 2.0) * ribWave;
+        const r = (0.04 + 0.44 * v) * outerFlute;
+
+        let x = r * Math.sin(theta);
+        let z = r * Math.cos(theta) - 0.22;
+
+        // Scallop auricles (triangular hinge ears near v < 0.28)
+        if (v < 0.28) {
+          const earFactor = Math.sin((v / 0.28) * Math.PI);
+          x += Math.sign(u) * Math.pow(Math.abs(u), 1.5) * 0.095 * earFactor;
+        }
+
+        // Dome convexity + radial ribs + concentric growth rings
+        const dome = Math.sin(v * Math.PI) * (1.0 - 0.25 * u * u) * (isTop ? 0.088 : 0.068);
+        const ribAmp = Math.sin(v * Math.PI * 0.92) * 0.017 * ribWave * (1.0 - 0.18 * u * u);
+        const growthRings = Math.sin(v * 52.0) * 0.0022 * v;
+        const edgePinch = Math.pow(1.0 - v, 0.12);
+
+        const y = sign * Math.max(0.002, (dome + ribAmp + growthRings) * edgePinch);
+
+        positions.push(x, y, z);
+        uvs.push((u + 1) * 0.5, v);
+
+        // Multi-band purple-pink coloration with rib highlights & concentric bands
+        if (v < 0.35) {
+          tmpColor.copy(cUmbo).lerp(cMidPurple, v / 0.35);
+        } else if (v < 0.78) {
+          tmpColor.copy(cMidPurple).lerp(cCoralPink, (v - 0.35) / 0.43);
+        } else {
+          tmpColor.copy(cCoralPink).lerp(cMargin, (v - 0.78) / 0.22);
+        }
+
+        // Emphasize radial ribs and growth rings in color
+        const grooveMix = (1.0 - ribWave) * 0.5 * 0.38 * Math.sin(v * Math.PI);
+        tmpColor.lerp(cGroove, grooveMix);
+
+        const bandStripe = 0.06 * Math.sin(v * 26.0);
+        tmpColor.offsetHSL(0, 0.04, bandStripe);
+
+        colors.push(tmpColor.r, tmpColor.g, tmpColor.b);
+      }
+    }
+
+    for (let iv = 0; iv < vSegs; iv++) {
+      for (let iu = 0; iu < uSegs; iu++) {
+        const a = iv * (uSegs + 1) + iu;
+        const b = a + 1;
+        const c = a + (uSegs + 1);
+        const d = c + 1;
+        if (isTop) {
+          indices.push(a, c, b, b, c, d);
+        } else {
+          indices.push(a, b, c, b, d, c);
+        }
+      }
+    }
+
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    return geo;
+  }
+
+  const shellMat = new THREE.MeshPhysicalMaterial({
+    vertexColors: true,
+    roughness: 0.26,
+    metalness: 0.05,
+    clearcoat: 0.65,
+    clearcoatRoughness: 0.2,
+    iridescence: 0.55,
+    iridescenceIOR: 1.38,
+    side: THREE.DoubleSide
+  });
+
+  const topValve = new THREE.Mesh(buildValveGeometry(true), shellMat);
+  topValve.position.y = 0.008;
+  topValve.rotation.x = -0.05;
+  topValve.castShadow = true;
+  topValve.receiveShadow = true;
+  shellGroup.add(topValve);
+  raycastTargets.push(topValve);
+
+  const bottomValve = new THREE.Mesh(buildValveGeometry(false), shellMat);
+  bottomValve.position.y = -0.008;
+  bottomValve.castShadow = true;
+  bottomValve.receiveShadow = true;
+  shellGroup.add(bottomValve);
+  raycastTargets.push(bottomValve);
+
+  // Subtle pearlescent inner rim / mantle peek
+  const pearlRim = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.22, 0.22, 0.022, 28),
+    new THREE.MeshPhysicalMaterial({
+      color: 0xfff0f6,
+      roughness: 0.15,
+      metalness: 0.1,
+      iridescence: 0.9
+    })
+  );
+  pearlRim.scale.set(1.1, 1.0, 0.85);
+  pearlRim.position.set(0, 0, 0.01);
+  shellGroup.add(pearlRim);
+}
+createRibbedScallopShell();
+
+// --- 4E. FRONT ARMS & PAWS HOLDING THE SCALLOP SHELL ---
+const pawPadMat = new THREE.MeshStandardMaterial({
+  color: 0x3b2224,
+  roughness: 0.65
+});
+const clawMat = new THREE.MeshStandardMaterial({
+  color: 0xd9c7b2,
+  roughness: 0.35
+});
+
+function buildFrontArm(armGroup, side) {
+  const blobs = [
+    // Upper arm from shoulder
+    makeEllipsoid(armGroup, side * 0.04, 0.06, 0.06, 0.21, 0.18, 0.25, darkSkinMat, 0.3, side * -0.4, side * -0.3),
+    // Forearm curving inward toward the scallop shell on the chest
+    makeEllipsoid(armGroup, -side * 0.14, 0.21, 0.19, 0.17, 0.14, 0.24, darkSkinMat, 0.2, side * -0.7, side * -0.25),
+    // Plump rounded front paw resting on the edge of the scallop shell
+    makeEllipsoid(armGroup, -side * 0.31, 0.30, 0.27, 0.15, 0.10, 0.15, darkSkinMat, 0.1, side * -0.9, 0)
+  ];
+
+  // Cute stubby fingers & tiny claws gripping the shell rim
+  for (let d = 0; d < 4; d++) {
+    const spread = (d - 1.5) * 0.042;
+    const digit = new THREE.Mesh(new THREE.SphereGeometry(0.038, 12, 10), darkSkinMat);
+    digit.scale.set(0.9, 0.75, 1.35);
+    digit.position.set(-side * 0.39, 0.31 - Math.abs(spread) * 0.15, 0.27 + spread);
+    digit.rotation.y = side * -1.1;
+    armGroup.add(digit);
+
+    const claw = new THREE.Mesh(new THREE.ConeGeometry(0.012, 0.032, 8), clawMat);
+    claw.position.set(-side * 0.43, 0.30, 0.27 + spread);
+    claw.rotation.set(0, 0, side * Math.PI * 0.42);
+    armGroup.add(claw);
+  }
+
+  // Soft underside palmar pad
+  const pad = new THREE.Mesh(new THREE.SphereGeometry(0.075, 14, 12), pawPadMat);
+  pad.scale.set(1.1, 0.45, 1.15);
+  pad.position.set(-side * 0.32, 0.23, 0.27);
+  armGroup.add(pad);
+
+  return blobs;
+}
+const leftArmBlobs = buildFrontArm(leftArmGroup, -1);
+const rightArmBlobs = buildFrontArm(rightArmGroup, 1);
+
+// --- 4F. PINK-PADDED WEBBED HIND FLIPPERS STICKING UP & PADDLING ---
+const pinkPadMat = new THREE.MeshPhysicalMaterial({
+  color: 0xf285a8,
+  roughness: 0.48,
+  clearcoat: 0.25,
+  sheen: 0.3,
+  sheenColor: new THREE.Color(0xffc2d6)
+});
+const flipperWebMat = new THREE.MeshStandardMaterial({
+  color: 0x22140d,
+  roughness: 0.72
+});
+
+function buildHindFlipper(flipperGroup, side) {
+  const blobs = [
+    // Plump furry thigh / knee
+    makeEllipsoid(flipperGroup, side * 0.05, 0.08, 0.02, 0.22, 0.19, 0.24, darkSkinMat, -0.3, side * 0.2, side * -0.25),
+    // Ankle / lower leg sticking upward
+    makeEllipsoid(flipperGroup, side * 0.12, 0.26, 0.08, 0.15, 0.20, 0.15, darkSkinMat, -0.2, 0, side * -0.2),
+    // Dorsal furry flipper base
+    makeEllipsoid(flipperGroup, side * 0.17, 0.44, 0.10, 0.17, 0.18, 0.09, darkSkinMat, -0.15, side * 0.18, side * -0.22)
+  ];
+
+  // Sculpted fan-shaped webbed flipper paddle (facing forward-upward to show pink pads!)
+  const paddleCluster = new THREE.Group();
+  paddleCluster.position.set(side * 0.18, 0.46, 0.08);
+  paddleCluster.rotation.set(0.22, side * -0.22, side * -0.26);
+  flipperGroup.add(paddleCluster);
+
+  // Webbed fan membrane
+  const webGeo = new THREE.CylinderGeometry(0.25, 0.11, 0.055, 24);
+  const webPos = webGeo.attributes.position;
+  for (let i = 0; i < webPos.count; i++) {
+    let x = webPos.getX(i);
+    let y = webPos.getY(i);
+    let z = webPos.getZ(i);
+    // Flatten along Z (thickness) and fan along X-Y
+    const tempY = z;
+    const tempZ = y;
+    x *= 1.15;
+    y = tempY * 1.45;
+    z = tempZ * 0.72;
+    // Scalloped toe webbing along top edge
+    if (y > 0.05) {
+      const angle = Math.atan2(x, y);
+      y += 0.025 * Math.cos(angle * 10.0);
+    }
+    webPos.setXYZ(i, x, y, z);
+  }
+  webGeo.computeVertexNormals();
+  const webMesh = new THREE.Mesh(webGeo, flipperWebMat);
+  webMesh.position.set(0, 0.08, 0);
+  webMesh.castShadow = true;
+  paddleCluster.add(webMesh);
+  raycastTargets.push(webMesh);
+
+  // 5 Webbed Toe Rays (outer toes slightly longer, authentic to sea otters) + Pink Digital Pads!
+  for (let t = 0; t < 5; t++) {
+    const u = (t - 2) / 2; // -1 to 1
+    const toeAngle = u * 0.52;
+    const outerBoost = 1.0 + 0.14 * (u * side);
+    const toeLen = (0.24 + 0.03 * (1.0 - u * u)) * outerBoost;
+
+    // Furry/webbed toe ray
+    const rayMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.028, toeLen, 8, 12), flipperWebMat);
+    rayMesh.position.set(Math.sin(toeAngle) * toeLen * 0.58, Math.cos(toeAngle) * toeLen * 0.58, -0.005);
+    rayMesh.rotation.z = -toeAngle;
+    paddleCluster.add(rayMesh);
+
+    // Adorable oval pink digital toe pad on the forward-facing sole
+    const toePad = new THREE.Mesh(new THREE.SphereGeometry(0.036, 14, 12), pinkPadMat);
+    toePad.scale.set(0.95, 1.35, 0.55);
+    toePad.position.set(
+      Math.sin(toeAngle) * (toeLen * 0.92),
+      Math.cos(toeAngle) * (toeLen * 0.92),
+      -0.028
+    );
+    toePad.rotation.z = -toeAngle;
+    paddleCluster.add(toePad);
+  }
+
+  // Main heart/oval-shaped pink plantar sole pad
+  const mainPad = new THREE.Mesh(new THREE.SphereGeometry(0.088, 18, 14), pinkPadMat);
+  mainPad.scale.set(1.28, 1.05, 0.42);
+  mainPad.position.set(0, 0.04, -0.028);
+  paddleCluster.add(mainPad);
+
+  // Secondary heel pink pad
+  const heelPad = new THREE.Mesh(new THREE.SphereGeometry(0.056, 14, 12), pinkPadMat);
+  heelPad.scale.set(1.1, 0.9, 0.4);
+  heelPad.position.set(0, -0.065, -0.024);
+  paddleCluster.add(heelPad);
+
+  return blobs;
+}
+const leftFlipperBlobs = buildHindFlipper(leftFlipperGroup, -1);
+const rightFlipperBlobs = buildHindFlipper(rightFlipperGroup, 1);
+
+// --- 4G. PLUSH TAIL ---
+const tailBlobs = [
+  makeEllipsoid(tailGroup, 0, 0.02, 0.22, 0.34, 0.24, 0.38, darkSkinMat, -0.06, 0, 0),
+  makeEllipsoid(tailGroup, 0, 0.05, 0.58, 0.26, 0.19, 0.38, darkSkinMat, 0.06, 0, 0),
+  makeEllipsoid(tailGroup, 0, 0.10, 0.92, 0.18, 0.14, 0.34, darkSkinMat, 0.15, 0, 0)
+];
+
+// ============================================================================
+// 5. ULTRA-DENSE 28,500-STRAND 3D FUR SYSTEM (InstancedMesh + Interactive Physics)
+// ============================================================================
+// Create a single curved, tapered 3D fur strand geometry with root-to-tip AO vertex colors
+function createFurStrandGeometry() {
+  const radialSegs = 5;
+  const heightSegs = 4;
+  const geo = new THREE.ConeGeometry(0.022, 1.0, radialSegs, heightSegs, true);
+  // Shift base to y = 0, tip to y = 1
+  geo.translate(0, 0.5, 0);
+
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i); // 0 at root, 1 at tip
+    const z = pos.getZ(i);
+
+    // Slight organic curve along Z and subtle flattening for velvety volume
+    const bendZ = Math.pow(y, 1.75) * 0.14;
+    const taper = 1.0 - 0.18 * y;
+    pos.setXYZ(i, x * taper, y, z * 0.78 + bendZ);
+
+    // Root-to-tip shading: rich deep undercoat AO at root, luminous velvet tip
+    const rootAO = 0.46 + 0.64 * Math.pow(y, 0.62);
+    colors[i * 3] = rootAO;
+    colors[i * 3 + 1] = rootAO * 0.99;
+    colors[i * 3 + 2] = rootAO * 0.97;
+  }
+
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+const furStrandGeo = createFurStrandGeometry();
+const furMaterial = new THREE.MeshPhysicalMaterial({
+  color: 0xffffff,
+  vertexColors: true,
+  roughness: 0.68,
+  metalness: 0.02,
+  sheen: 0.88,
+  sheenRoughness: 0.42,
+  sheenColor: new THREE.Color(0xfcebd2)
+});
+
+// Palette colors for the baby sea otter's coat
+const colDarkChoc = new THREE.Color(0x28150b);   // Deep waterproof chocolate back/sides
+const colRichBrown = new THREE.Color(0x472816);  // Warm cocoa brown coat
+const colCinnamon = new THREE.Color(0x7c5233);   // Soft cinnamon transition
+const colBiscuit = new THREE.Color(0xc8a77e);    // Warm honey-tan chest & crown
+const colCreamFace = new THREE.Color(0xf3e4cd);  // Fluffy creamy-ivory cheeks & face
+const colSnowHighlight = new THREE.Color(0xfff8eb); // Frosted baby fuzz tips
+
+// Store all fur systems for real-time interactive mouse petting & breathing wave
+const furSystems = [];
+
+function buildPartFurSystem({
+  parentGroup,
+  blobs,
+  count,
+  type
+}) {
+  const instMesh = new THREE.InstancedMesh(furStrandGeo, furMaterial, count);
+  instMesh.castShadow = true;
+  instMesh.receiveShadow = true;
+  instMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  parentGroup.add(instMesh);
+
+  // Per-strand buffers for fast spring physics and matrix composition
+  const basePos = new Float32Array(count * 3);
+  const restDir = new Float32Array(count * 3);
+  const scaleXYZ = new Float32Array(count * 3);
+  const bendOffset = new Float32Array(count * 3);
+  const bendVel = new Float32Array(count * 3);
+  const phaseArr = new Float32Array(count);
+
+  // Weight blobs by surface area approximation
+  const weights = blobs.map((b) => Math.pow(b.rx * b.ry * b.rz, 0.66));
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+
+  const pLocal = new THREE.Vector3();
+  const nLocal = new THREE.Vector3();
+  const combDir = new THREE.Vector3();
+  const finalDir = new THREE.Vector3();
+  const tmpVec = new THREE.Vector3();
+  const strandColor = new THREE.Color();
+
+  const dummyMatrix = new THREE.Matrix4();
+  const dummyQuat = new THREE.Quaternion();
+  const dummyPos = new THREE.Vector3();
+  const dummyScale = new THREE.Vector3();
+  const upVec = new THREE.Vector3(0, 1, 0);
+
+  let placed = 0;
+  let attempts = 0;
+
+  while (placed < count && attempts < count * 8) {
+    attempts++;
+
+    // Pick a blob proportional to surface area
+    let rW = rand() * totalWeight;
+    let bIdx = 0;
+    for (let i = 0; i < blobs.length; i++) {
+      rW -= weights[i];
+      if (rW <= 0) {
+        bIdx = i;
+        break;
+      }
+    }
+    const blob = blobs[bIdx];
+
+    // Uniform random point on unit sphere
+    const u = rand() * 2 - 1;
+    const phi = rand() * Math.PI * 2;
+    const sq = Math.sqrt(1 - u * u);
+    const sx = sq * Math.cos(phi);
+    const sy = u;
+    const sz = sq * Math.sin(phi);
+
+    // Transform to parentGroup local space
+    pLocal.set(sx, sy, sz).applyMatrix4(blob.matrix);
+    nLocal.set(sx / blob.rx, sy / blob.ry, sz / blob.rz).applyMatrix3(blob.normalMatrix).normalize();
+
+    // Check if inside any other sibling blob in this group; if so, push out smoothly or skip deep interior
+    let deeplyInsideOther = false;
+    for (let j = 0; j < blobs.length; j++) {
+      if (j === bIdx) continue;
+      tmpVec.copy(pLocal).applyMatrix4(blobs[j].invMatrix);
+      const distSq = tmpVec.lengthSq();
+      if (distSq < 0.84) {
+        deeplyInsideOther = true;
+        break;
+      }
+    }
+    if (deeplyInsideOther) continue;
+
+    // Anatomical exclusion & styling per body part
+    let furLength = randRange(0.11, 0.185);
+    let furWidth = randRange(0.85, 1.35);
+
+    if (type === 'torso') {
+      // Skip underwater bottom center so strands concentrate richly on visible sides, chest, belly, and waterline
+      if (pLocal.y < -0.34) continue;
+
+      // Natural fur flow from chest toward hips/tail and outward from belly midline
+      combDir.set(pLocal.x * 0.35, 0.25, 0.85).normalize();
+      finalDir.copy(nLocal).multiplyScalar(0.68).addScaledVector(combDir, 0.32).normalize();
+
+      // Extra-fluffy chest & belly coat
+      const chestFactor = THREE.MathUtils.smoothstep(pLocal.z, 0.35, -0.95) *
+                          THREE.MathUtils.smoothstep(pLocal.y, -0.05, 0.42);
+      const bellyHighlight = THREE.MathUtils.smoothstep(pLocal.y, 0.05, 0.55) *
+                             (1.0 - Math.min(1.0, Math.abs(pLocal.x) * 1.35));
+
+      furLength = randRange(0.13, 0.22) * (1.0 + 0.22 * chestFactor);
+
+      // Color blending: chocolate back/flanks -> warm cinnamon belly -> creamy-blonde chest
+      strandColor.copy(colDarkChoc).lerp(colRichBrown, THREE.MathUtils.smoothstep(pLocal.y, -0.25, 0.25));
+      strandColor.lerp(colCinnamon, bellyHighlight * 0.72);
+      strandColor.lerp(colBiscuit, chestFactor * 0.85);
+      if (chestFactor > 0.45 && rand() < 0.45) {
+        strandColor.lerp(colCreamFace, (chestFactor - 0.45) * 1.2);
+      }
+
+    } else if (type === 'head') {
+      // Keep clear of glossy eyes and diamond nose pad
+      const dLeftEye = Math.hypot(pLocal.x + 0.255, pLocal.y - 0.24, pLocal.z - 0.445);
+      const dRightEye = Math.hypot(pLocal.x - 0.255, pLocal.y - 0.24, pLocal.z - 0.445);
+      const dNose = Math.hypot(pLocal.x * 0.85, pLocal.y - 0.17, pLocal.z - 0.575);
+      if (dLeftEye < 0.105 || dRightEye < 0.105 || dNose < 0.125) continue;
+
+      // Radial face comb flowing outward from nose bridge across cheeks and crown
+      combDir.set(pLocal.x * 1.15, pLocal.y * 0.55 - 0.05, -0.45).normalize();
+      finalDir.copy(nLocal).multiplyScalar(0.74).addScaledVector(combDir, 0.26).normalize();
+
+      // Shorter,velvety fur right near eye rims & muzzle; ultra-fluffy long halo on cheeks!
+      const cheekDist = Math.hypot(Math.abs(pLocal.x) - 0.42, pLocal.y + 0.02, pLocal.z - 0.16);
+      const cheekBoost = 1.0 + 0.52 * Math.max(0, 1.0 - cheekDist * 2.2);
+      const muzzleFactor = THREE.MathUtils.smoothstep(pLocal.z, 0.28, 0.56);
+
+      furLength = randRange(0.11, 0.175) * cheekBoost * (1.0 - 0.42 * muzzleFactor);
+      if (dLeftEye < 0.15 || dRightEye < 0.15) furLength *= 0.55;
+
+      // Iconic creamy-ivory face, cheeks, and forehead blending to biscuit crown & dark ears
+      const faceFront = THREE.MathUtils.smoothstep(pLocal.z, -0.22, 0.28);
+      const earZone = THREE.MathUtils.smoothstep(Math.abs(pLocal.x), 0.48, 0.65) *
+                      (1.0 - THREE.MathUtils.smoothstep(pLocal.z, -0.05, 0.20));
+
+      strandColor.copy(colBiscuit).lerp(colCreamFace, faceFront * 0.92);
+      if (cheekDist < 0.35) {
+        strandColor.lerp(colSnowHighlight, 0.45);
+      }
+      strandColor.lerp(colRichBrown, (1.0 - faceFront) * 0.65);
+      strandColor.lerp(colDarkChoc, earZone * 0.88);
+
+    } else if (type === 'arm') {
+      combDir.set(-Math.sign(pLocal.x || 1) * 0.4, 0.5, 0.5).normalize();
+      finalDir.copy(nLocal).multiplyScalar(0.72).addScaledVector(combDir, 0.28).normalize();
+      furLength = randRange(0.095, 0.15);
+      strandColor.copy(colDarkChoc).lerp(colRichBrown, 0.55).lerp(colCinnamon, rand() * 0.35);
+
+    } else if (type === 'flipper') {
+      // Keep pink sole pads visible on front/underside of upper paddle
+      if (pLocal.y > 0.34 && pLocal.z < 0.07) continue;
+      combDir.set(0, 0.65, 0.25).normalize();
+      finalDir.copy(nLocal).multiplyScalar(0.75).addScaledVector(combDir, 0.25).normalize();
+      furLength = randRange(0.085, 0.135) * (1.0 - 0.35 * THREE.MathUtils.smoothstep(pLocal.y, 0.22, 0.55));
+      strandColor.copy(colDarkChoc).lerp(colRichBrown, rand() * 0.45);
+
+    } else if (type === 'tail') {
+      if (pLocal.y < -0.18) continue;
+      combDir.set(pLocal.x * 0.2, 0.15, 0.92).normalize();
+      finalDir.copy(nLocal).multiplyScalar(0.62).addScaledVector(combDir, 0.38).normalize();
+      const tailTaper = 1.0 - 0.35 * THREE.MathUtils.smoothstep(pLocal.z, 0.2, 1.15);
+      furLength = randRange(0.11, 0.175) * tailTaper;
+      strandColor.copy(colDarkChoc).lerp(colRichBrown, rand() * 0.4);
+    }
+
+    // Add natural organic jitter to strand direction and color
+    finalDir.x += randRange(-0.14, 0.14);
+    finalDir.y += randRange(-0.14, 0.14);
+    finalDir.z += randRange(-0.14, 0.14);
+    finalDir.normalize();
+
+    // Occasional frosted guard hairs for authentic sea-otter coat sparkle
+    if (rand() < 0.12) {
+      furLength *= 1.24;
+      strandColor.lerp(colCreamFace, 0.28);
+    } else {
+      strandColor.offsetHSL(randRange(-0.015, 0.015), randRange(-0.04, 0.04), randRange(-0.04, 0.04));
+    }
+
+    const i3 = placed * 3;
+    basePos[i3] = pLocal.x;
+    basePos[i3 + 1] = pLocal.y;
+    basePos[i3 + 2] = pLocal.z;
+
+    restDir[i3] = finalDir.x;
+    restDir[i3 + 1] = finalDir.y;
+    restDir[i3 + 2] = finalDir.z;
+
+    scaleXYZ[i3] = furWidth;
+    scaleXYZ[i3 + 1] = furLength;
+    scaleXYZ[i3 + 2] = furWidth;
+
+    phaseArr[placed] = rand() * Math.PI * 2;
+
+    dummyPos.set(pLocal.x, pLocal.y, pLocal.z);
+    dummyQuat.setFromUnitVectors(upVec, finalDir);
+    dummyScale.set(furWidth, furLength, furWidth);
+    dummyMatrix.compose(dummyPos, dummyQuat, dummyScale);
+    instMesh.setMatrixAt(placed, dummyMatrix);
+    instMesh.setColorAt(placed, strandColor);
+
+    placed++;
+  }
+
+  instMesh.instanceMatrix.needsUpdate = true;
+  if (instMesh.instanceColor) instMesh.instanceColor.needsUpdate = true;
+
+  furSystems.push({
+    instMesh,
+    parentGroup,
+    count: placed,
+    basePos,
+    restDir,
+    scaleXYZ,
+    bendOffset,
+    bendVel,
+    phaseArr,
+    type
+  });
+}
+
+// Generate 28,500 individual 3D fur strands across all articulated otter parts!
+buildPartFurSystem({ parentGroup: torsoGroup, blobs: torsoBlobs, count: 12000, type: 'torso' });
+buildPartFurSystem({ parentGroup: headGroup, blobs: headBlobs, count: 8000, type: 'head' });
+buildPartFurSystem({ parentGroup: tailGroup, blobs: tailBlobs, count: 3000, type: 'tail' });
+buildPartFurSystem({ parentGroup: leftArmGroup, blobs: leftArmBlobs, count: 1600, type: 'arm' });
+buildPartFurSystem({ parentGroup: rightArmGroup, blobs: rightArmBlobs, count: 1600, type: 'arm' });
+buildPartFurSystem({ parentGroup: leftFlipperGroup, blobs: leftFlipperBlobs, count: 1150, type: 'flipper' });
+buildPartFurSystem({ parentGroup: rightFlipperGroup, blobs: rightFlipperBlobs, count: 1150, type: 'flipper' });
+
+// ============================================================================
+// 6. TRANSLUCENT AQUAMARINE WATER PATCH, FOAM MENISCUS & SOFT CAUSTIC SHADOW BED
+// ============================================================================
+const waterGroup = new THREE.Group();
+scene.add(waterGroup);
+
+// 6A. Dynamic Translucent Aquamarine Water Surface Patch
+const waterRadialSegs = 96;
+const waterRingSegs = 64;
+const waterRadius = 4.6;
+
+function createWaterPatchGeometry() {
+  const geo = new THREE.BufferGeometry();
+  const positions = [];
+  const basePositions = [];
+  const uvs = [];
+  const colors = [];
+  const indices = [];
+
+  const cCenter = new THREE.Color(0x28e8d8);
+  const cMid = new THREE.Color(0x12a8b2);
+  const cEdge = new THREE.Color(0x094858);
+  const tmpC = new THREE.Color();
+
+  for (let ir = 0; ir <= waterRingSegs; ir++) {
+    const v = ir / waterRingSegs;
+    const r = Math.pow(v, 0.88) * waterRadius;
+    for (let ia = 0; ia <= waterRadialSegs; ia++) {
+      const u = ia / waterRadialSegs;
+      const theta = u * Math.PI * 2;
+      // Slightly elongated organic lagoon patch
+      const rx = r * (1.0 + 0.04 * Math.sin(theta * 3.0));
+      const rz = r * 1.12 * (1.0 + 0.04 * Math.cos(theta * 2.0));
+      const x = rx * Math.cos(theta);
+      const z = rz * Math.sin(theta) + 0.1;
+      const y = 0;
+
+      positions.push(x, y, z);
+      basePositions.push(x, y, z);
+      uvs.push(u, v);
+
+      if (v < 0.55) {
+        tmpC.copy(cCenter).lerp(cMid, v / 0.55);
+      } else {
+        tmpC.copy(cMid).lerp(cEdge, (v - 0.55) / 0.45);
+      }
+      colors.push(tmpC.r, tmpC.g, tmpC.b);
+    }
+  }
+
+  for (let ir = 0; ir < waterRingSegs; ir++) {
+    for (let ia = 0; ia < waterRadialSegs; ia++) {
+      const a = ir * (waterRadialSegs + 1) + ia;
+      const b = a + 1;
+      const c = a + (waterRadialSegs + 1);
+      const d = c + 1;
+      indices.push(a, b, c, b, d, c);
+    }
+  }
+
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  geo.userData.basePositions = new Float32Array(basePositions);
+  return geo;
+}
+
+const waterGeo = createWaterPatchGeometry();
+const waterMat = new THREE.MeshPhysicalMaterial({
+  vertexColors: true,
+  roughness: 0.07,
+  metalness: 0.02,
+  transmission: 0.80,
+  thickness: 1.35,
+  ior: 1.333,
+  attenuationColor: new THREE.Color(0x0b7a86),
+  attenuationDistance: 2.0,
+  clearcoat: 0.9,
+  clearcoatRoughness: 0.06,
+  transparent: true,
+  opacity: 0.92
+});
+
+const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+waterMesh.receiveShadow = true;
+waterGroup.add(waterMesh);
+raycastTargets.push(waterMesh);
+
+// 6B. lacy Foam Meniscus Ring & Floating Water Droplets around the Otter
+const foamBubbles = [];
+const foamGeo = new THREE.SphereGeometry(1, 10, 8);
+const foamMat = new THREE.MeshPhysicalMaterial({
+  color: 0xe6ffff,
+  roughness: 0.25,
+  transmission: 0.4,
+  transparent: true,
+  opacity: 0.72
+});
+
+for (let i = 0; i < 88; i++) {
+  const angle = (i / 88) * Math.PI * 2 + randRange(-0.04, 0.04);
+  const rx = 0.92 + randRange(-0.08, 0.16);
+  const rz = 1.55 + randRange(-0.12, 0.22);
+  const mesh = new THREE.Mesh(foamGeo, foamMat);
+  const sc = randRange(0.018, 0.048);
+  mesh.scale.set(sc * 1.35, sc * 0.45, sc * 1.35);
+  const bx = Math.cos(angle) * rx;
+  const bz = Math.sin(angle) * rz + 0.12;
+  mesh.position.set(bx, 0.01, bz);
+  waterGroup.add(mesh);
+  foamBubbles.push({ mesh, bx, bz, phase: rand() * Math.PI * 2, baseScale: sc });
+}
+
+// 6C. Underwater Soft Contact Shadow & Caustic Receiver Disc
+function createCausticFloorTexture() {
+  const size = 512;
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext('2d');
+
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 12, size / 2, size / 2, size / 2);
+  grad.addColorStop(0.0, 'rgba(22, 145, 155, 0.95)');
+  grad.addColorStop(0.45, 'rgba(14, 98, 112, 0.82)');
+  grad.addColorStop(0.78, 'rgba(9, 50, 62, 0.35)');
+  grad.addColorStop(1.0, 'rgba(7, 28, 36, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+
+  // Soft dark contact shadow oval directly beneath the floating otter
+  ctx.save();
+  ctx.translate(size / 2, size / 2);
+  ctx.scale(0.65, 1.05);
+  const shadowGrad = ctx.createRadialGradient(0, 0, 8, 0, 0, 125);
+  shadowGrad.addColorStop(0.0, 'rgba(3, 18, 24, 0.72)');
+  shadowGrad.addColorStop(0.55, 'rgba(4, 24, 32, 0.38)');
+  shadowGrad.addColorStop(1.0, 'rgba(4, 24, 32, 0.0)');
+  ctx.fillStyle = shadowGrad;
+  ctx.beginPath();
+  ctx.arc(0, 0, 125, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  const tex = new THREE.CanvasTexture(c);
+  return tex;
+}
+
+const seabedGeo = new THREE.CircleGeometry(4.9, 64);
+seabedGeo.rotateX(-Math.PI / 2);
+const seabedMat = new THREE.MeshStandardMaterial({
+  map: createCausticFloorTexture(),
+  transparent: true,
+  roughness: 0.9,
+  metalness: 0.0,
+  depthWrite: false
+});
+const seabedMesh = new THREE.Mesh(seabedGeo, seabedMat);
+seabedMesh.position.set(0, -0.62, 0.1);
+seabedMesh.receiveShadow = true;
+waterGroup.add(seabedMesh);
+
+// ============================================================================
+// 7. INTERACTIVE MOUSE PETTING & WATER RIPPLE PHYSICS (Raycaster)
+// ============================================================================
+const raycaster = new THREE.Raycaster();
+const mouseNDC = new THREE.Vector2(-999, -999);
+const prevHitWorld = new THREE.Vector3();
+const currHitWorld = new THREE.Vector3();
+const mouseVelWorld = new THREE.Vector3();
+let hasValidHit = false;
+let isWaterHit = false;
+let happyReactionImpulse = 0;
+const waterRipples = [];
+
+function handlePointerMove(clientX, clientY) {
+  mouseNDC.x = (clientX / window.innerWidth) * 2 - 1;
+  mouseNDC.y = -(clientY / window.innerHeight) * 2 + 1;
+
+  raycaster.setFromCamera(mouseNDC, camera);
+  const hits = raycaster.intersectObjects(raycastTargets, false);
+
+  if (hits.length > 0) {
+    const hit = hits[0];
+    if (!hasValidHit) {
+      prevHitWorld.copy(hit.point);
+    } else {
+      prevHitWorld.copy(currHitWorld);
+    }
+    currHitWorld.copy(hit.point);
+    mouseVelWorld.subVectors(currHitWorld, prevHitWorld).multiplyScalar(14.0);
+    mouseVelWorld.clampLength(0, 2.4);
+    hasValidHit = true;
+    isWaterHit = (hit.object === waterMesh);
+
+    if (isWaterHit && mouseVelWorld.lengthSq() > 0.01) {
+      waterRipples.push({
+        x: currHitWorld.x,
+        z: currHitWorld.z,
+        t0: performance.now() * 0.001,
+        amp: Math.min(0.045, mouseVelWorld.length() * 0.025)
+      });
+      if (waterRipples.length > 12) waterRipples.shift();
+    }
+  } else {
+    hasValidHit = false;
+    mouseVelWorld.set(0, 0, 0);
+  }
+}
+
+window.addEventListener('pointermove', (e) => {
+  handlePointerMove(e.clientX, e.clientY);
+});
+
+window.addEventListener('pointerdown', (e) => {
+  handlePointerMove(e.clientX, e.clientY);
+  if (hasValidHit) {
+    if (isWaterHit) {
+      waterRipples.push({
+        x: currHitWorld.x,
+        z: currHitWorld.z,
+        t0: performance.now() * 0.001,
+        amp: 0.065
+      });
+      if (waterRipples.length > 12) waterRipples.shift();
+    } else {
+      // Clicking/petting the baby otter triggers a joyful paw-tap & fur fluff burst!
+      happyReactionImpulse = 1.0;
+      for (let s = 0; s < furSystems.length; s++) {
+        const sys = furSystems[s];
+        const hitLocal = sys.parentGroup.worldToLocal(currHitWorld.clone());
+        const bPos = sys.basePos;
+        const bVel = sys.bendVel;
+        for (let i = 0; i < sys.count; i++) {
+          const i3 = i * 3;
+          const dx = bPos[i3] - hitLocal.x;
+          const dy = bPos[i3 + 1] - hitLocal.y;
+          const dz = bPos[i3 + 2] - hitLocal.z;
+          const dSq = dx * dx + dy * dy + dz * dz;
+          if (dSq < 0.42 && dSq > 0.0001) {
+            const dInv = 1.0 / Math.sqrt(dSq);
+            const falloff = (1.0 - Math.sqrt(dSq) / 0.65) * 9.5;
+            bVel[i3] += dx * dInv * falloff;
+            bVel[i3 + 1] += dy * dInv * falloff;
+            bVel[i3 + 2] += dz * dInv * falloff;
+          }
+        }
+      }
+    }
+  }
+});
+
+// ============================================================================
+// 8. ANIMATION LOOP (Bobbing, Breathing, Paw Tapping, Flipper Wiggling, Fur Physics)
+// ============================================================================
+const clock = new THREE.Clock();
+const tmpHitLocal = new THREE.Vector3();
+const tmpVelLocal = new THREE.Vector3();
+const tmpWorldZero = new THREE.Vector3();
+
+function updateFurPhysics(dt, elapsed) {
+  const springK = 36.0;
+  const damping = Math.exp(-7.5 * dt);
+  const brushRadius = 0.46;
+  const brushRadiusSq = brushRadius * brushRadius;
+
+  for (let s = 0; s < furSystems.length; s++) {
+    const sys = furSystems[s];
+    const {
+      instMesh,
+      parentGroup,
+      count,
+      basePos,
+      restDir,
+      scaleXYZ,
+      bendOffset,
+      bendVel,
+      phaseArr,
+      type
+    } = sys;
+
+    let applyBrush = false;
+    if (hasValidHit && !isWaterHit) {
+      tmpHitLocal.copy(currHitWorld);
+      parentGroup.worldToLocal(tmpHitLocal);
+
+      tmpWorldZero.set(0, 0, 0);
+      parentGroup.localToWorld(tmpWorldZero);
+      tmpVelLocal.copy(currHitWorld).add(mouseVelWorld);
+      parentGroup.worldToLocal(tmpVelLocal);
+      tmpVelLocal.sub(tmpHitLocal);
+      applyBrush = true;
+    }
+
+    const matArray = instMesh.instanceMatrix.array;
+    const isTorso = (type === 'torso');
+    const breathScale = isTorso ? 1.0 + 0.028 * Math.sin(elapsed * 2.4) : 1.0;
+
+    for (let i = 0; i < count; i++) {
+      const i3 = i * 3;
+      const px = basePos[i3];
+      const py = basePos[i3 + 1] * (isTorso && py > 0 ? breathScale : 1.0);
+      const pz = basePos[i3 + 2];
+
+      let ox = bendOffset[i3];
+      let oy = bendOffset[i3 + 1];
+      let oz = bendOffset[i3 + 2];
+      let vx = bendVel[i3];
+      let vy = bendVel[i3 + 1];
+      let vz = bendVel[i3 + 2];
+
+      // Interactive mouse petting deflection
+      if (applyBrush) {
+        const dx = px - tmpHitLocal.x;
+        const dy = py - tmpHitLocal.y;
+        const dz = pz - tmpHitLocal.z;
+        const dSq = dx * dx + dy * dy + dz * dz;
+        if (dSq < brushRadiusSq && dSq > 1e-6) {
+          const dist = Math.sqrt(dSq);
+          const falloff = 1.0 - dist / brushRadius;
+          const radialPush = (falloff * falloff) * 14.0 * dt / dist;
+          vx += (dx * radialPush + tmpVelLocal.x * falloff * 24.0 * dt);
+          vy += (dy * radialPush + tmpVelLocal.y * falloff * 24.0 * dt);
+          vz += (dz * radialPush + tmpVelLocal.z * falloff * 24.0 * dt);
+        }
+      }
+
+      // Damped harmonic spring back to combed rest orientation
+      vx = (vx - ox * springK * dt) * damping;
+      vy = (vy - oy * springK * dt) * damping;
+      vz = (vz - oz * springK * dt) * damping;
+
+      ox += vx * dt;
+      oy += vy * dt;
+      oz += vz * dt;
+
+      // Clamp maximum deflection so fur never inverts into skin
+      const bendLenSq = ox * ox + oy * oy + oz * oz;
+      if (bendLenSq > 0.72) {
+        const inv = Math.sqrt(0.72 / bendLenSq);
+        ox *= inv;
+        oy *= inv;
+        oz *= inv;
+      }
+
+      bendOffset[i3] = ox;
+      bendOffset[i3 + 1] = oy;
+      bendOffset[i3 + 2] = oz;
+      bendVel[i3] = vx;
+      bendVel[i3 + 1] = vy;
+      bendVel[i3 + 2] = vz;
+
+      // Subtle sea breeze & water current micro-sway
+      const ph = phaseArr[i];
+      const swayX = Math.sin(elapsed * 2.1 + ph) * 0.035;
+      const swayZ = Math.cos(elapsed * 1.8 + ph * 0.7) * 0.035;
+
+      // Target unit vector Y-axis of strand
+      let yx = restDir[i3] + ox + swayX;
+      let yy = restDir[i3 + 1] + oy;
+      let yz = restDir[i3 + 2] + oz + swayZ;
+      const yInv = 1.0 / Math.sqrt(yx * yx + yy * yy + yz * yz + 1e-8);
+      yx *= yInv;
+      yy *= yInv;
+      yz *= yInv;
+
+      // Fast orthonormal basis from unit vector (yx, yy, yz) aligned with Y-up
+      let xx, xy, xz, zx, zy, zz;
+      if (yy > -0.9999) {
+        const k = 1.0 / (1.0 + yy);
+        xx = 1.0 - yx * yx * k;
+        xy = -yx;
+        xz = -yx * yz * k;
+        zx = -yx * yz * k;
+        zy = -yz;
+        zz = 1.0 - yz * yz * k;
+      } else {
+        xx = 1.0; xy = 0.0; xz = 0.0;
+        zx = 0.0; zy = 0.0; zz = -1.0;
+      }
+
+      const sx = scaleXYZ[i3];
+      const sy = scaleXYZ[i3 + 1];
+      const sz = scaleXYZ[i3 + 2];
+
+      const mIdx = i * 16;
+      matArray[mIdx]     = xx * sx;
+      matArray[mIdx + 1] = xy * sx;
+      matArray[mIdx + 2] = xz * sx;
+      matArray[mIdx + 3] = 0;
+
+      matArray[mIdx + 4] = yx * sy;
+      matArray[mIdx + 5] = yy * sy;
+      matArray[mIdx + 6] = yz * sy;
+      matArray[mIdx + 7] = 0;
+
+      matArray[mIdx + 8]  = zx * sz;
+      matArray[mIdx + 9]  = zy * sz;
+      matArray[mIdx + 10] = zz * sz;
+      matArray[mIdx + 11] = 0;
+
+      matArray[mIdx + 12] = px;
+      matArray[mIdx + 13] = py;
+      matArray[mIdx + 14] = pz;
+      matArray[mIdx + 15] = 1;
+    }
+
+    instMesh.instanceMatrix.needsUpdate = true;
+  }
+}
+
+function updateWaterWaves(elapsed) {
+  const posAttr = waterGeo.attributes.position;
+  const basePos = waterGeo.userData.basePositions;
+  const count = posAttr.count;
+
+  for (let i = 0; i < count; i++) {
+    const i3 = i * 3;
+    const bx = basePos[i3];
+    const bz = basePos[i3 + 2];
+
+    // Distance from otter torso & flippers for concentric bobbing ripples
+    const dOtter = Math.hypot(bx * 1.15, (bz - 0.05) * 0.72);
+    const otterRipple = Math.sin(dOtter * 6.2 - elapsed * 3.2) *
+                        Math.exp(-dOtter * 0.55) * 0.026;
+
+    // Gentle multi-directional ocean swell
+    const swell1 = Math.sin(bx * 1.4 + bz * 1.1 + elapsed * 1.5) * 0.022;
+    const swell2 = Math.cos(bx * 2.1 - bz * 1.7 + elapsed * 2.0) * 0.014;
+
+    // Flipper paddling ripples near z = +1.15
+    const dFlipper = Math.hypot(bx, bz - 1.18);
+    const flipperRipple = Math.sin(dFlipper * 9.0 - elapsed * 5.5) *
+                          Math.exp(-dFlipper * 1.1) * 0.018;
+
+    // Interactive mouse ripples
+    let interactiveWave = 0;
+    for (let r = 0; r < waterRipples.length; r++) {
+      const rp = waterRipples[r];
+      const age = elapsed - rp.t0;
+      if (age >= 0 && age < 3.5) {
+        const dist = Math.hypot(bx - rp.x, bz - rp.z);
+        const waveFront = dist - age * 1.45;
+        interactiveWave += Math.sin(waveFront * 12.0) *
+                           Math.exp(- waveFront * waveFront * 3.5 - age * 1.2) * rp.amp;
+      }
+    }
+
+    // Smooth edge taper
+    const radialDist = Math.hypot(bx, bz * 0.88) / waterRadius;
+    const edgeFade = Math.max(0, 1.0 - Math.pow(radialDist, 3.0));
+
+    posAttr.setY(i, (otterRipple + swell1 + swell2 + flipperRipple + interactiveWave) * edgeFade);
+  }
+
+  posAttr.needsUpdate = true;
+  waterGeo.computeVertexNormals();
+
+  // Animate foam meniscus beads hugging the otter
+  for (let i = 0; i < foamBubbles.length; i++) {
+    const fb = foamBubbles[i];
+    const waveY = Math.sin(elapsed * 2.8 + fb.phase) * 0.018;
+    const drift = Math.sin(elapsed * 1.6 + fb.phase) * 0.025;
+    fb.mesh.position.set(fb.bx + drift, 0.012 + waveY, fb.bz + drift * 0.5);
+    const pulse = fb.baseScale * (1.0 + 0.18 * Math.sin(elapsed * 3.2 + fb.phase));
+    fb.mesh.scale.set(pulse * 1.35, pulse * 0.45, pulse * 1.35);
+  }
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const elapsed = clock.getElapsedTime();
+
+  happyReactionImpulse = Math.max(0, happyReactionImpulse - dt * 1.35);
+  const happyBoost = 1.0 + happyReactionImpulse * 1.8;
+
+  // 1. Gentle Buoyant Water Bobbing & Rolling of the Otter
+  otterRoot.position.y = Math.sin(elapsed * 1.65) * 0.042 - 0.02;
+  otterRoot.rotation.z = Math.sin(elapsed * 1.15) * 0.045;
+  otterRoot.rotation.x = Math.cos(elapsed * 1.35) * 0.028;
+
+  // 2. Cozy Chest Breathing & Scallop Shell Rise/Fall + Tap Rocking
+  const breath = Math.sin(elapsed * 2.4);
+  chestBreathGroup.position.y = breath * 0.018;
+
+  // Alternating cute paw tapping on the purple-pink scallop shell
+  const tapSpeed = 4.6 * happyBoost;
+  const leftTap = Math.max(0, Math.sin(elapsed * tapSpeed));
+  const rightTap = Math.max(0, Math.sin(elapsed * tapSpeed + Math.PI));
+
+  leftArmGroup.rotation.z = -leftTap * 0.14;
+  leftArmGroup.rotation.x = leftTap * 0.08 + breath * 0.03;
+
+  rightArmGroup.rotation.z = rightTap * 0.14;
+  rightArmGroup.rotation.x = rightTap * 0.08 + breath * 0.03;
+
+  // Scallop shell subtly rocks when tapped by left/right paws
+  shellGroup.rotation.z = (rightTap - leftTap) * 0.065;
+  shellGroup.rotation.x = -0.22 + (leftTap + rightTap) * 0.035 + breath * 0.02;
+
+  // 3. Expressive Head Tilt, Curious Nodding & Whisker Twitch
+  headGroup.rotation.x = 0.38 + Math.sin(elapsed * 1.8) * 0.045 + happyReactionImpulse * 0.09;
+  headGroup.rotation.z = Math.sin(elapsed * 1.25) * 0.055;
+  headGroup.rotation.y = Math.cos(elapsed * 0.95) * 0.065;
+
+  for (let w = 0; w < whiskerMeshes.length; w++) {
+    const wm = whiskerMeshes[w];
+    wm.mesh.rotation.z = wm.baseRotZ + wm.side * Math.sin(elapsed * 5.2 + wm.phase) * 0.035 * happyBoost;
+  }
+
+  // 4. Webbed Pink-Padded Hind Flippers Paddling & Wiggling Gently
+  const paddleL = Math.sin(elapsed * 2.8 * happyBoost);
+  const paddleR = Math.sin(elapsed * 2.8 * happyBoost + Math.PI * 0.85);
+
+  leftFlipperGroup.rotation.x = paddleL * 0.19;
+  leftFlipperGroup.rotation.z = Math.cos(elapsed * 2.2) * 0.07;
+
+  rightFlipperGroup.rotation.x = paddleR * 0.19;
+  rightFlipperGroup.rotation.z = -Math.cos(elapsed * 2.2) * 0.07;
+
+  // 5. Plush Tail Gentle Rudder Sway in the Water
+  tailGroup.rotation.y = Math.sin(elapsed * 1.9) * 0.14;
+  tailGroup.rotation.x = Math.cos(elapsed * 1.65 + 1.0) * 0.07;
+
+  // 6. Update 28,500 Individual 3D Fur Strands & Water Waves
+  torsoGroup.updateMatrixWorld();
+  updateFurPhysics(dt, elapsed);
+  updateWaterWaves(elapsed);
+
+  // Decay mouse velocity smoothly when cursor stops moving
+  mouseVelWorld.multiplyScalar(0.82);
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+animate();
+</script>
+</body>
+</html>

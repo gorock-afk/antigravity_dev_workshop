@@ -1,0 +1,1799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: #9aa9be;
+  }
+  #c {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    touch-action: none;
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ============================================================================
+// 1. RENDERER, SCENE, CAMERA & ORBIT CONTROLS
+// ============================================================================
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  powerPreference: 'high-performance'
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.08;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(
+  36,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  80
+);
+
+function setResponsiveInitialCamera() {
+  const aspect = window.innerWidth / Math.max(window.innerHeight, 1);
+  const distScale = aspect < 1.45 ? 1.45 / Math.max(aspect, 0.55) : 1.0;
+  camera.position.set(0, 2.25 * Math.pow(distScale, 0.45), 8.55 * distScale);
+}
+setResponsiveInitialCamera();
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.055;
+controls.target.set(0, 0.92, 0.0);
+controls.minDistance = 3.0;
+controls.maxDistance = 18.0;
+controls.maxPolarAngle = Math.PI * 0.53;
+controls.update();
+
+// ============================================================================
+// 2. PROCEDURAL STUDIO ENVIRONMENT (PMREM) & CYCLORAMA BACKDROP
+// ============================================================================
+function buildStudioEnvironment() {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  pmrem.compileEquirectangularShader();
+
+  const envScene = new THREE.Scene();
+  envScene.background = new THREE.Color(0x9fb0c6);
+
+  // Soft gradient dome inside envScene
+  const domeGeo = new THREE.SphereGeometry(20, 32, 24);
+  const pos = domeGeo.attributes.position;
+  const cols = new Float32Array(pos.count * 3);
+  const cTop = new THREE.Color(0xc9d6e8);
+  const cMid = new THREE.Color(0xeef3fa);
+  const cBot = new THREE.Color(0xb8c5d6);
+  const tmp = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const ny = pos.getY(i) / 20;
+    if (ny >= 0) {
+      tmp.copy(cMid).lerp(cTop, Math.pow(ny, 0.7));
+    } else {
+      tmp.copy(cMid).lerp(cBot, Math.min(1, -ny * 1.6));
+    }
+    cols[i * 3] = tmp.r;
+    cols[i * 3 + 1] = tmp.g;
+    cols[i * 3 + 2] = tmp.b;
+  }
+  domeGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  envScene.add(new THREE.Mesh(
+    domeGeo,
+    new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })
+  ));
+
+  const addPanel = (w, h, colorHex, intensity, x, y, z, rx, ry, rz) => {
+    const col = new THREE.Color(colorHex).multiplyScalar(intensity);
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({ color: col, side: THREE.DoubleSide })
+    );
+    m.position.set(x, y, z);
+    m.rotation.set(rx, ry, rz);
+    envScene.add(m);
+  };
+
+  // Overhead studio softbox
+  addPanel(12, 7, 0xfffcf6, 5.2, 0, 11, 1.5, Math.PI * 0.5, 0, 0);
+  // Key left softbox strip (creates signature vertical highlight on gelatin bellies)
+  addPanel(5.5, 10, 0xfff9ee, 6.8, -9.5, 5.2, 6.5, 0, Math.PI * 0.32, 0);
+  // Cool right fill panel
+  addPanel(6.5, 9, 0xdcebff, 3.2, 10.5, 4.5, 5.5, 0, -Math.PI * 0.35, 0);
+  // Strong rear rim kicker softbox (wraps silhouette edges in bright specular light)
+  addPanel(14, 5.5, 0xfff3df, 6.2, 0, 6.5, -10.5, 0.32, 0, 0);
+  // Lower bounce reflector
+  addPanel(14, 10, 0xe8eff8, 1.7, 0, -4.5, 2.0, -Math.PI * 0.5, 0, 0);
+
+  const envTex = pmrem.fromScene(envScene, 0.035).texture;
+  pmrem.dispose();
+  domeGeo.dispose();
+  return envTex;
+}
+
+scene.environment = buildStudioEnvironment();
+
+// Physical 3D Studio Cyclorama Dome (opaque so WebGL transmission pass refracts
+// clean luminous studio light through every gummy bear!)
+{
+  const cycGeo = new THREE.SphereGeometry(34, 64, 40);
+  const p = cycGeo.attributes.position;
+  const cols = new Float32Array(p.count * 3);
+  const cHorizonGlow = new THREE.Color(0xe6edf6);
+  const cMidSweep = new THREE.Color(0xc2cfdf);
+  const cUpper = new THREE.Color(0x7c8ea8);
+  const cFloor = new THREE.Color(0xaab8cc);
+  const cTmp = new THREE.Color();
+
+  for (let i = 0; i < p.count; i++) {
+    const vx = p.getX(i) / 34;
+    const vy = p.getY(i) / 34;
+    const vz = p.getZ(i) / 34;
+
+    if (vy >= 0) {
+      cTmp.copy(cMidSweep).lerp(cUpper, Math.pow(vy, 0.62));
+    } else {
+      cTmp.copy(cMidSweep).lerp(cFloor, Math.pow(-vy, 0.55));
+    }
+    // Luminous studio key halo behind the bears (-Z) for rich Beer-Lambert refraction
+    const backHalo = Math.exp(-(vx * vx * 2.2 + (vy - 0.06) * (vy - 0.06) * 6.5)) * Math.max(0, -vz);
+    cTmp.lerp(cHorizonGlow, backHalo * 0.82);
+    // Subtle front bounce
+    const frontSoft = Math.exp(-(vy * vy * 5.0)) * Math.max(0, vz) * 0.35;
+    cTmp.lerp(cHorizonGlow, frontSoft);
+
+    cols[i * 3] = cTmp.r;
+    cols[i * 3 + 1] = cTmp.g;
+    cols[i * 3 + 2] = cTmp.b;
+  }
+  cycGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  const cycMesh = new THREE.Mesh(
+    cycGeo,
+    new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, depthWrite: false })
+  );
+  cycMesh.renderOrder = -10;
+  scene.add(cycMesh);
+}
+
+// ============================================================================
+// 3. STUDIO THREE-POINT LIGHTING + TRANSLUCENT BACK-SCATTER KICKER
+// ============================================================================
+const hemiLight = new THREE.HemisphereLight(0xf6f9ff, 0xcad5e4, 0.65);
+scene.add(hemiLight);
+
+// 1. Key Light (warm studio daylight, casts soft directional shadows)
+const keyLight = new THREE.DirectionalLight(0xfff8ee, 2.45);
+keyLight.position.set(-4.6, 7.8, 5.8);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 2.0;
+keyLight.shadow.camera.far = 20.0;
+keyLight.shadow.camera.left = -4.6;
+keyLight.shadow.camera.right = 4.6;
+keyLight.shadow.camera.top = 3.6;
+keyLight.shadow.camera.bottom = -2.4;
+keyLight.shadow.bias = -0.0004;
+keyLight.shadow.normalBias = 0.018;
+keyLight.shadow.radius = 3.2;
+scene.add(keyLight);
+
+// 2. Fill Light (cool diffused studio fill)
+const fillLight = new THREE.DirectionalLight(0xd9ebff, 1.15);
+fillLight.position.set(5.8, 4.2, 4.6);
+scene.add(fillLight);
+
+// 3. Rim / Back-Scatter Light (shines from behind to make translucent bellies glow!)
+const rimLight = new THREE.DirectionalLight(0xfff1dc, 2.65);
+rimLight.position.set(0.4, 4.8, -6.4);
+scene.add(rimLight);
+
+// Subtle under-table bounce light for juicy bottom paw translucency
+const underBounce = new THREE.PointLight(0xffffff, 2.2, 9.0, 1.5);
+underBounce.position.set(0, -1.2, 0.6);
+scene.add(underBounce);
+
+// ============================================================================
+// 4. PROCEDURAL GELATIN MICRO-ROUGHNESS & SUGAR-CRYSTAL SPARKLE TEXTURES
+// ============================================================================
+function createGelatinMicroTextures() {
+  const size = 256;
+  const roughData = new Uint8Array(size * size * 4);
+  const sparkNormData = new Uint8Array(size * size * 4);
+
+  // Deterministic tileable pseudo-random hash
+  const hash = (x, y, seed) => {
+    const ix = ((x % size) + size) % size;
+    const iy = ((y % size) + size) % size;
+    let n = ix * 374761393 + iy * 668265263 + seed * 1442695041;
+    n = (n ^ (n >> 13)) * 1274126177;
+    return ((n ^ (n >> 16)) >>> 0) / 4294967295;
+  };
+
+  const smoothNoise = (fx, fy, freq, seed) => {
+    const gx = fx * freq;
+    const gy = fy * freq;
+    const x0 = Math.floor(gx);
+    const y0 = Math.floor(gy);
+    const tx = gx - x0;
+    const ty = gy - y0;
+    const sx = tx * tx * (3 - 2 * tx);
+    const sy = ty * ty * (3 - 2 * ty);
+    const wrap = freq;
+    const h00 = hash(x0 % wrap, y0 % wrap, seed);
+    const h10 = hash((x0 + 1) % wrap, y0 % wrap, seed);
+    const h01 = hash(x0 % wrap, (y0 + 1) % wrap, seed);
+    const h11 = hash((x0 + 1) % wrap, (y0 + 1) % wrap, seed);
+    const a = h00 + (h10 - h00) * sx;
+    const b = h01 + (h11 - h01) * sx;
+    return a + (b - a) * sy;
+  };
+
+  const heightField = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const v = y / size;
+      // Cornstarch mold organic micro-skin
+      const n1 = smoothNoise(u, v, 12, 11);
+      const n2 = smoothNoise(u, v, 28, 29);
+      const n3 = smoothNoise(u, v, 64, 53);
+      const h = n1 * 0.55 + n2 * 0.30 + n3 * 0.15;
+      heightField[y * size + x] = h;
+
+      // Micro sugar-crystal glint specks
+      const glint = hash(x, y, 97);
+      const isSparkle = glint > 0.986;
+
+      // Roughness value (mapped via material.roughness * tex)
+      const rVal = isSparkle ? 18 : Math.round(165 + h * 75);
+      const idx4 = (y * size + x) * 4;
+      roughData[idx4] = rVal;
+      roughData[idx4 + 1] = rVal;
+      roughData[idx4 + 2] = rVal;
+      roughData[idx4 + 3] = 255;
+    }
+  }
+
+  // Normal map combining soft gelatin skin undulation + crisp micro-crystal facets
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const xm = (x - 1 + size) % size;
+      const xp = (x + 1) % size;
+      const ym = (y - 1 + size) % size;
+      const yp = (y + 1) % size;
+
+      let nx = (heightField[y * size + xm] - heightField[y * size + xp]) * 1.4;
+      let ny = (heightField[ym * size + x] - heightField[yp * size + x]) * 1.4;
+
+      const glint = hash(x, y, 97);
+      if (glint > 0.986) {
+        const ang = hash(x, y, 131) * Math.PI * 2;
+        nx += Math.cos(ang) * 0.65;
+        ny += Math.sin(ang) * 0.65;
+      }
+
+      const nz = 1.0;
+      const len = Math.hypot(nx, ny, nz);
+      const idx4 = (y * size + x) * 4;
+      sparkNormData[idx4] = Math.round(((nx / len) * 0.5 + 0.5) * 255);
+      sparkNormData[idx4 + 1] = Math.round(((ny / len) * 0.5 + 0.5) * 255);
+      sparkNormData[idx4 + 2] = Math.round(((nz / len) * 0.5 + 0.5) * 255);
+      sparkNormData[idx4 + 3] = 255;
+    }
+  }
+
+  const roughTex = new THREE.DataTexture(roughData, size, size, THREE.RGBAFormat);
+  roughTex.wrapS = THREE.RepeatWrapping;
+  roughTex.wrapT = THREE.RepeatWrapping;
+  roughTex.repeat.set(3, 3);
+  roughTex.needsUpdate = true;
+
+  const normTex = new THREE.DataTexture(sparkNormData, size, size, THREE.RGBAFormat);
+  normTex.wrapS = THREE.RepeatWrapping;
+  normTex.wrapT = THREE.RepeatWrapping;
+  normTex.repeat.set(3, 3);
+  normTex.needsUpdate = true;
+
+  return { roughTex, normTex };
+}
+
+const { roughTex: gelatinRoughTex, normTex: gelatinNormTex } = createGelatinMicroTextures();
+
+// ============================================================================
+// 5. SLEEK FROSTED GLASS PEDESTAL + DYNAMIC CAUSTICS & SOFT CONTACT SHADOWS
+// ============================================================================
+const PED_SPINE_L = 2.15;
+const PED_CAP_R = 1.62;
+const PED_HALF_X = PED_SPINE_L + PED_CAP_R; // 3.77
+const PED_HALF_Z = PED_CAP_R;               // 1.62
+
+function createStadiumPedestalGeometry(spineL, capR, topY, botY, bevelR) {
+  // Build closed perimeter loop (counter-clockwise in XZ so T x P = +Y on top)
+  const segStraight = 40;
+  const segArc = 48;
+  const perim = []; // { sx, nx, nz }
+
+  // 1. -Z straight edge: spineX from -L to +L, outward normal (0, -1)
+  for (let i = 0; i < segStraight; i++) {
+    const t = i / segStraight;
+    perim.push({ sx: -spineL + t * 2 * spineL, nx: 0, nz: -1 });
+  }
+  // 2. +X cap: angle from -PI/2 to +PI/2 around (+L, 0)
+  for (let i = 0; i < segArc; i++) {
+    const a = -Math.PI * 0.5 + (i / segArc) * Math.PI;
+    perim.push({ sx: spineL, nx: Math.cos(a), nz: Math.sin(a) });
+  }
+  // 3. +Z straight edge: spineX from +L to -L, outward normal (0, +1)
+  for (let i = 0; i < segStraight; i++) {
+    const t = i / segStraight;
+    perim.push({ sx: spineL - t * 2 * spineL, nx: 0, nz: 1 });
+  }
+  // 4. -X cap: angle from +PI/2 to +3PI/2 around (-L, 0)
+  for (let i = 0; i < segArc; i++) {
+    const a = Math.PI * 0.5 + (i / segArc) * Math.PI;
+    perim.push({ sx: -spineL, nx: Math.cos(a), nz: Math.sin(a) });
+  }
+
+  // Cross-section profile from top spine -> top bevel -> outer wall -> bottom bevel -> bottom spine
+  const prof = []; // { rad, y }
+  prof.push({ rad: 0.0, y: topY });
+  prof.push({ rad: (capR - bevelR) * 0.5, y: topY });
+  const bevelSteps = 7;
+  for (let s = 0; s <= bevelSteps; s++) {
+    const a = (s / bevelSteps) * Math.PI * 0.5; // 0 = top, PI/2 = side
+    prof.push({
+      rad: (capR - bevelR) + Math.sin(a) * bevelR,
+      y: (topY - bevelR) + Math.cos(a) * bevelR
+    });
+  }
+  for (let s = 0; s <= bevelSteps; s++) {
+    const a = (s / bevelSteps) * Math.PI * 0.5; // 0 = side, PI/2 = bottom
+    prof.push({
+      rad: (capR - bevelR) + Math.cos(a) * bevelR,
+      y: (botY + bevelR) - Math.sin(a) * bevelR
+    });
+  }
+  prof.push({ rad: (capR - bevelR) * 0.5, y: botY });
+  prof.push({ rad: 0.0, y: botY });
+
+  const P = perim.length;
+  const M = prof.length;
+  const vertCount = P * M;
+  const positions = new Float32Array(vertCount * 3);
+  const uvs = new Float32Array(vertCount * 2);
+  const maxX = spineL + capR;
+  const maxZ = capR;
+
+  for (let i = 0; i < P; i++) {
+    const { sx, nx, nz } = perim[i];
+    for (let j = 0; j < M; j++) {
+      const { rad, y } = prof[j];
+      const x = sx + nx * rad;
+      const z = nz * rad;
+      const idx = i * M + j;
+      positions[idx * 3] = x;
+      positions[idx * 3 + 1] = y;
+      positions[idx * 3 + 2] = z;
+      uvs[idx * 2] = (x + maxX) / (2 * maxX);
+      uvs[idx * 2 + 1] = 1.0 - (z + maxZ) / (2 * maxZ);
+    }
+  }
+
+  const indices = [];
+  for (let i = 0; i < P; i++) {
+    const iNext = (i + 1) % P;
+    for (let j = 0; j < M - 1; j++) {
+      const a = i * M + j;
+      const b = iNext * M + j;
+      const c = iNext * M + (j + 1);
+      const d = i * M + (j + 1);
+      indices.push(a, b, c, a, c, d);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// Dynamic 2D canvas textures for real-time frosted-glass color caustics & soft contact shadows
+const CAUSTIC_W = 512;
+const CAUSTIC_H = 256;
+
+const pedAlbedoCanvas = document.createElement('canvas');
+pedAlbedoCanvas.width = CAUSTIC_W;
+pedAlbedoCanvas.height = CAUSTIC_H;
+const pedAlbedoCtx = pedAlbedoCanvas.getContext('2d');
+const pedAlbedoTex = new THREE.CanvasTexture(pedAlbedoCanvas);
+pedAlbedoTex.colorSpace = THREE.SRGBColorSpace;
+
+const pedEmissiveCanvas = document.createElement('canvas');
+pedEmissiveCanvas.width = CAUSTIC_W;
+pedEmissiveCanvas.height = CAUSTIC_H;
+const pedEmissiveCtx = pedEmissiveCanvas.getContext('2d');
+const pedEmissiveTex = new THREE.CanvasTexture(pedEmissiveCanvas);
+pedEmissiveTex.colorSpace = THREE.SRGBColorSpace;
+
+// Sleek frosted optical glass slab (transmission: 0 so Three.js includes it in
+// transmissionRenderTarget and every gummy bear cleanly refracts the frosted glass!)
+const pedestalGeo = createStadiumPedestalGeometry(PED_SPINE_L, PED_CAP_R, -0.002, -0.36, 0.068);
+const pedestalMat = new THREE.MeshPhysicalMaterial({
+  map: pedAlbedoTex,
+  emissive: new THREE.Color(0xffffff),
+  emissiveMap: pedEmissiveTex,
+  emissiveIntensity: 0.72,
+  roughness: 0.34,
+  roughnessMap: gelatinRoughTex,
+  metalness: 0.02,
+  ior: 1.52,
+  reflectivity: 0.92,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.055,
+  sheen: 0.25,
+  sheenRoughness: 0.4,
+  sheenColor: new THREE.Color(0xf0f6ff),
+  envMapIntensity: 1.25
+});
+const pedestalMesh = new THREE.Mesh(pedestalGeo, pedestalMat);
+pedestalMesh.receiveShadow = true;
+pedestalMesh.castShadow = true;
+scene.add(pedestalMesh);
+
+// Recessed brushed satin-chrome architectural plinth ring beneath the frosted slab
+const plinthGeo = createStadiumPedestalGeometry(PED_SPINE_L - 0.16, PED_CAP_R - 0.22, -0.358, -0.47, 0.03);
+const plinthMat = new THREE.MeshStandardMaterial({
+  color: 0xaab6c6,
+  metalness: 0.72,
+  roughness: 0.28,
+  envMapIntensity: 1.3
+});
+const plinthMesh = new THREE.Mesh(plinthGeo, plinthMat);
+plinthMesh.receiveShadow = true;
+scene.add(plinthMesh);
+
+// Soft studio floor contact shadow plane under the pedestal
+{
+  const flW = 512, flH = 256;
+  const flCan = document.createElement('canvas');
+  flCan.width = flW;
+  flCan.height = flH;
+  const ctx = flCan.getContext('2d');
+  ctx.clearRect(0, 0, flW, flH);
+
+  // Draw soft layered stadium shadow
+  for (let pass = 0; pass < 18; pass++) {
+    const t = pass / 17;
+    const expand = (1 - t) * 58 + 6;
+    const alpha = 0.036 * (0.4 + 0.6 * t);
+    ctx.fillStyle = `rgba(28, 38, 56, ${alpha.toFixed(4)})`;
+    const rx = 185 + expand;
+    const ry = 82 + expand * 0.78;
+    ctx.beginPath();
+    ctx.roundRect(flW * 0.5 - rx, flH * 0.5 - ry, rx * 2, ry * 2, ry);
+    ctx.fill();
+  }
+  const flTex = new THREE.CanvasTexture(flCan);
+  flTex.colorSpace = THREE.SRGBColorSpace;
+  const flPlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(10.8, 5.4),
+    new THREE.MeshBasicMaterial({
+      map: flTex,
+      transparent: true,
+      depthWrite: false
+    })
+  );
+  flPlane.rotation.x = -Math.PI * 0.5;
+  flPlane.position.set(0.08, -0.474, 0.06);
+  scene.add(flPlane);
+}
+
+// ============================================================================
+// 6. HARIBO GOLDBEAR SIGNED DISTANCE FIELD (SDF) & SURFACE NETS ISO-SCULPTOR
+// ============================================================================
+function smin(a, b, k) {
+  const h = Math.max(k - Math.abs(a - b), 0.0) / k;
+  return Math.min(a, b) - h * h * k * 0.25;
+}
+
+function smax(a, b, k) {
+  return -smin(-a, -b, k);
+}
+
+function sdEllipsoid(x, y, z, rx, ry, rz) {
+  const k0 = Math.hypot(x / rx, y / ry, z / rz);
+  if (k0 < 1e-6) return -Math.min(rx, Math.min(ry, rz));
+  const k1 = Math.hypot(x / (rx * rx), y / (ry * ry), z / (rz * rz));
+  return (k0 * (k0 - 1.0)) / k1;
+}
+
+function sdRoundBox(x, y, z, bx, by, bz, r) {
+  const qx = Math.abs(x) - bx;
+  const qy = Math.abs(y) - by;
+  const qz = Math.abs(z) - bz;
+  const out = Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0));
+  const inn = Math.min(Math.max(qx, Math.max(qy, qz)), 0);
+  return out + inn - r;
+}
+
+function sdTaperedCapsule(px, py, pz, ax, ay, az, bx, by, bz, ra, rb) {
+  const bax = bx - ax, bay = by - ay, baz = bz - az;
+  const pax = px - ax, pay = py - ay, paz = pz - az;
+  const ba2 = bax * bax + bay * bay + baz * baz;
+  let h = (pax * bax + pay * bay + paz * baz) / ba2;
+  if (h < 0) h = 0;
+  else if (h > 1) h = 1;
+  const dx = pax - bax * h;
+  const dy = pay - bay * h;
+  const dz = paz - baz * h;
+  return Math.hypot(dx, dy, dz) - (ra + (rb - ra) * h);
+}
+
+// Precompute orthonormal arm basis & rotation trig on pose object
+function prepareBearPose(raw) {
+  const buildArmBasis = (sx, end) => {
+    const ax = sx * 0.33, ay = 0.88, az = 0.04;
+    const bx = end[0], by = end[1], bz = end[2];
+    let dx = bx - ax, dy = by - ay, dz = bz - az;
+    const len = Math.hypot(dx, dy, dz);
+    dx /= len; dy /= len; dz /= len;
+    // U = normalize(upRef x D) = normalize(dz, 0, -dx)
+    const hxz = Math.hypot(dz, dx) || 1;
+    const ux = dz / hxz, uy = 0, uz = -dx / hxz;
+    // V = D x U (points strictly upward along paw!)
+    const vx = -dx * dy / hxz;
+    const vy = hxz;
+    const vz = -dz * dy / hxz;
+    return { ax, ay, az, bx, by, bz, dx, dy, dz, ux, uy, uz, vx, vy, vz };
+  };
+
+  return {
+    cosYaw: Math.cos(raw.headYaw || 0),
+    sinYaw: Math.sin(raw.headYaw || 0),
+    cosTilt: Math.cos(raw.headTilt || 0),
+    sinTilt: Math.sin(raw.headTilt || 0),
+    cosNod: Math.cos(raw.headNod || 0),
+    sinNod: Math.sin(raw.headNod || 0),
+    torsoLean: raw.torsoLean || 0,
+    armNeg: buildArmBasis(-1, raw.armNegX),
+    armPos: buildArmBasis(1, raw.armPosX),
+    legSpread: raw.legSpread || 0.32
+  };
+}
+
+// Precomputed toe angles for 3-toe paw indentations
+const TOE_SIN = [Math.sin(-0.66), 0.0, Math.sin(0.66)];
+const TOE_COS = [Math.cos(-0.66), 1.0, Math.cos(0.66)];
+
+// Authentic Haribo Goldbear Signed Distance Function
+function bearSDF(px, py, pz, pose) {
+  // Fast conservative coarse AABB distance reject (skips ~70% of empty air cells!)
+  const cx = Math.max(Math.abs(px) - 0.66, 0);
+  const cy = Math.max(Math.max(-0.04 - py, py - 2.08), 0);
+  const cz = Math.max(Math.max(-0.46 - pz, pz - 0.60), 0);
+  if (cx > 0.05 || cy > 0.05 || cz > 0.05) {
+    return Math.hypot(cx, cy, cz) + 0.01;
+  }
+
+  const tx = px - pose.torsoLean * Math.max(py, 0) * 0.45;
+
+  // 1. PILLOWY TORSO & PLUMP ROUND BELLY
+  let d = sdRoundBox(tx, py - 0.62, pz + 0.02, 0.23, 0.29, 0.12, 0.22);
+  // Chubby protruding tummy dome
+  const dBelly = sdEllipsoid(tx, py - 0.50, pz - 0.14, 0.365, 0.33, 0.27);
+  d = smin(d, dBelly, 0.13);
+  // Upper chest fullness
+  const dChest = sdEllipsoid(tx, py - 0.90, pz - 0.06, 0.335, 0.21, 0.22);
+  d = smin(d, dChest, 0.11);
+
+  // Iconic Haribo V-shaped molded neck collar rib + subtle crease below it
+  if (py > 0.72 && py < 1.12 && pz > 0.08) {
+    const colX = Math.max(-0.25, Math.min(0.25, tx));
+    const uCol = colX / 0.25;
+    const colY = 0.87 + 0.10 * uCol * uCol;
+    const colZ = 0.275 - 0.075 * uCol * uCol;
+    const dCollarRib = Math.hypot(tx - colX, py - colY, pz - colZ) - 0.036;
+    d = smin(d, dCollarRib, 0.042);
+    const dCollarGroove = Math.hypot(tx - colX, py - (colY - 0.048), pz - (colZ + 0.025)) - 0.024;
+    d = smax(d, -dCollarGroove, 0.028);
+  }
+
+  // Cute subtle belly-button dimple
+  const dNavel = Math.hypot(tx, py - 0.41, pz - 0.415) - 0.030;
+  d = smax(d, -dNavel, 0.028);
+
+  // 2. STUBBY LEGS & PLANTED FORWARD FEET WITH PAW INDENTATIONS
+  const axAbs = Math.abs(tx);
+  const footX = pose.legSpread;
+  const dLeg = sdTaperedCapsule(axAbs, py, pz, 0.27, 0.23, 0.02, footX, 0.20, 0.35, 0.195, 0.175);
+  d = smin(d, dLeg, 0.10);
+
+  // Plump forward foot pad disc
+  const fx = axAbs - footX;
+  const fy = py - 0.21;
+  const fz = pz - 0.37;
+  const dFootPad = sdEllipsoid(fx, fy, fz, 0.185, 0.20, 0.115);
+  d = smin(d, dFootPad, 0.065);
+
+  // Foot paw indentations (oval sole hollow + 3 arched toe dimples!)
+  if (py < 0.46 && pz > 0.34) {
+    const dSole = sdEllipsoid(fx, py - 0.165, pz - 0.492, 0.088, 0.078, 0.046);
+    d = smax(d, -dSole, 0.020);
+    for (let k = 0; k < 3; k++) {
+      const toeX = fx - TOE_SIN[k] * 0.096;
+      const toeY = py - (0.175 + TOE_COS[k] * 0.112);
+      const toeZ = pz - 0.478;
+      const dToe = Math.hypot(toeX, toeY, toeZ) - 0.032;
+      d = smax(d, -dToe, 0.016);
+    }
+  }
+
+  // 3. STUBBY ARMS & HANDS WITH PAW INDENTATIONS (individually posed!)
+  const evalArm = (arm) => {
+    const dArmCap = sdTaperedCapsule(tx, py, pz, arm.ax, arm.ay, arm.az, arm.bx, arm.by, arm.bz, 0.155, 0.145);
+    d = smin(d, dArmCap, 0.095);
+
+    // Local coordinates at hand center (u = across, v = up, w = forward along arm)
+    const rx = tx - arm.bx, ry = py - arm.by, rz = pz - arm.bz;
+    const u = rx * arm.ux + ry * arm.uy + rz * arm.uz;
+    const v = rx * arm.vx + ry * arm.vy + rz * arm.vz;
+    const w = rx * arm.dx + ry * arm.dy + rz * arm.dz;
+
+    const dHand = sdEllipsoid(u, v, w, 0.156, 0.162, 0.115);
+    d = smin(d, dHand, 0.05);
+
+    // Palm hollow + 3 cute toe dimples oriented along arm basis
+    if (w > 0.02 && Math.abs(u) < 0.18 && Math.abs(v) < 0.18) {
+      const dPalm = sdEllipsoid(u, v + 0.032, w - 0.116, 0.068, 0.058, 0.042);
+      d = smax(d, -dPalm, 0.017);
+      for (let k = 0; k < 3; k++) {
+        const tu = u - TOE_SIN[k] * 0.074;
+        const tv = v - (-0.014 + TOE_COS[k] * 0.086);
+        const tw = w - 0.095;
+        const dHToe = Math.hypot(tu, tv, tw) - 0.026;
+        d = smax(d, -dHToe, 0.014);
+      }
+    }
+  };
+  evalArm(pose.armNeg);
+  evalArm(pose.armPos);
+
+  // 4. BIG ICONIC CHUBBY HEAD, CUPPED EARS, EMBOSSED MUZZLE/NOSE & U-SMILE GROOVE
+  let qx = tx;
+  let qy = py - 1.08;
+  let qz = pz - 0.02;
+
+  // Inverse head pose rotation around neck pivot (isometry preserves exact SDF!)
+  let rx = qx * pose.cosYaw - qz * pose.sinYaw;
+  let rz = qx * pose.sinYaw + qz * pose.cosYaw;
+  qx = rx; qz = rz;
+
+  rx = qx * pose.cosTilt + qy * pose.sinTilt;
+  let ry = -qx * pose.sinTilt + qy * pose.cosTilt;
+  qx = rx; qy = ry;
+
+  ry = qy * pose.cosNod + qz * pose.sinNod;
+  rz = -qy * pose.sinNod + qz * pose.cosNod;
+  qy = ry; qz = rz;
+
+  const hAbsX = Math.abs(qx);
+
+  // Squarish-pillowy Haribo head + plump chubby cheeks
+  let dHead = sdRoundBox(qx, qy - 0.36, qz - 0.01, 0.235, 0.195, 0.125, 0.22);
+  const dCheeks = sdEllipsoid(hAbsX - 0.19, qy - 0.23, qz - 0.08, 0.245, 0.19, 0.21);
+  dHead = smin(dHead, dCheeks, 0.12);
+
+  // Round forward-facing ears with concave inner ear cups
+  const dEar = sdEllipsoid(hAbsX - 0.355, qy - 0.69, qz, 0.178, 0.178, 0.112);
+  dHead = smin(dHead, dEar, 0.062);
+  const dEarCup = sdEllipsoid(hAbsX - 0.355, qy - 0.68, qz - 0.116, 0.098, 0.098, 0.052);
+  dHead = smax(dHead, -dEarCup, 0.024);
+
+  // Soft eye sockets + embossed glossy molded gelatin button eyes
+  if (qy > 0.28 && qy < 0.58 && qz > 0.22) {
+    const dSocket = Math.hypot(hAbsX - 0.172, qy - 0.43, qz - 0.368) - 0.058;
+    dHead = smax(dHead, -dSocket, 0.024);
+    const dEyeBead = sdEllipsoid(hAbsX - 0.172, qy - 0.43, qz - 0.348, 0.048, 0.052, 0.046);
+    dHead = smin(dHead, dEyeBead, 0.014);
+  }
+
+  // Embossed oval muzzle pad + distinct nose bump
+  const dMuzzle = sdEllipsoid(qx, qy - 0.255, qz - 0.31, 0.208, 0.158, 0.148);
+  dHead = smin(dHead, dMuzzle, 0.062);
+
+  const dNose = sdEllipsoid(qx, qy - 0.335, qz - 0.436, 0.072, 0.048, 0.052);
+  dHead = smin(dHead, dNose, 0.020);
+
+  // Crisp carved U-shaped smile groove + cute cheek corner dimples!
+  if (qy > 0.06 && qy < 0.34 && qz > 0.30 && hAbsX < 0.22) {
+    // 1-step refined closest point on 3D U-parabola riding right along the muzzle surface
+    let t = Math.max(-0.128, Math.min(0.128, qx));
+    for (let it = 0; it < 2; it++) {
+      const sy = 0.168 + 3.4 * t * t;
+      const sz = 0.436 - 0.90 * t * t;
+      const dydt = 6.8 * t;
+      const dzdt = -1.80 * t;
+      const num = (t - qx) + (sy - qy) * dydt + (sz - qz) * dzdt;
+      const den = 1.0 + dydt * dydt + dzdt * dzdt + 6.8 * (sy - qy) - 1.80 * (sz - qz);
+      t -= num / Math.max(den, 0.5);
+      t = Math.max(-0.128, Math.min(0.128, t));
+    }
+    const sy = 0.168 + 3.4 * t * t;
+    const sz = 0.436 - 0.90 * t * t;
+    const dSmile = Math.hypot(qx - t, qy - sy, qz - sz) - 0.029;
+    dHead = smax(dHead, -dSmile, 0.016);
+
+    // Subtle happy corner dimples at ends of smile
+    const dDimple = Math.hypot(hAbsX - 0.136, qy - 0.232, qz - 0.422) - 0.024;
+    dHead = smax(dHead, -dDimple, 0.018);
+  }
+
+  d = smin(d, dHead, 0.095);
+
+  // 5. AUTHENTIC STARCH-MOLDED PILLOW BACK & FLAT STANDING MENISCUS BASE (y = 0)
+  d = smax(d, -(pz + 0.355), 0.13);
+  d = smax(d, -py, 0.042);
+
+  return d;
+}
+
+// Exact 4-sample tetrahedral SDF gradient (normal)
+const _gradOut = [0, 1, 0];
+function evalSDFGradient(px, py, pz, pose) {
+  const e = 0.0022;
+  const f0 = bearSDF(px + e, py - e, pz - e, pose);
+  const f1 = bearSDF(px - e, py - e, pz + e, pose);
+  const f2 = bearSDF(px - e, py + e, pz - e, pose);
+  const f3 = bearSDF(px + e, py + e, pz + e, pose);
+  let gx = f0 - f1 - f2 + f3;
+  let gy = -f0 - f1 + f2 + f3;
+  let gz = -f0 + f1 - f2 + f3;
+  const len = Math.hypot(gx, gy, gz) || 1;
+  _gradOut[0] = gx / len;
+  _gradOut[1] = gy / len;
+  _gradOut[2] = gz / len;
+  return _gradOut;
+}
+
+// Cube corner offsets & 12 edges for Naive Surface Nets
+const CUBE_CORNERS = [
+  [0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0],
+  [0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1]
+];
+const CUBE_EDGES = [
+  [0, 1], [2, 3], [4, 5], [6, 7],
+  [0, 2], [1, 3], [4, 6], [5, 7],
+  [0, 4], [1, 5], [2, 6], [3, 7]
+];
+
+function buildGummyBearGeometry(rawPose) {
+  const pose = prepareBearPose(rawPose);
+
+  const h = 0.0195;
+  const x0 = -0.68, x1 = 0.68;
+  const y0 = -0.07, y1 = 2.10;
+  const z0 = -0.48, z1 = 0.60;
+
+  const nx = Math.ceil((x1 - x0) / h) + 1;
+  const ny = Math.ceil((y1 - y0) / h) + 1;
+  const nz = Math.ceil((z1 - z0) / h) + 1;
+  const strideY = nx;
+  const strideZ = nx * ny;
+
+  const field = new Float32Array(nx * ny * nz);
+  for (let iz = 0; iz < nz; iz++) {
+    const pz = z0 + iz * h;
+    const zOff = iz * strideZ;
+    for (let iy = 0; iy < ny; iy++) {
+      const py = y0 + iy * h;
+      const yzOff = zOff + iy * strideY;
+      for (let ix = 0; ix < nx; ix++) {
+        field[yzOff + ix] = bearSDF(x0 + ix * h, py, pz, pose);
+      }
+    }
+  }
+
+  const cxMax = nx - 1;
+  const cyMax = ny - 1;
+  const czMax = nz - 1;
+  const cellVertIndex = new Int32Array(cxMax * cyMax * czMax).fill(-1);
+  const cStrideY = cxMax;
+  const cStrideZ = cxMax * cyMax;
+
+  const posArr = [];
+  const vals = new Float32Array(8);
+  let vertCount = 0;
+
+  for (let cz = 0; cz < czMax; cz++) {
+    for (let cy = 0; cy < cyMax; cy++) {
+      const base = cz * strideZ + cy * strideY;
+      for (let cx = 0; cx < cxMax; cx++) {
+        const i000 = base + cx;
+        vals[0] = field[i000];
+        vals[1] = field[i000 + 1];
+        vals[2] = field[i000 + strideY];
+        vals[3] = field[i000 + strideY + 1];
+        vals[4] = field[i000 + strideZ];
+        vals[5] = field[i000 + strideZ + 1];
+        vals[6] = field[i000 + strideZ + strideY];
+        vals[7] = field[i000 + strideZ + strideY + 1];
+
+        let mask = 0;
+        for (let k = 0; k < 8; k++) {
+          if (vals[k] < 0) mask |= (1 << k);
+        }
+        if (mask === 0 || mask === 255) continue;
+
+        let sx = 0, sy = 0, sz = 0, count = 0;
+        for (let e = 0; e < 12; e++) {
+          const a = CUBE_EDGES[e][0];
+          const b = CUBE_EDGES[e][1];
+          const va = vals[a];
+          const vb = vals[b];
+          if ((va < 0) !== (vb < 0)) {
+            let t = va / (va - vb);
+            if (t < 0.001) t = 0.001;
+            else if (t > 0.999) t = 0.999;
+            const ca = CUBE_CORNERS[a];
+            const cb = CUBE_CORNERS[b];
+            sx += ca[0] + (cb[0] - ca[0]) * t;
+            sy += ca[1] + (cb[1] - ca[1]) * t;
+            sz += ca[2] + (cb[2] - ca[2]) * t;
+            count++;
+          }
+        }
+
+        const vx = x0 + (cx + sx / count) * h;
+        const vy = y0 + (cy + sy / count) * h;
+        const vz = z0 + (cz + sz / count) * h;
+
+        cellVertIndex[cz * cStrideZ + cy * cStrideY + cx] = vertCount++;
+        posArr.push(vx, vy, vz);
+      }
+    }
+  }
+
+  // Generate watertight manifold quad faces across interior sign-changing edges
+  const indices = [];
+  // Unique quad adjacency list for tangential Laplacian relaxation
+  const adj = Array.from({ length: vertCount }, () => []);
+  const linkEdge = (a, b) => {
+    adj[a].push(b);
+    adj[b].push(a);
+  };
+
+  const emitQuad = (c00, c10, c11, c01, flip) => {
+    if (flip) {
+      indices.push(c00, c11, c10, c00, c01, c11);
+    } else {
+      indices.push(c00, c10, c11, c00, c11, c01);
+    }
+    linkEdge(c00, c10);
+    linkEdge(c10, c11);
+    linkEdge(c11, c01);
+    linkEdge(c01, c00);
+  };
+
+  for (let iz = 0; iz < nz; iz++) {
+    for (let iy = 0; iy < ny; iy++) {
+      for (let ix = 0; ix < nx; ix++) {
+        const v0 = field[iz * strideZ + iy * strideY + ix];
+
+        // X-edge: (ix, iy, iz) -> (ix+1, iy, iz)
+        if (ix < cxMax && iy > 0 && iy < cyMax && iz > 0 && iz < czMax) {
+          const v1 = field[iz * strideZ + iy * strideY + (ix + 1)];
+          if ((v0 < 0) !== (v1 < 0)) {
+            const c00 = cellVertIndex[(iz - 1) * cStrideZ + (iy - 1) * cStrideY + ix];
+            const c10 = cellVertIndex[(iz - 1) * cStrideZ + iy * cStrideY + ix];
+            const c11 = cellVertIndex[iz * cStrideZ + iy * cStrideY + ix];
+            const c01 = cellVertIndex[iz * cStrideZ + (iy - 1) * cStrideY + ix];
+            emitQuad(c00, c10, c11, c01, v0 >= 0);
+          }
+        }
+
+        // Y-edge: (ix, iy, iz) -> (ix, iy+1, iz)
+        if (iy < cyMax && ix > 0 && ix < cxMax && iz > 0 && iz < czMax) {
+          const v1 = field[iz * strideZ + (iy + 1) * strideY + ix];
+          if ((v0 < 0) !== (v1 < 0)) {
+            const c00 = cellVertIndex[(iz - 1) * cStrideZ + iy * cStrideY + (ix - 1)];
+            const c10 = cellVertIndex[iz * cStrideZ + iy * cStrideY + (ix - 1)];
+            const c11 = cellVertIndex[iz * cStrideZ + iy * cStrideY + ix];
+            const c01 = cellVertIndex[(iz - 1) * cStrideZ + iy * cStrideY + ix];
+            emitQuad(c00, c10, c11, c01, v0 >= 0);
+          }
+        }
+
+        // Z-edge: (ix, iy, iz) -> (ix, iy, iz+1)
+        if (iz < czMax && ix > 0 && ix < cxMax && iy > 0 && iy < cyMax) {
+          const v1 = field[(iz + 1) * strideZ + iy * strideY + ix];
+          if ((v0 < 0) !== (v1 < 0)) {
+            const c00 = cellVertIndex[iz * cStrideZ + (iy - 1) * cStrideY + (ix - 1)];
+            const c10 = cellVertIndex[iz * cStrideZ + (iy - 1) * cStrideY + ix];
+            const c11 = cellVertIndex[iz * cStrideZ + iy * cStrideY + ix];
+            const c01 = cellVertIndex[iz * cStrideZ + iy * cStrideY + (ix - 1)];
+            emitQuad(c00, c10, c11, c01, v0 >= 0);
+          }
+        }
+      }
+    }
+  }
+
+  // 3 passes of Tangential Laplacian Relaxation + Exact SDF Iso-Surface Projection!
+  // Eliminates grid facet artifacts while preserving 100% of U-smile & paw-pad depth!
+  const positions = new Float32Array(posArr);
+  const scratch = new Float32Array(positions.length);
+
+  for (let pass = 0; pass < 3; pass++) {
+    for (let i = 0; i < vertCount; i++) {
+      const i3 = i * 3;
+      const px = positions[i3];
+      const py = positions[i3 + 1];
+      const pz = positions[i3 + 2];
+
+      const nbrs = adj[i];
+      const nLen = nbrs.length;
+      if (nLen > 0) {
+        let ax = 0, ay = 0, az = 0;
+        for (let k = 0; k < nLen; k++) {
+          const j3 = nbrs[k] * 3;
+          ax += positions[j3];
+          ay += positions[j3 + 1];
+          az += positions[j3 + 2];
+        }
+        const dx = ax / nLen - px;
+        const dy = ay / nLen - py;
+        const dz = az / nLen - pz;
+
+        const g = evalSDFGradient(px, py, pz, pose);
+        const dot = dx * g[0] + dy * g[1] + dz * g[2];
+        // Move tangentially only
+        let nxPos = px + (dx - dot * g[0]) * 0.45;
+        let nyPos = py + (dy - dot * g[1]) * 0.45;
+        let nzPos = pz + (dz - dot * g[2]) * 0.45;
+
+        // Snap directly onto exact sdf(p) = 0 surface
+        const f = Math.max(-0.02, Math.min(0.02, bearSDF(nxPos, nyPos, nzPos, pose)));
+        const g2 = evalSDFGradient(nxPos, nyPos, nzPos, pose);
+        scratch[i3] = nxPos - f * g2[0];
+        scratch[i3 + 1] = Math.max(0.0, nyPos - f * g2[1]);
+        scratch[i3 + 2] = nzPos - f * g2[2];
+      } else {
+        scratch[i3] = px;
+        scratch[i3 + 1] = Math.max(0.0, py);
+        scratch[i3 + 2] = pz;
+      }
+    }
+    positions.set(scratch);
+  }
+
+  // Seamless continuous mirrored UVs (zero seam jump at back!)
+  const uvs = new Float32Array(vertCount * 2);
+  for (let i = 0; i < vertCount; i++) {
+    const px = positions[i * 3];
+    const py = positions[i * 3 + 1];
+    const pz = positions[i * 3 + 2];
+    uvs[i * 2] = Math.abs(Math.atan2(px, pz)) / Math.PI;
+    uvs[i * 2 + 1] = py * 0.52;
+  }
+
+  const geo = new THREE.BufferGeometry();
+  const posAttr = new THREE.BufferAttribute(positions, 3);
+  posAttr.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('position', posAttr);
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  geo.attributes.normal.setUsage(THREE.DynamicDrawUsage);
+
+  return {
+    geometry: geo,
+    restPos: new Float32Array(positions),
+    restNor: new Float32Array(geo.attributes.normal.array)
+  };
+}
+
+// ============================================================================
+// 7. CREATE THE 5 ICONIC TRANSLUCENT GUMMY BEARS & SUGAR CRYSTALS
+// ============================================================================
+class Spring1D {
+  constructor(omega = 18, zeta = 0.20) {
+    this.pos = 0;
+    this.vel = 0;
+    this.omega = omega;
+    this.zeta = zeta;
+  }
+  step(dt, target = 0) {
+    const force = -this.omega * this.omega * (this.pos - target) - 2 * this.zeta * this.omega * this.vel;
+    this.vel += force * dt;
+    this.pos += this.vel * dt;
+  }
+}
+
+const BEAR_CONFIGS = [
+  {
+    name: 'Juicy Orange',
+    x: -2.54, z: -0.34, rotY: 0.42,
+    color: 0xff8229,
+    attenuationColor: 0xcc2e00,
+    attenuationDistance: 0.72,
+    emissive: 0xff4800,
+    emissiveIntensity: 0.065,
+    sheenColor: 0xffb36b,
+    causticRGB: [255, 108, 22],
+    phase: 0.0,
+    cyclePeriod: 2.35,
+    pose: {
+      headTilt: 0.13, headYaw: -0.10, headNod: -0.04, torsoLean: -0.025,
+      armNegX: [-0.45, 1.10, 0.30],
+      armPosX: [0.42, 0.78, 0.37],
+      legSpread: 0.32
+    }
+  },
+  {
+    name: 'Golden Pineapple Yellow',
+    x: -1.28, z: 0.06, rotY: 0.22,
+    color: 0xffdc33,
+    attenuationColor: 0xd17800,
+    attenuationDistance: 0.78,
+    emissive: 0xffaa00,
+    emissiveIntensity: 0.065,
+    sheenColor: 0xffe885,
+    causticRGB: [255, 200, 28],
+    phase: 1.25,
+    cyclePeriod: 2.22,
+    pose: {
+      headTilt: -0.14, headYaw: 0.08, headNod: 0.04, torsoLean: 0.02,
+      armNegX: [-0.39, 0.75, 0.38],
+      armPosX: [0.47, 1.15, 0.27],
+      legSpread: 0.315
+    }
+  },
+  {
+    name: 'Ruby Raspberry Red',
+    x: 0.0, z: 0.28, rotY: 0.0,
+    color: 0xff2e50,
+    attenuationColor: 0x99001b,
+    attenuationDistance: 0.68,
+    emissive: 0xd40026,
+    emissiveIntensity: 0.075,
+    sheenColor: 0xff859b,
+    causticRGB: [255, 34, 72],
+    phase: 2.50,
+    cyclePeriod: 2.28,
+    pose: {
+      headTilt: 0.07, headYaw: 0.0, headNod: -0.03, torsoLean: 0.0,
+      armNegX: [-0.44, 0.90, 0.36],
+      armPosX: [0.44, 0.90, 0.36],
+      legSpread: 0.325
+    }
+  },
+  {
+    name: 'Emerald Apple Green',
+    x: 1.28, z: 0.06, rotY: -0.22,
+    color: 0x32e86a,
+    attenuationColor: 0x007222,
+    attenuationDistance: 0.72,
+    emissive: 0x08a838,
+    emissiveIntensity: 0.065,
+    sheenColor: 0x8cffae,
+    causticRGB: [32, 228, 92],
+    phase: 3.75,
+    cyclePeriod: 2.40,
+    pose: {
+      headTilt: 0.14, headYaw: 0.11, headNod: 0.03, torsoLean: -0.02,
+      armNegX: [-0.46, 1.13, 0.28],
+      armPosX: [0.40, 0.77, 0.38],
+      legSpread: 0.32
+    }
+  },
+  {
+    name: 'Clear Lemon',
+    x: 2.54, z: -0.34, rotY: -0.42,
+    color: 0xfbffeb,
+    attenuationColor: 0xd9e874,
+    attenuationDistance: 1.05,
+    emissive: 0xebf5a2,
+    emissiveIntensity: 0.038,
+    sheenColor: 0xfffff0,
+    causticRGB: [238, 250, 165],
+    phase: 5.00,
+    cyclePeriod: 2.30,
+    pose: {
+      headTilt: -0.12, headYaw: -0.09, headNod: -0.03, torsoLean: 0.025,
+      armNegX: [-0.41, 0.79, 0.37],
+      armPosX: [0.47, 1.14, 0.27],
+      legSpread: 0.315
+    }
+  }
+];
+
+const bears = [];
+const bearMeshes = [];
+
+for (let i = 0; i < BEAR_CONFIGS.length; i++) {
+  const cfg = BEAR_CONFIGS[i];
+  const { geometry, restPos, restNor } = buildGummyBearGeometry(cfg.pose);
+
+  const material = new THREE.MeshPhysicalMaterial({
+    color: cfg.color,
+    metalness: 0.0,
+    roughness: 0.125,
+    roughnessMap: gelatinRoughTex,
+    transmission: 0.955,
+    ior: 1.48,
+    thickness: 1.75,
+    attenuationColor: new THREE.Color(cfg.attenuationColor),
+    attenuationDistance: cfg.attenuationDistance,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.052,
+    clearcoatNormalMap: gelatinNormTex,
+    clearcoatNormalScale: new THREE.Vector2(0.045, 0.045),
+    specularIntensity: 1.0,
+    specularColor: new THREE.Color(0xffffff),
+    sheen: 0.24,
+    sheenRoughness: 0.36,
+    sheenColor: new THREE.Color(cfg.sheenColor),
+    emissive: new THREE.Color(cfg.emissive),
+    emissiveIntensity: cfg.emissiveIntensity,
+    envMapIntensity: 1.35
+  });
+
+  const group = new THREE.Group();
+  group.position.set(cfg.x, 0, cfg.z);
+  group.rotation.y = cfg.rotY;
+  scene.add(group);
+
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = false;
+  group.add(mesh);
+
+  const bear = {
+    index: i,
+    cfg,
+    group,
+    mesh,
+    geometry,
+    restPos,
+    restNor,
+    hopY: 0,
+    hopVel: 0,
+    wasAirborne: false,
+    extraHopImpulse: 0,
+    cycleClock: cfg.phase,
+    springSquash: new Spring1D(17.5, 0.20),
+    springBelly: new Spring1D(25.0, 0.13),
+    springHead: new Spring1D(19.5, 0.15),
+    springHeadSide: new Spring1D(18.0, 0.16),
+    springArms: new Spring1D(27.0, 0.14),
+    springTiltX: new Spring1D(15.5, 0.18),
+    springTiltZ: new Spring1D(15.5, 0.18),
+    pokes: [],
+    lastHoverPokeTime: -10
+  };
+  mesh.userData.bear = bear;
+  bears.push(bear);
+  bearMeshes.push(mesh);
+}
+
+// Delicate crystalline sugar grains dusted on the frosted glass pedestal around paws
+const SUGAR_COUNT = 110;
+const sugarGeo = new THREE.IcosahedronGeometry(1.0, 0);
+const sugarMat = new THREE.MeshPhysicalMaterial({
+  color: 0xffffff,
+  roughness: 0.05,
+  metalness: 0.04,
+  ior: 1.54,
+  reflectivity: 1.0,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.02,
+  envMapIntensity: 2.4
+});
+const sugarInstanced = new THREE.InstancedMesh(sugarGeo, sugarMat, SUGAR_COUNT);
+sugarInstanced.castShadow = false;
+sugarInstanced.receiveShadow = false;
+scene.add(sugarInstanced);
+
+const sugarGrains = [];
+{
+  let sSeed = 42;
+  const sRand = () => {
+    sSeed = (sSeed * 1664525 + 1013904223) >>> 0;
+    return sSeed / 4294967296;
+  };
+  for (let i = 0; i < SUGAR_COUNT; i++) {
+    const b = bears[i % bears.length];
+    const ang = sRand() * Math.PI * 2;
+    const rad = 0.56 + Math.pow(sRand(), 0.75) * 0.58;
+    const gx = b.cfg.x + Math.cos(ang) * rad;
+    const gz = b.cfg.z + 0.12 + Math.sin(ang) * rad * 0.75;
+    const sx = 0.013 + sRand() * 0.017;
+    const sy = sx * (0.68 + sRand() * 0.45);
+    const sz = sx * (0.78 + sRand() * 0.40);
+    sugarGrains.push({
+      x: gx,
+      z: gz,
+      baseY: sy * 0.62 - 0.002,
+      y: 0,
+      vy: 0,
+      sx, sy, sz,
+      rx: sRand() * Math.PI,
+      ry: sRand() * Math.PI,
+      rz: sRand() * Math.PI,
+      bearIndex: b.index
+    });
+  }
+}
+
+const _sugarDummy = new THREE.Object3D();
+function updateSugarCrystals(dt) {
+  for (let i = 0; i < SUGAR_COUNT; i++) {
+    const g = sugarGrains[i];
+    if (g.y > 0 || g.vy > 0) {
+      g.vy -= 18.0 * dt;
+      g.y += g.vy * dt;
+      if (g.y <= 0) {
+        g.y = 0;
+        g.vy = 0;
+      }
+      g.ry += dt * 4.5;
+    }
+    _sugarDummy.position.set(g.x, g.baseY + g.y, g.z);
+    _sugarDummy.rotation.set(g.rx, g.ry, g.rz);
+    _sugarDummy.scale.set(g.sx, g.sy, g.sz);
+    _sugarDummy.updateMatrix();
+    sugarInstanced.setMatrixAt(i, _sugarDummy.matrix);
+  }
+  sugarInstanced.instanceMatrix.needsUpdate = true;
+}
+
+function kickSugarNearBear(bearIndex, strength) {
+  for (let i = 0; i < SUGAR_COUNT; i++) {
+    const g = sugarGrains[i];
+    if (g.bearIndex === bearIndex) {
+      g.vy = Math.max(g.vy, strength * (0.4 + (i % 7) * 0.11));
+    }
+  }
+}
+
+// ============================================================================
+// 8. INTERACTIVE RAYCASTER MOUSE POKE, BRUSH & ELASTIC JELLY WAVE SYSTEM
+// ============================================================================
+const raycaster = new THREE.Raycaster();
+const pointerNDC = new THREE.Vector2(999, 999);
+const prevPointerNDC = new THREE.Vector2(999, 999);
+let pointerActive = false;
+let isOrbitDragging = false;
+
+const _camRight = new THREE.Vector3();
+const _camUp = new THREE.Vector3();
+const _worldDelta = new THREE.Vector3();
+const _localHit = new THREE.Vector3();
+const _localDir = new THREE.Vector3();
+const _invQuat = new THREE.Quaternion();
+
+function addBearPoke(bear, lx, ly, lz, dx, dy, dz, strength, radius, freq = 26, decay = 4.2) {
+  const len = Math.hypot(dx, dy, dz) || 1;
+  if (bear.pokes.length >= 7) bear.pokes.shift();
+  bear.pokes.push({
+    x: lx,
+    y: ly,
+    z: lz,
+    dx: dx / len,
+    dy: dy / len,
+    dz: dz / len,
+    strength,
+    radius,
+    cutoff2: (radius * 2.5) * (radius * 2.5),
+    freq,
+    decay,
+    age: 0
+  });
+}
+
+function worldToBearLocal(bear, worldPt, outVec) {
+  outVec.copy(worldPt).sub(bear.group.position);
+  _invQuat.copy(bear.group.quaternion).invert();
+  outVec.applyQuaternion(_invQuat);
+  return outVec;
+}
+
+function worldDirToBearLocal(bear, worldDir, outVec) {
+  _invQuat.copy(bear.group.quaternion).invert();
+  return outVec.copy(worldDir).applyQuaternion(_invQuat).normalize();
+}
+
+canvas.addEventListener('pointermove', (e) => {
+  const nx = (e.clientX / window.innerWidth) * 2 - 1;
+  const ny = -(e.clientY / window.innerHeight) * 2 + 1;
+
+  if (!pointerActive) {
+    prevPointerNDC.set(nx, ny);
+    pointerActive = true;
+  } else {
+    prevPointerNDC.copy(pointerNDC);
+  }
+  pointerNDC.set(nx, ny);
+
+  const dnx = pointerNDC.x - prevPointerNDC.x;
+  const dny = pointerNDC.y - prevPointerNDC.y;
+  const moveSpeed = Math.hypot(dnx, dny);
+
+  raycaster.setFromCamera(pointerNDC, camera);
+  const hits = raycaster.intersectObjects(bearMeshes, false);
+
+  if (hits.length > 0) {
+    if (!isOrbitDragging) canvas.style.cursor = 'pointer';
+    const hit = hits[0];
+    const bear = hit.object.userData.bear;
+    worldToBearLocal(bear, hit.point, _localHit);
+
+    // Project screen motion into 3D world & bear-local space
+    _camRight.setFromMatrixColumn(camera.matrixWorld, 0);
+    _camUp.setFromMatrixColumn(camera.matrixWorld, 1);
+    _worldDelta.set(0, 0, 0)
+      .addScaledVector(_camRight, dnx * 7.5)
+      .addScaledVector(_camUp, dny * 7.5);
+    worldDirToBearLocal(bear, _worldDelta.lengthSq() > 1e-8 ? _worldDelta : raycaster.ray.direction, _localDir);
+
+    const impulseMag = Math.min(0.45, moveSpeed * 12.0 + 0.02);
+
+    // Whole-body Jell-O shear brush + secondary jelly excitations
+    const heightLeverage = Math.max(0.25, _localHit.y / 1.4);
+    bear.springTiltX.vel += (_localDir.x * impulseMag * 6.5 + raycaster.ray.direction.x * 0.4) * heightLeverage;
+    bear.springTiltZ.vel += (_localDir.z * impulseMag * 6.5 + raycaster.ray.direction.z * 0.4) * heightLeverage;
+    bear.springSquash.vel -= impulseMag * 2.2;
+
+    if (_localHit.y < 1.15) {
+      bear.springBelly.vel -= impulseMag * 5.8;
+    }
+    if (_localHit.y > 0.95) {
+      bear.springHead.vel += (_localDir.z * 4.5 - _localDir.y * 3.5) * impulseMag;
+      bear.springHeadSide.vel += _localDir.x * 5.2 * impulseMag;
+    }
+    bear.springArms.vel += (_localDir.y * 5.5 - 1.8) * impulseMag;
+
+    // Spawn smooth elastic surface dent along ray/cursor motion
+    const now = performance.now() * 0.001;
+    if (now - bear.lastHoverPokeTime > 0.032 && moveSpeed > 0.0015) {
+      bear.lastHoverPokeTime = now;
+      const rayLocal = worldDirToBearLocal(bear, raycaster.ray.direction, new THREE.Vector3());
+      const pushX = rayLocal.x * 0.72 + _localDir.x * 0.28;
+      const pushY = rayLocal.y * 0.72 + _localDir.y * 0.28;
+      const pushZ = rayLocal.z * 0.72 + _localDir.z * 0.28;
+      addBearPoke(
+        bear,
+        _localHit.x,
+        Math.max(0.12, Math.min(1.95, _localHit.y)),
+        _localHit.z,
+        pushX, pushY, pushZ,
+        Math.min(0.125, 0.048 + moveSpeed * 1.9),
+        0.30,
+        25.0,
+        4.8
+      );
+    }
+  } else if (!isOrbitDragging) {
+    canvas.style.cursor = 'grab';
+  }
+});
+
+canvas.addEventListener('pointerdown', (e) => {
+  const nx = (e.clientX / window.innerWidth) * 2 - 1;
+  const ny = -(e.clientY / window.innerHeight) * 2 + 1;
+  pointerNDC.set(nx, ny);
+  prevPointerNDC.set(nx, ny);
+  pointerActive = true;
+
+  raycaster.setFromCamera(pointerNDC, camera);
+  const hits = raycaster.intersectObjects(bearMeshes, false);
+
+  if (hits.length > 0) {
+    const hit = hits[0];
+    const bear = hit.object.userData.bear;
+    worldToBearLocal(bear, hit.point, _localHit);
+    const rayLocal = worldDirToBearLocal(bear, raycaster.ray.direction, new THREE.Vector3());
+
+    // Strong dramatic elastic poke & full-body gummy squish!
+    bear.springSquash.vel -= 7.8;
+    bear.springBelly.vel -= 8.5;
+    bear.springArms.vel -= 7.2;
+    bear.springHead.vel += (rayLocal.z * 6.0 + (_localHit.y > 1.3 ? 4.5 : -3.5));
+    bear.springHeadSide.vel += (-_localHit.x * 9.5 + rayLocal.x * 3.5);
+    bear.springTiltX.vel += (rayLocal.x * 4.8 - _localHit.x * 3.2);
+    bear.springTiltZ.vel += (rayLocal.z * 5.2);
+
+    // Joyful reactive mini-hop after initial squish rebound
+    if (bear.hopY < 0.04) {
+      bear.extraHopImpulse = 2.65;
+    }
+
+    // Deep volume-preserving localized dimple & ripple wave at exact click point
+    addBearPoke(
+      bear,
+      _localHit.x,
+      Math.max(0.14, Math.min(1.95, _localHit.y)),
+      _localHit.z,
+      rayLocal.x,
+      rayLocal.y - 0.18,
+      rayLocal.z,
+      0.21,
+      0.42,
+      27.0,
+      3.5
+    );
+
+    kickSugarNearBear(bear.index, 0.85);
+
+    // Sympathetic vibration across the frosted glass pedestal to neighboring bears!
+    for (let j = 0; j < bears.length; j++) {
+      if (j === bear.index) continue;
+      const other = bears[j];
+      const dist = Math.abs(other.cfg.x - bear.cfg.x);
+      const atten = 1.0 / (1.0 + dist * 0.9);
+      other.springSquash.vel -= 2.1 * atten;
+      other.springBelly.vel -= 2.6 * atten;
+      other.springHeadSide.vel += Math.sign(other.cfg.x - bear.cfg.x) * 2.0 * atten;
+    }
+  } else {
+    isOrbitDragging = true;
+    canvas.style.cursor = 'grabbing';
+  }
+});
+
+window.addEventListener('pointerup', () => {
+  isOrbitDragging = false;
+  canvas.style.cursor = 'grab';
+});
+
+// ============================================================================
+// 9. REAL-TIME SOFT-BODY JELLY ANIMATION & PEDESTAL CAUSTIC/SHADOW UPDATE
+// ============================================================================
+function stepBearPhysicsAndMesh(bear, dt) {
+  bear.cycleClock += dt;
+  const period = bear.cfg.cyclePeriod;
+  const uCycle = (bear.cycleClock % period) / period;
+
+  // Staggered playful hop schedule:
+  // [0.00 .. 0.11]: anticipation crouch before hop
+  // [0.11 .. 0.43]: airborne playful hop
+  // [0.43 .. 1.00]: bouncy damped jelly landing & subtle rhythmic groove
+  let targetSquash = 0;
+  if (uCycle < 0.11) {
+    const a = Math.sin((uCycle / 0.11) * Math.PI);
+    targetSquash = -0.14 * a;
+  } else if (uCycle >= 0.11 && uCycle < 0.43) {
+    if (!bear.wasAirborne) {
+      bear.wasAirborne = true;
+      bear.hopVel = Math.max(bear.hopVel, 2.35);
+      bear.springSquash.vel += 3.6; // upward takeoff stretch!
+      bear.springArms.vel -= 3.2;
+      bear.springHead.vel -= 2.2;
+    }
+  } else {
+    bear.wasAirborne = false;
+    // Gentle cheerful idle jelly groove between hops
+    const idleU = (uCycle - 0.43) / 0.57;
+    targetSquash = Math.sin(idleU * Math.PI * 2) * 0.028;
+  }
+
+  // Click-triggered rebound hop once initial compression springs upward
+  if (bear.extraHopImpulse > 0 && bear.springSquash.pos > 0.04 && bear.hopY <= 0.01) {
+    bear.hopVel = Math.max(bear.hopVel, bear.extraHopImpulse);
+    bear.extraHopImpulse = 0;
+  }
+
+  // Integrate vertical hop trajectory under gravity
+  const prevVel = bear.hopVel;
+  if (bear.hopY > 0 || bear.hopVel > 0) {
+    bear.hopVel -= 14.8 * dt;
+    bear.hopY += bear.hopVel * dt;
+    if (bear.hopY <= 0) {
+      const impactSpeed = Math.abs(prevVel);
+      bear.hopY = 0;
+      bear.hopVel = 0;
+      // Juicy impact squash + belly, head, and arm secondary inertia!
+      bear.springSquash.vel -= impactSpeed * 1.95;
+      bear.springBelly.vel -= impactSpeed * 2.55;
+      bear.springHead.vel += impactSpeed * 1.65;
+      bear.springHeadSide.vel += Math.sin(bear.cycleClock * 3.7 + bear.index) * impactSpeed * 0.7;
+      bear.springArms.vel -= impactSpeed * 2.35;
+      kickSugarNearBear(bear.index, impactSpeed * 0.22);
+    }
+  }
+
+  bear.group.position.y = bear.hopY;
+
+  // Step coupled damped harmonic oscillators
+  bear.springSquash.step(dt, targetSquash);
+  bear.springBelly.step(dt, 0);
+  bear.springHead.step(dt, 0);
+  bear.springHeadSide.step(dt, Math.sin(bear.cycleClock * 2.6 + bear.index * 1.3) * 0.035);
+  bear.springArms.step(dt, 0);
+  bear.springTiltX.step(dt, Math.sin(bear.cycleClock * 2.6 + bear.index * 1.7) * 0.025);
+  bear.springTiltZ.step(dt, 0);
+
+  // Age & prune active localized mouse pokes
+  const pokes = bear.pokes;
+  for (let p = pokes.length - 1; p >= 0; p--) {
+    pokes[p].age += dt;
+    if (pokes[p].age > 1.45) {
+      pokes.splice(p, 1);
+    }
+  }
+
+  // Volume-preserving squash & stretch: sy * sxz * sxz = 1.0
+  const sy = Math.max(0.54, Math.min(1.44, 1.0 + bear.springSquash.pos));
+  const sxz = 1.0 / Math.sqrt(sy);
+  bear.currentSXZ = sxz;
+
+  const bellyVal = bear.springBelly.pos;
+  const headVal = bear.springHead.pos;
+  const headSide = bear.springHeadSide.pos;
+  const armVal = bear.springArms.pos;
+  const tiltX = bear.springTiltX.pos;
+  const tiltZ = bear.springTiltZ.pos;
+  const shearDrop = 1.0 - 0.10 * (tiltX * tiltX + tiltZ * tiltZ);
+
+  // Precompute active poke wave scalars outside vertex loop
+  const nPokes = pokes.length;
+  const pAmp = new Float32Array(nPokes);
+  const pInvR2 = new Float32Array(nPokes);
+  for (let p = 0; p < nPokes; p++) {
+    const pk = pokes[p];
+    pAmp[p] = pk.strength * Math.exp(-pk.age * pk.decay) * Math.cos(pk.age * pk.freq);
+    pInvR2[p] = 1.0 / (pk.radius * pk.radius);
+  }
+
+  const restPos = bear.restPos;
+  const restNor = bear.restNor;
+  const posAttr = bear.geometry.attributes.position;
+  const outPos = posAttr.array;
+  const vCount = restPos.length / 3;
+  const hopY = bear.hopY;
+
+  for (let i = 0; i < vCount; i++) {
+    const i3 = i * 3;
+    const rx = restPos[i3];
+    const ry = restPos[i3 + 1];
+    const rz = restPos[i3 + 2];
+    const nx = restNor[i3];
+    const ny = restNor[i3 + 1];
+    const nz = restNor[i3 + 2];
+
+    const u = ry > 2.02 ? 1.0 : (ry < 0 ? 0.0 : ry / 2.02);
+
+    // 1. Volume-preserving pear-shaped gelatin squash & stretch
+    const bulge = 1.0 + (sxz - 1.0) * (0.72 + 0.46 * Math.sin(u * Math.PI));
+    let x = rx * bulge;
+    let y = ry * sy;
+    let z = rz * bulge;
+
+    // 2. Plump tummy wobble mode
+    const dyB = ry - 0.52;
+    const dzB = rz - 0.22;
+    const db2 = rx * rx * 3.6 + dyB * dyB * 4.2 + dzB * dzB * 4.0;
+    if (db2 < 4.5) {
+      const wBelly = Math.exp(-db2);
+      y += bellyVal * wBelly * 0.14;
+      z += bellyVal * wBelly * 0.11;
+      x += rx * bellyVal * wBelly * 0.15;
+    }
+
+    // 3. Phase-lagged head & cupped-ear jiggle
+    if (ry > 0.96) {
+      const uh = Math.min(1.0, (ry - 0.96) / 0.92);
+      const wHead = uh * uh * (3.0 - 2.0 * uh);
+      const wEar = ry > 1.54 ? Math.min(1.0, (ry - 1.54) / 0.46) : 0.0;
+      const pivotY = 1.08 * sy;
+      const dyH = y - pivotY;
+      const dzH = z - 0.02;
+
+      const angNod = headVal * (0.20 + 0.14 * wEar) * wHead;
+      const angRoll = headSide * (0.19 + 0.14 * wEar) * wHead;
+
+      // Small-angle orthogonal-preserved rotation
+      const nyH = dyH - dzH * angNod - x * angRoll;
+      const nzH = dzH + dyH * angNod;
+      const nxH = x + dyH * angRoll;
+      x = nxH;
+      y = pivotY + nyH;
+      z = 0.02 + nzH;
+    }
+
+    // 4. Stubby arm & paw jiggle
+    const absRx = Math.abs(rx);
+    if (absRx > 0.22 && ry > 0.52 && ry < 1.38 && rz > 0.02) {
+      const ux = Math.min(1.0, (absRx - 0.22) / 0.22);
+      const uz = Math.min(1.0, (rz - 0.02) / 0.28);
+      const dyA = ry - 0.92;
+      const wArm = ux * uz * Math.exp(-dyA * dyA * 7.5);
+      y += armVal * wArm * 0.17;
+      z -= Math.abs(armVal) * wArm * 0.035;
+    }
+
+    // 5. Whole-body cantilevered Jell-O shear sway
+    const uShear = u * Math.sqrt(u);
+    x += tiltX * uShear * 0.52;
+    z += tiltZ * uShear * 0.52;
+    y *= (1.0 - (1.0 - shearDrop) * uShear);
+
+    // 6. Localized 3D Ricker-wavelet mouse pokes (inward dimple + volume-preserving ring!)
+    for (let p = 0; p < nPokes; p++) {
+      const pk = pokes[p];
+      const dxP = rx - pk.x;
+      const dyP = ry - pk.y;
+      const dzP = rz - pk.z;
+      const r2 = dxP * dxP + dyP * dyP + dzP * dzP;
+      if (r2 < pk.cutoff2) {
+        const u2 = r2 * pInvR2[p];
+        const g = Math.exp(-1.5 * u2);
+        const amp = pAmp[p];
+        const dent = amp * g;
+        const ring = amp * 1.45 * u2 * g;
+        x += pk.dx * dent + nx * ring * 0.62;
+        y += pk.dy * dent + ny * ring * 0.62;
+        z += pk.dz * dent + nz * ring * 0.62;
+      }
+    }
+
+    // 7. Non-penetrating frosted-glass contact meniscus at y_world = 0
+    if (hopY + y < 0.0) {
+      const pen = -(hopY + y);
+      y = -hopY;
+      const flare = 1.0 + Math.min(0.18, pen * 0.38);
+      x *= flare;
+      z *= flare;
+    }
+
+    outPos[i3] = x;
+    outPos[i3 + 1] = y;
+    outPos[i3 + 2] = z;
+  }
+
+  posAttr.needsUpdate = true;
+  bear.geometry.computeVertexNormals();
+}
+
+// Update real-time soft contact shadows & colored subsurface fruit caustics on frosted glass
+function updatePedestalCausticsAndShadows() {
+  // Base milky-cool frosted optical glass albedo
+  const baseGrad = pedAlbedoCtx.createLinearGradient(0, 0, 0, CAUSTIC_H);
+  baseGrad.addColorStop(0, '#dfe9f6');
+  baseGrad.addColorStop(0.5, '#eaf1fa');
+  baseGrad.addColorStop(1, '#d7e3f2');
+  pedAlbedoCtx.fillStyle = baseGrad;
+  pedAlbedoCtx.fillRect(0, 0, CAUSTIC_W, CAUSTIC_H);
+
+  // Subtle ambient frosted glass core glow in emissive map
+  pedEmissiveCtx.fillStyle = '#0e131c';
+  pedEmissiveCtx.fillRect(0, 0, CAUSTIC_W, CAUSTIC_H);
+
+  const toCanvasX = (wx) => ((wx + PED_HALF_X) / (2 * PED_HALF_X)) * CAUSTIC_W;
+  const toCanvasY = (wz) => ((wz + PED_HALF_Z) / (2 * PED_HALF_Z)) * CAUSTIC_H;
+
+  pedEmissiveCtx.globalCompositeOperation = 'lighter';
+
+  for (let i = 0; i < bears.length; i++) {
+    const b = bears[i];
+    const hop = b.hopY;
+    const sxz = b.currentSXZ || 1.0;
+    const swayX = b.springTiltX.pos * 0.18;
+    const swayZ = b.springTiltZ.pos * 0.18;
+
+    const bx = b.cfg.x + swayX;
+    const bz = b.cfg.z + 0.08 + swayZ;
+
+    // 1. Colored subsurface fruit caustic pool (refracted forward/right by studio key & rim lights)
+    const [cr, cg, cb] = b.cfg.causticRGB;
+    const caustX = toCanvasX(bx + 0.10 + hop * 0.16);
+    const caustY = toCanvasY(bz + 0.16 + hop * 0.22);
+    const caustRad = (44 * sxz + hop * 22);
+    const caustAlpha = Math.max(0.18, 0.62 - hop * 0.55);
+
+    const gCaust = pedEmissiveCtx.createRadialGradient(caustX, caustY, 2, caustX, caustY, caustRad);
+    gCaust.addColorStop(0.0, `rgba(${cr}, ${cg}, ${cb}, ${caustAlpha.toFixed(3)})`);
+    gCaust.addColorStop(0.48, `rgba(${cr}, ${cg}, ${cb}, ${(caustAlpha * 0.45).toFixed(3)})`);
+    gCaust.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+    pedEmissiveCtx.fillStyle = gCaust;
+    pedEmissiveCtx.beginPath();
+    pedEmissiveCtx.arc(caustX, caustY, caustRad, 0, Math.PI * 2);
+    pedEmissiveCtx.fill();
+
+    // Subtle colored tint bled into frosted glass albedo around caustic
+    const gTint = pedAlbedoCtx.createRadialGradient(caustX, caustY, 2, caustX, caustY, caustRad * 0.9);
+    gTint.addColorStop(0.0, `rgba(${cr}, ${cg}, ${cb}, ${(0.22 * caustAlpha).toFixed(3)})`);
+    gTint.addColorStop(1.0, `rgba(${cr}, ${cg}, ${cb}, 0)`);
+    pedAlbedoCtx.fillStyle = gTint;
+    pedAlbedoCtx.beginPath();
+    pedAlbedoCtx.arc(caustX, caustY, caustRad * 0.9, 0, Math.PI * 2);
+    pedAlbedoCtx.fill();
+
+    // 2. Soft Contact Shadow directly under feet & rump (softens & fades when hopping!)
+    const shX = toCanvasX(bx);
+    const shY = toCanvasY(bz);
+    const shRx = (35 * sxz + hop * 26);
+    const shRy = (38 * sxz + hop * 26);
+    const shDark = Math.max(0.08, 0.42 * Math.exp(-hop * 2.8));
+
+    pedAlbedoCtx.save();
+    pedAlbedoCtx.translate(shX, shY);
+    pedAlbedoCtx.rotate(-b.cfg.rotY);
+    pedAlbedoCtx.scale(1.0, shRy / shRx);
+    const gShadow = pedAlbedoCtx.createRadialGradient(0, 0, 2, 0, 0, shRx);
+    gShadow.addColorStop(0.0, `rgba(28, 38, 56, ${shDark.toFixed(3)})`);
+    gShadow.addColorStop(0.55, `rgba(38, 50, 72, ${(shDark * 0.48).toFixed(3)})`);
+    gShadow.addColorStop(1.0, 'rgba(38, 50, 72, 0)');
+    pedAlbedoCtx.fillStyle = gShadow;
+    pedAlbedoCtx.beginPath();
+    pedAlbedoCtx.arc(0, 0, shRx, 0, Math.PI * 2);
+    pedAlbedoCtx.fill();
+    pedAlbedoCtx.restore();
+  }
+
+  pedEmissiveCtx.globalCompositeOperation = 'source-over';
+  pedAlbedoTex.needsUpdate = true;
+  pedEmissiveTex.needsUpdate = true;
+}
+
+// ============================================================================
+// 10. RESIZE HANDLER & MAIN RENDER LOOP
+// ============================================================================
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / Math.max(window.innerHeight, 1);
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+let lastTime = performance.now() * 0.001;
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  const now = performance.now() * 0.001;
+  const dt = Math.min(0.033, Math.max(0.001, now - lastTime));
+  lastTime = now;
+
+  for (let i = 0; i < bears.length; i++) {
+    stepBearPhysicsAndMesh(bears[i], dt);
+  }
+  updateSugarCrystals(dt);
+  updatePedestalCausticsAndShadows();
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+animate();
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+</body>
+</html>

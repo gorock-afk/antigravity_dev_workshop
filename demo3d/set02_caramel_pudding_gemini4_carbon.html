@@ -1,0 +1,1969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: #1c1310;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    outline: none;
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const canvas = document.getElementById('c');
+
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  powerPreference: 'high-performance'
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.08;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(36, window.innerWidth / window.innerHeight, 0.1, 80);
+camera.position.set(0.45, 3.65, 7.65);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.055;
+controls.target.set(0, 1.32, 0);
+controls.minDistance = 3.6;
+controls.maxDistance = 13.5;
+controls.minPolarAngle = 0.08;
+controls.maxPolarAngle = Math.PI * 0.475;
+controls.enablePan = false;
+controls.update();
+
+// ---------------------------------------------------------------------------
+// 1. Procedural Patisserie Studio HDR Environment Map (PMREM)
+// ---------------------------------------------------------------------------
+function createStudioEnvironment(rendererInstance) {
+  const pmrem = new THREE.PMREMGenerator(rendererInstance);
+  pmrem.compileEquirectangularShader();
+
+  const envScene = new THREE.Scene();
+
+  // Warm patisserie dome shell
+  const domeGeo = new THREE.SphereGeometry(30, 48, 32);
+  const domePos = domeGeo.attributes.position;
+  const domeCols = new Float32Array(domePos.count * 3);
+  const topCol = new THREE.Color(0x523c31);
+  const midCol = new THREE.Color(0x32221b);
+  const botCol = new THREE.Color(0x160e0b);
+  const tmpC = new THREE.Color();
+
+  for (let i = 0; i < domePos.count; i++) {
+    const ny = THREE.MathUtils.clamp(domePos.getY(i) / 30, -1, 1);
+    if (ny >= 0) {
+      tmpC.copy(midCol).lerp(topCol, Math.pow(ny, 0.7));
+    } else {
+      tmpC.copy(midCol).lerp(botCol, Math.pow(-ny, 0.6));
+    }
+    domeCols[i * 3] = tmpC.r;
+    domeCols[i * 3 + 1] = tmpC.g;
+    domeCols[i * 3 + 2] = tmpC.b;
+  }
+  domeGeo.setAttribute('color', new THREE.BufferAttribute(domeCols, 3));
+  envScene.add(new THREE.Mesh(domeGeo, new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    side: THREE.BackSide
+  })));
+
+  const addSoftbox = (w, h, pos, lookAt, rgb) => {
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({
+        color: new THREE.Color(rgb[0], rgb[1], rgb[2]),
+        side: THREE.DoubleSide
+      })
+    );
+    plane.position.set(pos[0], pos[1], pos[2]);
+    plane.lookAt(lookAt[0], lookAt[1], lookAt[2]);
+    envScene.add(plane);
+  };
+
+  // Overhead warm-white main softbox
+  addSoftbox(14, 14, [0, 17, 1.5], [0, 0, 0], [4.2, 3.95, 3.6]);
+  // Hero right-front tall window strip (creates crisp specular ribbons down flutes & drips)
+  addSoftbox(6.5, 16, [11.5, 8.5, 9.5], [0, 1.2, 0], [6.4, 5.9, 5.2]);
+  // Left-front cool-cream fill diffuser
+  addSoftbox(9, 12, [-13, 6.5, 6.5], [0, 1.2, 0], [2.4, 2.55, 2.85]);
+  // Rear golden rim kicker
+  addSoftbox(14, 6.5, [-1.5, 9.5, -13], [0, 1.4, 0], [5.5, 4.1, 2.3]);
+  // Subtle front catchlight card for cherry & caramel droplets
+  addSoftbox(4.2, 3.0, [-2.5, 3.8, 14.5], [0, 1.5, 0], [3.5, 3.3, 3.0]);
+
+  const envRT = pmrem.fromScene(envScene, 0.032, 0.1, 80);
+  pmrem.dispose();
+  domeGeo.dispose();
+  return envRT.texture;
+}
+
+const envMap = createStudioEnvironment(renderer);
+scene.environment = envMap;
+
+// ---------------------------------------------------------------------------
+// 2. Procedural Textures (Internal Custard Caustics, Soft Contact AO, Backdrop)
+// ---------------------------------------------------------------------------
+function createCausticTextures() {
+  const size = 512;
+  const glowCanvas = document.createElement('canvas');
+  glowCanvas.width = size;
+  glowCanvas.height = size;
+  const gCtx = glowCanvas.getContext('2d');
+  const gImg = gCtx.createImageData(size, size);
+
+  const thickCanvas = document.createElement('canvas');
+  thickCanvas.width = size;
+  thickCanvas.height = size;
+  const tCtx = thickCanvas.getContext('2d');
+  const tImg = tCtx.createImageData(size, size);
+
+  const TAU = Math.PI * 2;
+  for (let y = 0; y < size; y++) {
+    const v = y / size;
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+
+      // Multi-wave periodic optical caustic interference (seamless on [0,1]^2)
+      const a1 = TAU * (3.0 * u + 2.0 * v) + 0.65 * Math.sin(TAU * (2.0 * u - v));
+      const a2 = TAU * (-2.0 * u + 3.0 * v) + 0.65 * Math.cos(TAU * (u + 2.0 * v));
+      const a3 = TAU * (4.0 * u - 3.0 * v) + 0.55 * Math.sin(TAU * (3.0 * v + u));
+      const a4 = TAU * (u + 4.0 * v) + 0.5 * Math.cos(TAU * (3.0 * u - 2.0 * v));
+
+      const w = (Math.cos(a1) + Math.cos(a2) + 0.75 * Math.cos(a3) + 0.65 * Math.cos(a4)) / 3.4;
+      // Ridge caustic sharpening: bright filaments where wave gradient focuses
+      const ridge1 = Math.pow(Math.max(0, 1.0 - Math.abs(Math.sin(a1 * 0.5 + 0.4 * Math.cos(a2)))), 3.4);
+      const ridge2 = Math.pow(Math.max(0, 1.0 - Math.abs(Math.sin(a2 * 0.5 - 0.4 * Math.sin(a3)))), 3.4);
+      const caustic = Math.min(1.0, 0.32 + 0.52 * ridge1 + 0.48 * ridge2 + 0.18 * Math.max(0, w));
+
+      const idx = (y * size + x) * 4;
+      // Warm golden internal caustic glow map
+      gImg.data[idx] = Math.min(255, Math.floor(255 * Math.pow(caustic, 0.85)));
+      gImg.data[idx + 1] = Math.min(255, Math.floor(215 * Math.pow(caustic, 1.05)));
+      gImg.data[idx + 2] = Math.min(255, Math.floor(95 * Math.pow(caustic, 1.6)));
+      gImg.data[idx + 3] = 255;
+
+      // Subsurface thickness modulation: thinner along bright caustic filaments -> stronger transmission glow
+      const thickVal = Math.floor(THREE.MathUtils.clamp(1.0 - 0.42 * (caustic - 0.3), 0.38, 1.0) * 255);
+      tImg.data[idx] = thickVal;
+      tImg.data[idx + 1] = thickVal;
+      tImg.data[idx + 2] = thickVal;
+      tImg.data[idx + 3] = 255;
+    }
+  }
+  gCtx.putImageData(gImg, 0, 0);
+  tCtx.putImageData(tImg, 0, 0);
+
+  const glowTex = new THREE.CanvasTexture(glowCanvas);
+  glowTex.wrapS = THREE.RepeatWrapping;
+  glowTex.wrapT = THREE.RepeatWrapping;
+  glowTex.colorSpace = THREE.SRGBColorSpace;
+
+  const thickTex = new THREE.CanvasTexture(thickCanvas);
+  thickTex.wrapS = THREE.RepeatWrapping;
+  thickTex.wrapT = THREE.RepeatWrapping;
+
+  return { glowTex, thickTex };
+}
+
+function createSoftShadowTexture() {
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext('2d');
+  const grad = ctx.createRadialGradient(size / 2, size / 2, size * 0.12, size / 2, size / 2, size * 0.5);
+  grad.addColorStop(0.0, 'rgba(18, 8, 4, 0.72)');
+  grad.addColorStop(0.48, 'rgba(22, 10, 5, 0.42)');
+  grad.addColorStop(0.78, 'rgba(24, 12, 6, 0.12)');
+  grad.addColorStop(1.0, 'rgba(24, 12, 6, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function createCausticHaloTexture() {
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext('2d');
+  const cx = size / 2;
+  const cy = size / 2;
+
+  const grad = ctx.createRadialGradient(cx, cy, size * 0.18, cx, cy, size * 0.49);
+  grad.addColorStop(0.0, 'rgba(255, 195, 65, 0.35)');
+  grad.addColorStop(0.45, 'rgba(255, 175, 40, 0.55)');
+  grad.addColorStop(0.72, 'rgba(255, 140, 20, 0.25)');
+  grad.addColorStop(1.0, 'rgba(255, 110, 0, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+
+  // Delicate scalloped caustic spokes matching 14 pudding flutes
+  ctx.globalCompositeOperation = 'lighter';
+  for (let k = 0; k < 14; k++) {
+    const ang = (k / 14) * Math.PI * 2;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(ang);
+    const rayGrad = ctx.createLinearGradient(size * 0.18, 0, size * 0.47, 0);
+    rayGrad.addColorStop(0, 'rgba(255, 220, 110, 0.18)');
+    rayGrad.addColorStop(0.6, 'rgba(255, 190, 60, 0.12)');
+    rayGrad.addColorStop(1, 'rgba(255, 160, 20, 0.0)');
+    ctx.fillStyle = rayGrad;
+    ctx.beginPath();
+    ctx.moveTo(size * 0.16, -4);
+    ctx.lineTo(size * 0.47, -11);
+    ctx.lineTo(size * 0.47, 11);
+    ctx.lineTo(size * 0.16, 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+const { glowTex: custardCausticGlowTex, thickTex: custardThicknessTex } = createCausticTextures();
+const contactShadowTex = createSoftShadowTexture();
+const causticHaloTex = createCausticHaloTexture();
+
+// ---------------------------------------------------------------------------
+// 3. Studio Three-Point Lighting + Internal Subsurface Glow Light
+// ---------------------------------------------------------------------------
+const hemiLight = new THREE.HemisphereLight(0xfff5ea, 0x3b261d, 0.65);
+scene.add(hemiLight);
+
+// 1) Key Light (warm studio softbox with high-res soft shadows)
+const keyLight = new THREE.DirectionalLight(0xfff4e4, 2.55);
+keyLight.position.set(4.6, 7.8, 5.2);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 1.5;
+keyLight.shadow.camera.far = 20;
+keyLight.shadow.camera.left = -4.5;
+keyLight.shadow.camera.right = 4.5;
+keyLight.shadow.camera.top = 4.5;
+keyLight.shadow.camera.bottom = -4.5;
+keyLight.shadow.bias = -0.00035;
+keyLight.shadow.normalBias = 0.018;
+keyLight.shadow.radius = 3.2;
+scene.add(keyLight);
+
+// 2) Fill Light (cool-cream diffused fill from opposite side to sculpt whipped cream flutes)
+const fillLight = new THREE.DirectionalLight(0xe4eeff, 0.95);
+fillLight.position.set(-5.8, 4.4, 3.6);
+scene.add(fillLight);
+
+// 3) Rim / Back Light (warm golden kicker driving translucent custard & ruby cherry glow)
+const rimLight = new THREE.SpotLight(0xffcb7d, 82.0, 24.0, Math.PI * 0.28, 0.85, 2.0);
+rimLight.position.set(-2.0, 6.2, -5.8);
+rimLight.target.position.set(0, 1.3, 0);
+rimLight.castShadow = true;
+rimLight.shadow.mapSize.set(1024, 1024);
+rimLight.shadow.bias = -0.0004;
+rimLight.shadow.normalBias = 0.02;
+scene.add(rimLight);
+scene.add(rimLight.target);
+
+// Internal warm golden custard subsurface & caustic glow light
+const internalCustardLight = new THREE.PointLight(0xffa824, 2.35, 4.8, 1.65);
+internalCustardLight.position.set(0, 1.15, 0);
+scene.add(internalCustardLight);
+
+// ---------------------------------------------------------------------------
+// 4. Seamless Studio Cyclorama / Tabletop Surface & Contact Shadow
+// ---------------------------------------------------------------------------
+{
+  // Large studio sweep surface (opaque so transmission pass refracts warm studio surface)
+  const backdropGeo = new THREE.SphereGeometry(28, 64, 40);
+  const bPos = backdropGeo.attributes.position;
+  const bCols = new Float32Array(bPos.count * 3);
+  const cZenith = new THREE.Color(0x281b16);
+  const cHorizon = new THREE.Color(0x463128);
+  const cNadir = new THREE.Color(0x1f1410);
+  const cTmp = new THREE.Color();
+  for (let i = 0; i < bPos.count; i++) {
+    const ny = THREE.MathUtils.clamp(bPos.getY(i) / 28, -1, 1);
+    if (ny >= 0) {
+      cTmp.copy(cHorizon).lerp(cZenith, Math.pow(ny, 0.55));
+    } else {
+      cTmp.copy(cHorizon).lerp(cNadir, Math.pow(-ny, 0.5));
+    }
+    bCols[i * 3] = cTmp.r;
+    bCols[i * 3 + 1] = cTmp.g;
+    bCols[i * 3 + 2] = cTmp.b;
+  }
+  backdropGeo.setAttribute('color', new THREE.BufferAttribute(bCols, 3));
+  const backdrop = new THREE.Mesh(backdropGeo, new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    side: THREE.BackSide
+  }));
+  scene.add(backdrop);
+
+  // Warm matte-satin patisserie tabletop pedestal plane at y = 0
+  const tableGeo = new THREE.CircleGeometry(18, 96);
+  tableGeo.rotateX(-Math.PI / 2);
+  const tPos = tableGeo.attributes.position;
+  const tCols = new Float32Array(tPos.count * 3);
+  const centerTable = new THREE.Color(0x6e5446);
+  const edgeTable = new THREE.Color(0x2a1d17);
+  for (let i = 0; i < tPos.count; i++) {
+    const r = Math.hypot(tPos.getX(i), tPos.getZ(i));
+    const f = THREE.MathUtils.smoothstep(r, 1.5, 15.5);
+    cTmp.copy(centerTable).lerp(edgeTable, f);
+    tCols[i * 3] = cTmp.r;
+    tCols[i * 3 + 1] = cTmp.g;
+    tCols[i * 3 + 2] = cTmp.b;
+  }
+  tableGeo.setAttribute('color', new THREE.BufferAttribute(tCols, 3));
+  const tableMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.72,
+    metalness: 0.02,
+    envMapIntensity: 0.55
+  });
+  const tableMesh = new THREE.Mesh(tableGeo, tableMat);
+  tableMesh.receiveShadow = true;
+  scene.add(tableMesh);
+
+  // Soft studio contact AO shadow under the ceramic plate
+  const aoPlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(8.1, 8.1),
+    new THREE.MeshBasicMaterial({
+      map: contactShadowTex,
+      transparent: true,
+      depthWrite: false,
+      opacity: 0.88
+    })
+  );
+  aoPlane.rotation.x = -Math.PI / 2;
+  aoPlane.position.y = 0.003;
+  scene.add(aoPlane);
+}
+
+// Root assembly group (allows gentle plate micro-tap response)
+const dessertRoot = new THREE.Group();
+scene.add(dessertRoot);
+
+// ---------------------------------------------------------------------------
+// 5. Glossy White Ceramic Plate with Raised Rim (Outward-Normal Lathe)
+// ---------------------------------------------------------------------------
+const PLATE_WELL_Y = 0.145;
+
+function createCeramicPlate() {
+  // Ordered from underside-center -> foot-ring -> outer raised lip -> inner cove -> top-well center
+  // so LatheGeometry (x = r*sin(phi), z = r*cos(phi)) produces strictly outward normals everywhere.
+  const rawPts = [
+    [0.00, 0.055],
+    [1.82, 0.055],
+    [2.02, 0.012],
+    [2.12, 0.000], // Foot-ring resting on tabletop y = 0
+    [2.24, 0.000],
+    [2.34, 0.028],
+    [2.72, 0.155],
+    [3.22, 0.335],
+    [3.56, 0.475],
+    [3.66, 0.535], // Outer rim edge
+    [3.64, 0.572], // Raised rounded lip crest
+    [3.54, 0.580],
+    [3.42, 0.556], // Subtle classic porcelain rim bead
+    [3.32, 0.535],
+    [2.92, 0.415], // Wide raised sloped rim
+    [2.62, 0.305],
+    [2.42, 0.205], // Smooth inner cove
+    [2.22, 0.156],
+    [1.80, 0.147],
+    [0.90, 0.145],
+    [0.00, 0.145]  // Center of inner well
+  ];
+
+  // Subdivide with CatmullRomCurve3 in 2D for ultra-smooth porcelain curvature
+  const curve3 = new THREE.CatmullRomCurve3(
+    rawPts.map(p => new THREE.Vector3(p[0], p[1], 0)),
+    false,
+    'centripetal',
+    0.35
+  );
+  const sampled = curve3.getPoints(96);
+  const lathePts = sampled.map((v, idx) => {
+    const r = idx === 0 || idx === sampled.length - 1 ? 0 : Math.max(0, v.x);
+    return new THREE.Vector2(r, Math.max(0, v.y));
+  });
+
+  const geo = new THREE.LatheGeometry(lathePts, 144);
+  geo.computeVertexNormals();
+
+  const mat = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color(0xfbf8f3),
+    roughness: 0.055,
+    metalness: 0.0,
+    ior: 1.56,
+    reflectivity: 0.92,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.028,
+    sheen: 0.08,
+    sheenColor: new THREE.Color(0xfff6e8),
+    envMapIntensity: 1.25
+  });
+
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+const plateMesh = createCeramicPlate();
+dessertRoot.add(plateMesh);
+
+// ---------------------------------------------------------------------------
+// 6. Scalloped Pudding Profile & Drip Configuration
+// ---------------------------------------------------------------------------
+const PUDDING_R_BOTTOM = 1.56;
+const PUDDING_R_TOP = 1.10;
+const PUDDING_HEIGHT = 1.78;
+const N_FLUTES = 14;
+
+// 7 thick caramel drips aligned with 7 fluted channels around 360 degrees
+// theta = 0 faces +Z (toward hero camera) because x = r*sin(theta), z = r*cos(theta)
+const DRIP_VALLEYS = [
+  { valleyIndex: 0,  sEnd: 0.85, halfWidth: 0.132, bulbScale: 1.15 }, // +12.8 deg (hero front-right pendant drop!)
+  { valleyIndex: 13, sEnd: 1.00, halfWidth: 0.142, bulbScale: 1.00 }, // -12.8 deg (hero front-left flowing into pool!)
+  { valleyIndex: 2,  sEnd: 1.00, halfWidth: 0.136, bulbScale: 1.00 }, // +64.3 deg (right profile flowing into pool!)
+  { valleyIndex: 11, sEnd: 0.76, halfWidth: 0.128, bulbScale: 1.12 }, // -64.3 deg (left profile plump drop!)
+  { valleyIndex: 4,  sEnd: 0.68, halfWidth: 0.125, bulbScale: 1.08 }, // +115.7 deg (mid-back right drop)
+  { valleyIndex: 9,  sEnd: 1.00, halfWidth: 0.138, bulbScale: 1.00 }, // -115.7 deg (back-left flowing into pool!)
+  { valleyIndex: 6,  sEnd: 0.80, halfWidth: 0.130, bulbScale: 1.10 }  // +167.1 deg (back drop)
+].map(d => ({
+  ...d,
+  angle: ((d.valleyIndex + 0.5) / N_FLUTES) * Math.PI * 2
+}));
+
+function smoothstep(edge0, edge1, x) {
+  const t = THREE.MathUtils.clamp((x - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+function wrapAngleSigned(a) {
+  let w = (a + Math.PI) % (Math.PI * 2);
+  if (w < 0) w += Math.PI * 2;
+  return w - Math.PI;
+}
+
+// Smooth scalloped mold flute wave: plump convex lobes (+0.76) & smooth concave channels (-1.00)
+function fluteWave(theta) {
+  return 0.88 * Math.cos(N_FLUTES * theta) - 0.12 * Math.cos(2 * N_FLUTES * theta);
+}
+
+// Build arc-length parameterized 1D lookup table of base pudding profile from Top Pole (s=0) to Bottom Foot (s=1)
+const PROFILE_LUT_SIZE = 512;
+const profileLUT = (() => {
+  const raw = [];
+  // 1) Gently domed top plateau (r: 0 -> 0.90)
+  const rShoulderStart = PUDDING_R_TOP - 0.19;
+  const rShoulderEnd = PUDDING_R_TOP + 0.025;
+  const yShoulderBottom = PUDDING_HEIGHT - 0.21;
+
+  const nTop = 60;
+  for (let i = 0; i < nTop; i++) {
+    const t = i / nTop;
+    const r = t * rShoulderStart;
+    // Zero slope at r = 0 so top pole is perfectly smooth
+    const y = PUDDING_HEIGHT + 0.032 * (1.0 - t * t);
+    raw.push({ r, y });
+  }
+
+  // 2) Smooth cubic Bezier rounded top shoulder
+  const p0 = { r: rShoulderStart, y: PUDDING_HEIGHT };
+  const p1 = { r: PUDDING_R_TOP - 0.04, y: PUDDING_HEIGHT };
+  const p2 = { r: rShoulderEnd - 0.02, y: PUDDING_HEIGHT - 0.07 };
+  const p3 = { r: rShoulderEnd, y: yShoulderBottom };
+  const nShoulder = 56;
+  for (let i = 0; i < nShoulder; i++) {
+    const t = i / nShoulder;
+    const mt = 1 - t;
+    const r = mt * mt * mt * p0.r + 3 * mt * mt * t * p1.r + 3 * mt * t * t * p2.r + t * t * t * p3.r;
+    const y = mt * mt * mt * p0.y + 3 * mt * mt * t * p1.y + 3 * mt * t * t * p2.y + t * t * t * p3.y;
+    raw.push({ r, y });
+  }
+
+  // 3) Plump convex frustum side wall down to bottom fillet
+  const yFootTop = 0.085;
+  const nSide = 160;
+  for (let i = 0; i < nSide; i++) {
+    const t = i / nSide; // 0 at top shoulder bottom -> 1 at bottom foot fillet
+    const y = THREE.MathUtils.lerp(yShoulderBottom, yFootTop, t);
+    // Natural gravity-settled custard belly bulge
+    const belly = 0.076 * Math.sin(Math.PI * Math.pow(t, 0.78));
+    const r = THREE.MathUtils.lerp(rShoulderEnd, PUDDING_R_BOTTOM + 0.012, t) + belly;
+    raw.push({ r, y });
+  }
+
+  // 4) Softly rounded bottom contact fillet settling onto plate well (y = 0)
+  const b0 = raw[raw.length - 1];
+  const b1 = { r: PUDDING_R_BOTTOM + 0.024, y: 0.032 };
+  const b2 = { r: PUDDING_R_BOTTOM - 0.015, y: 0.002 };
+  const b3 = { r: PUDDING_R_BOTTOM - 0.065, y: 0.000 };
+  const nFoot = 36;
+  for (let i = 1; i <= nFoot; i++) {
+    const t = i / nFoot;
+    const mt = 1 - t;
+    const r = mt * mt * mt * b0.r + 3 * mt * mt * t * b1.r + 3 * mt * mt * t * b2.r + t * t * t * b3.r;
+    const y = mt * mt * mt * b0.y + 3 * mt * mt * t * b1.y + 3 * mt * t * t * b2.y + t * t * t * b3.y;
+    raw.push({ r, y });
+  }
+
+  // Compute cumulative arc length
+  const cumLen = [0];
+  for (let i = 1; i < raw.length; i++) {
+    const dr = raw[i].r - raw[i - 1].r;
+    const dy = raw[i].y - raw[i - 1].y;
+    cumLen.push(cumLen[i - 1] + Math.hypot(dr, dy));
+  }
+  const totalLen = cumLen[cumLen.length - 1];
+
+  // Resample uniformly in s in [0, 1]
+  const lut = [];
+  let cursor = 0;
+  for (let j = 0; j < PROFILE_LUT_SIZE; j++) {
+    const s = j / (PROFILE_LUT_SIZE - 1);
+    const targetL = s * totalLen;
+    while (cursor < cumLen.length - 2 && cumLen[cursor + 1] < targetL) cursor++;
+    const segLen = Math.max(1e-6, cumLen[cursor + 1] - cumLen[cursor]);
+    const alpha = THREE.MathUtils.clamp((targetL - cumLen[cursor]) / segLen, 0, 1);
+    lut.push({
+      r: THREE.MathUtils.lerp(raw[cursor].r, raw[cursor + 1].r, alpha),
+      y: THREE.MathUtils.lerp(raw[cursor].y, raw[cursor + 1].y, alpha),
+      nr: 0,
+      ny: 1
+    });
+  }
+
+  // Compute outward 2D normal (-dy/dl, +dr/dl) along top-to-bottom traversal
+  for (let j = 0; j < PROFILE_LUT_SIZE; j++) {
+    const j0 = Math.max(0, j - 1);
+    const j1 = Math.min(PROFILE_LUT_SIZE - 1, j + 1);
+    const dr = lut[j1].r - lut[j0].r;
+    const dy = lut[j1].y - lut[j0].y;
+    const len = Math.max(1e-6, Math.hypot(dr, dy));
+    if (j === 0) {
+      lut[j].nr = 0;
+      lut[j].ny = 1;
+    } else {
+      lut[j].nr = -dy / len;
+      lut[j].ny = dr / len;
+    }
+  }
+  return lut;
+})();
+
+function evalBaseProfile(s) {
+  const sc = THREE.MathUtils.clamp(s, 0, 1) * (PROFILE_LUT_SIZE - 1);
+  const i0 = Math.min(PROFILE_LUT_SIZE - 2, Math.floor(sc));
+  const f = sc - i0;
+  const a = profileLUT[i0];
+  const b = profileLUT[i0 + 1];
+  const nr = a.nr + (b.nr - a.nr) * f;
+  const ny = a.ny + (b.ny - a.ny) * f;
+  const nl = Math.max(1e-6, Math.hypot(nr, ny));
+  return {
+    r: a.r + (b.r - a.r) * f,
+    y: a.y + (b.y - a.y) * f,
+    nr: nr / nl,
+    ny: ny / nl
+  };
+}
+
+// Evaluates exact 3D point on the scalloped pudding skin in local pudding space (y = 0 at plate well)
+function samplePuddingSkin(s, theta, outVec) {
+  const p = evalBaseProfile(s);
+  const fluteAmp = 0.068 * smoothstep(0.14, 0.31, s) * (1.0 - 0.38 * smoothstep(0.92, 1.0, s));
+  const w = fluteWave(theta);
+  const r = Math.max(0, p.r + fluteAmp * p.nr * w);
+  const y = Math.max(0, p.y + fluteAmp * p.ny * w);
+  outVec.set(r * Math.sin(theta), y, r * Math.cos(theta));
+  return outVec;
+}
+
+const _tmpS1 = new THREE.Vector3();
+const _tmpS2 = new THREE.Vector3();
+const _tmpT1 = new THREE.Vector3();
+const _tmpT2 = new THREE.Vector3();
+
+function samplePuddingPointAndNormal(s, theta, outPos, outNorm) {
+  samplePuddingSkin(s, theta, outPos);
+  if (s < 0.004) {
+    outNorm.set(0, 1, 0);
+    return;
+  }
+  const ds = 0.003;
+  const dth = 0.008;
+  samplePuddingSkin(Math.max(0, s - ds), theta, _tmpS1);
+  samplePuddingSkin(Math.min(1, s + ds), theta, _tmpS2);
+  _tmpS2.sub(_tmpS1); // dP/ds (downward)
+
+  samplePuddingSkin(s, theta - dth, _tmpT1);
+  samplePuddingSkin(s, theta + dth, _tmpT2);
+  _tmpT2.sub(_tmpT1); // dP/dtheta (+X at theta = 0)
+
+  // In right-handed coords with x=r*sin(theta), z=r*cos(theta): (dP/ds) x (dP/dtheta) points strictly OUTWARD!
+  outNorm.crossVectors(_tmpS2, _tmpT2).normalize();
+}
+
+// ---------------------------------------------------------------------------
+// 7. Build Translucent Scalloped Custard Pudding Body (Closed Manifold Mesh)
+// ---------------------------------------------------------------------------
+const puddingGroup = new THREE.Group();
+puddingGroup.position.y = PLATE_WELL_Y;
+dessertRoot.add(puddingGroup);
+
+function buildPuddingGeometry() {
+  const K = 168; // Seamless angular segments (12 per flute)
+  const M_SKIN = 68; // Rings from top pole down to bottom foot
+  const M_BASE = 6;  // Rings closing bottom face inward to bottom pole
+  const M = M_SKIN + M_BASE;
+
+  const vertCount = 1 + M * K + 1;
+  const positions = new Float32Array(vertCount * 3);
+  const uvs = new Float32Array(vertCount * 2);
+  const indices = [];
+
+  const tmpP = new THREE.Vector3();
+
+  // Vertex 0: Top Pole
+  samplePuddingSkin(0, 0, tmpP);
+  positions[0] = 0;
+  positions[1] = tmpP.y;
+  positions[2] = 0;
+  uvs[0] = 0.5;
+  uvs[1] = 0.5;
+
+  // Skin rings (i = 0 .. M_SKIN - 1)
+  for (let i = 0; i < M_SKIN; i++) {
+    const s = (i + 1) / M_SKIN;
+    const uvR = 0.46 * s;
+    for (let j = 0; j < K; j++) {
+      const theta = (j / K) * Math.PI * 2;
+      samplePuddingSkin(s, theta, tmpP);
+      const vi = 1 + i * K + j;
+      positions[vi * 3] = tmpP.x;
+      positions[vi * 3 + 1] = tmpP.y;
+      positions[vi * 3 + 2] = tmpP.z;
+      // Seamless polar UVs (zero UV seam across theta = 0 / 2PI!)
+      uvs[vi * 2] = 0.5 + uvR * Math.sin(theta);
+      uvs[vi * 2 + 1] = 0.5 + uvR * Math.cos(theta);
+    }
+  }
+
+  // Bottom closing disk rings (i = M_SKIN .. M - 1)
+  for (let b = 0; b < M_BASE; b++) {
+    const frac = 1.0 - (b + 1) / (M_BASE + 1);
+    const i = M_SKIN + b;
+    for (let j = 0; j < K; j++) {
+      const theta = (j / K) * Math.PI * 2;
+      samplePuddingSkin(1.0, theta, tmpP);
+      const vi = 1 + i * K + j;
+      positions[vi * 3] = tmpP.x * frac;
+      positions[vi * 3 + 1] = 0.002;
+      positions[vi * 3 + 2] = tmpP.z * frac;
+      uvs[vi * 2] = 0.5 + 0.46 * frac * Math.sin(theta);
+      uvs[vi * 2 + 1] = 0.5 + 0.46 * frac * Math.cos(theta);
+    }
+  }
+
+  // Bottom Pole: Vertex 1 + M * K
+  const botPoleIdx = 1 + M * K;
+  positions[botPoleIdx * 3] = 0;
+  positions[botPoleIdx * 3 + 1] = 0.002;
+  positions[botPoleIdx * 3 + 2] = 0;
+  uvs[botPoleIdx * 2] = 0.5;
+  uvs[botPoleIdx * 2 + 1] = 0.5;
+
+  // Top fan: (0, A, B) -> +Y outward
+  for (let j = 0; j < K; j++) {
+    const jNext = (j + 1) % K;
+    indices.push(0, 1 + j, 1 + jNext);
+  }
+
+  // Quad strips: (A0, A1, B1) & (A0, B1, B0) -> outward radial/bottom
+  for (let i = 0; i < M - 1; i++) {
+    const row0 = 1 + i * K;
+    const row1 = 1 + (i + 1) * K;
+    for (let j = 0; j < K; j++) {
+      const jNext = (j + 1) % K;
+      const a0 = row0 + j;
+      const b0 = row0 + jNext;
+      const a1 = row1 + j;
+      const b1 = row1 + jNext;
+      indices.push(a0, a1, b1);
+      indices.push(a0, b1, b0);
+    }
+  }
+
+  // Bottom fan: (A, botPole, B) -> -Y outward
+  const lastRow = 1 + (M - 1) * K;
+  for (let j = 0; j < K; j++) {
+    const jNext = (j + 1) % K;
+    indices.push(lastRow + j, botPoleIdx, lastRow + jNext);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  const posAttr = new THREE.BufferAttribute(positions, 3);
+  posAttr.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('position', posAttr);
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  geo.attributes.normal.setUsage(THREE.DynamicDrawUsage);
+
+  return { geo, basePositions: new Float32Array(positions) };
+}
+
+const { geo: puddingGeo, basePositions: puddingBasePos } = buildPuddingGeometry();
+
+const puddingMat = new THREE.MeshPhysicalMaterial({
+  color: new THREE.Color(0xffcf46),
+  transmission: 0.62,
+  thickness: 1.85,
+  thicknessMap: custardThicknessTex,
+  attenuationColor: new THREE.Color(0xd95800),
+  attenuationDistance: 1.28,
+  ior: 1.44,
+  roughness: 0.095,
+  metalness: 0.0,
+  reflectivity: 0.9,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.024,
+  sheen: 0.25,
+  sheenRoughness: 0.35,
+  sheenColor: new THREE.Color(0xfff2b2),
+  emissive: new THREE.Color(0xff9612),
+  emissiveMap: custardCausticGlowTex,
+  emissiveIntensity: 0.21,
+  envMapIntensity: 1.35
+});
+
+const puddingMesh = new THREE.Mesh(puddingGeo, puddingMat);
+puddingMesh.castShadow = true;
+puddingMesh.receiveShadow = true;
+puddingGroup.add(puddingMesh);
+
+// ---------------------------------------------------------------------------
+// 8. Rich Dark-Amber Glossy Caramel Sauce Cap + 7 Thick Syrup Drips
+// ---------------------------------------------------------------------------
+function evalCaramelProfile(theta) {
+  // Base sauce cap drapes over rounded scalloped shoulder and dips naturally into each valley
+  const valleyDip = 0.022 * (0.5 - 0.5 * Math.cos(N_FLUTES * theta));
+  const organicWave = 0.012 * Math.sin(3 * theta + 0.8) + 0.008 * Math.cos(5 * theta - 0.5);
+  const sCap = 0.382 + valleyDip + organicWave;
+
+  let dripExt = 0.038; // Minimum rim meniscus extension between drips
+  let activeDripStrength = 0;
+  let activeUAng = 0;
+  let activeBulbScale = 1.0;
+  let reachesPool = 0;
+
+  for (let d = 0; d < DRIP_VALLEYS.length; d++) {
+    const dv = DRIP_VALLEYS[d];
+    const dTh = wrapAngleSigned(theta - dv.angle);
+    if (Math.abs(dTh) < dv.halfWidth) {
+      const u = dTh / dv.halfWidth;
+      const bell = Math.pow(1.0 - u * u, 1.45);
+      const ext = 0.038 + (dv.sEnd - sCap) * bell;
+      if (ext > dripExt) {
+        dripExt = ext;
+        activeDripStrength = bell;
+        activeUAng = u;
+        activeBulbScale = dv.bulbScale;
+        reachesPool = dv.sEnd >= 0.98 ? bell : 0;
+      }
+    }
+  }
+
+  return {
+    sCap,
+    sEdge: Math.min(1.0, sCap + dripExt),
+    activeDripStrength,
+    activeUAng,
+    activeBulbScale,
+    reachesPool
+  };
+}
+
+function buildCaramelCapAndDrips() {
+  const K = 336; // 24 segments per flute -> silky-smooth drip lobes & pendant droplets
+  const M_CAP = 20;  // Rings covering top cap (s: 0 -> sCap)
+  const M_DRIP = 34; // Rings covering meniscus rim & 7 thick drips (s: sCap -> sEdge)
+  const M = M_CAP + M_DRIP;
+
+  const vertCount = 1 + M * K;
+  const positions = new Float32Array(vertCount * 3);
+  const colors = new Float32Array(vertCount * 3);
+  const indices = [];
+
+  const surfPos = new THREE.Vector3();
+  const surfNorm = new THREE.Vector3();
+
+  // Physical Beer-Lambert optical caramel coloring over bright golden custard:
+  // Thin edges glow warm golden-orange amber; thick center & pendant bulbs deepen to dark burnt mahogany-amber
+  const colThinCustardGlow = new THREE.Color(0xd96608);
+  const colMidAmber = new THREE.Color(0x6e1a01);
+  const colDeepCaramel = new THREE.Color(0x1f0300);
+  const tmpColor = new THREE.Color();
+
+  const colorFromThickness = (thick) => {
+    // Normalize thickness roughly in [0.002 .. 0.075]
+    const opticalDepth = THREE.MathUtils.clamp((thick - 0.0015) / 0.052, 0, 1);
+    if (opticalDepth < 0.42) {
+      tmpColor.copy(colThinCustardGlow).lerp(colMidAmber, Math.pow(opticalDepth / 0.42, 0.78));
+    } else {
+      tmpColor.copy(colMidAmber).lerp(colDeepCaramel, Math.pow((opticalDepth - 0.42) / 0.58, 0.85));
+    }
+    return tmpColor;
+  };
+
+  // Vertex 0: Top Pole of caramel cap
+  samplePuddingSkin(0, 0, surfPos);
+  const topPoleThick = 0.044;
+  positions[0] = 0;
+  positions[1] = surfPos.y + topPoleThick;
+  positions[2] = 0;
+  colorFromThickness(topPoleThick);
+  colors[0] = tmpColor.r;
+  colors[1] = tmpColor.g;
+  colors[2] = tmpColor.b;
+
+  for (let j = 0; j < K; j++) {
+    const theta = (j / K) * Math.PI * 2;
+    const cp = evalCaramelProfile(theta);
+
+    for (let i = 0; i < M; i++) {
+      let s;
+      let thick;
+      let downDroop = 0;
+
+      if (i < M_CAP) {
+        const uCap = (i + 1) / M_CAP; // 0 -> 1 across top cap & shoulder
+        s = uCap * cp.sCap;
+        // Rich glossy cap layer slightly thicker in center & flute channels
+        const channelPool = 0.006 * (0.5 - 0.5 * Math.cos(N_FLUTES * theta)) * smoothstep(0.35, 1.0, uCap);
+        thick = THREE.MathUtils.lerp(0.044, 0.032, Math.pow(uCap, 1.4)) + channelPool;
+      } else {
+        const w = (i - M_CAP + 1) / M_DRIP; // (0 .. 1] along rim meniscus & drip body
+        s = THREE.MathUtils.lerp(cp.sCap, cp.sEdge, w);
+
+        // Surface-tension liquid contact meniscus (plump body curving down to 0.0018 flush contact at w = 1)
+        const rimMeniscus = Math.pow(Math.max(0, 1.0 - Math.pow(w, 3.4)), 0.46);
+        thick = 0.0018 + 0.030 * rimMeniscus;
+
+        if (cp.activeDripStrength > 0.01) {
+          const crossRound = Math.pow(Math.max(0, 1.0 - cp.activeUAng * cp.activeUAng), 0.72);
+          // Slight Plateau-Rayleigh necking above the drop & heavy bulbous pendant bead near tip
+          const neckThin = -0.008 * Math.exp(-Math.pow((w - 0.36) / 0.22, 2.0));
+          const pendantBulb = (1.0 - cp.reachesPool) * 0.046 * cp.activeBulbScale
+            * Math.exp(-Math.pow((w - 0.80) / 0.145, 2.0))
+            * (1.0 - Math.pow(w, 12.0));
+          // Smooth liquid foot flare for drips merging directly into the caramel pool on the plate
+          const poolFlare = cp.reachesPool * 0.056 * Math.pow(smoothstep(0.74, 1.0, w), 1.5);
+
+          thick += cp.activeDripStrength * crossRound * (0.014 * rimMeniscus + neckThin + pendantBulb + poolFlare);
+          downDroop = (1.0 - cp.reachesPool) * cp.activeDripStrength * crossRound * pendantBulb * 0.35;
+        }
+      }
+
+      samplePuddingPointAndNormal(s, theta, surfPos, surfNorm);
+      const vi = 1 + i * K + j;
+      positions[vi * 3]     = surfPos.x + surfNorm.x * thick;
+      positions[vi * 3 + 1] = Math.max(0.001, surfPos.y + surfNorm.y * thick - downDroop);
+      positions[vi * 3 + 2] = surfPos.z + surfNorm.z * thick;
+
+      colorFromThickness(thick);
+      colors[vi * 3]     = tmpColor.r;
+      colors[vi * 3 + 1] = tmpColor.g;
+      colors[vi * 3 + 2] = tmpColor.b;
+    }
+  }
+
+  // Top fan
+  for (let j = 0; j < K; j++) {
+    const jNext = (j + 1) % K;
+    indices.push(0, 1 + j, 1 + jNext);
+  }
+
+  // Ring strips
+  for (let i = 0; i < M - 1; i++) {
+    const r0 = 1 + i * K;
+    const r1 = 1 + (i + 1) * K;
+    for (let j = 0; j < K; j++) {
+      const jNext = (j + 1) % K;
+      const a0 = r0 + j;
+      const b0 = r0 + jNext;
+      const a1 = r1 + j;
+      const b1 = r1 + jNext;
+      indices.push(a0, a1, b1);
+      indices.push(a0, b1, b0);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  const posAttr = new THREE.BufferAttribute(positions, 3);
+  posAttr.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('position', posAttr);
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  geo.attributes.normal.setUsage(THREE.DynamicDrawUsage);
+
+  return { geo, basePositions: new Float32Array(positions) };
+}
+
+const { geo: caramelGeo, basePositions: caramelBasePos } = buildCaramelCapAndDrips();
+
+const caramelCapMat = new THREE.MeshPhysicalMaterial({
+  vertexColors: true,
+  roughness: 0.022,
+  metalness: 0.0,
+  ior: 1.52,
+  reflectivity: 1.0,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.012,
+  sheen: 0.14,
+  sheenRoughness: 0.25,
+  sheenColor: new THREE.Color(0xff8c1a),
+  emissive: new THREE.Color(0x3a0900),
+  emissiveIntensity: 0.18,
+  envMapIntensity: 1.65,
+  polygonOffset: true,
+  polygonOffsetFactor: -1,
+  polygonOffsetUnits: -1
+});
+
+const caramelMesh = new THREE.Mesh(caramelGeo, caramelCapMat);
+caramelMesh.castShadow = true;
+caramelMesh.receiveShadow = true;
+puddingGroup.add(caramelMesh);
+
+// ---------------------------------------------------------------------------
+// 9. Pool of Translucent Caramel Syrup on the Plate + Caustic Glow + Beads
+// ---------------------------------------------------------------------------
+function evalPoolRadius(theta) {
+  let r = 2.16
+    + 0.065 * Math.sin(3 * theta + 0.5)
+    + 0.045 * Math.cos(5 * theta - 1.2)
+    + 0.028 * Math.sin(7 * theta + 2.1);
+
+  // Bulge pool naturally outward where the 3 full-length drips flow onto the plate
+  for (let d = 0; d < DRIP_VALLEYS.length; d++) {
+    const dv = DRIP_VALLEYS[d];
+    if (dv.sEnd >= 0.98) {
+      const dTh = wrapAngleSigned(theta - dv.angle);
+      r += 0.14 * Math.exp(-Math.pow(dTh / 0.36, 2.0));
+    }
+  }
+  return r;
+}
+
+function createCaramelSyrupPool() {
+  const group = new THREE.Group();
+  group.position.y = PLATE_WELL_Y;
+
+  // 1) Subtle warm amber contact glaze right under the pudding & inner pool so rays refracting
+  // through the transmissive pudding body also see warm caramel beneath the custard foot
+  const underGlazeGeo = new THREE.CircleGeometry(PUDDING_R_BOTTOM * 1.04, 96);
+  underGlazeGeo.rotateX(-Math.PI / 2);
+  const underGlazeMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(0x8a2c02),
+    roughness: 0.2,
+    metalness: 0.0
+  });
+  const underGlaze = new THREE.Mesh(underGlazeGeo, underGlazeMat);
+  underGlaze.position.y = 0.0015;
+  underGlaze.receiveShadow = true;
+  group.add(underGlaze);
+
+  // 2) Golden optical caustic projection halo cast by the translucent custard onto the plate well
+  const causticPlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(4.35, 4.35),
+    new THREE.MeshBasicMaterial({
+      map: causticHaloTex,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      opacity: 0.52
+    })
+  );
+  causticPlane.rotation.x = -Math.PI / 2;
+  causticPlane.position.y = 0.003;
+  group.add(causticPlane);
+
+  // 3) Translucent caramel syrup pool with surface-tension meniscus at outer edge & capillary climb on pudding base
+  const K = 192;
+  const M = 28;
+  const vertCount = 1 + M * K;
+  const positions = new Float32Array(vertCount * 3);
+  const indices = [];
+
+  const poolDepth = 0.056;
+  positions[0] = 0;
+  positions[1] = poolDepth;
+  positions[2] = 0;
+
+  for (let j = 0; j < K; j++) {
+    const theta = (j / K) * Math.PI * 2;
+    const rMax = evalPoolRadius(theta);
+    for (let i = 0; i < M; i++) {
+      const u = (i + 1) / M; // 0 -> 1 from center to outer puddle edge
+      // Cluster rings near outer meniscus edge for crisp rounded liquid contact rim
+      const uMapped = u < 0.7 ? (u / 0.7) * 0.82 : 0.82 + 0.18 * Math.sin(((u - 0.7) / 0.3) * (Math.PI / 2));
+      const r = uMapped * rMax;
+
+      // Rounded outer surface-tension meniscus
+      const edgeFade = Math.pow(Math.max(0, 1.0 - Math.pow(Math.max(0, (uMapped - 0.84) / 0.16), 2.0)), 0.52);
+      // Capillary climb around pudding foot (r ~ PUDDING_R_BOTTOM)
+      const footClimb = 0.028 * Math.exp(-Math.pow((r - (PUDDING_R_BOTTOM - 0.02)) / 0.11, 2.0));
+      const y = 0.001 + (poolDepth * edgeFade) + footClimb * edgeFade;
+
+      const vi = 1 + i * K + j;
+      positions[vi * 3] = r * Math.sin(theta);
+      positions[vi * 3 + 1] = y;
+      positions[vi * 3 + 2] = r * Math.cos(theta);
+    }
+  }
+
+  for (let j = 0; j < K; j++) {
+    const jNext = (j + 1) % K;
+    indices.push(0, 1 + j, 1 + jNext);
+  }
+  for (let i = 0; i < M - 1; i++) {
+    const r0 = 1 + i * K;
+    const r1 = 1 + (i + 1) * K;
+    for (let j = 0; j < K; j++) {
+      const jNext = (j + 1) % K;
+      indices.push(r0 + j, r1 + j, r1 + jNext);
+      indices.push(r0 + j, r1 + jNext, r0 + jNext);
+    }
+  }
+
+  const poolGeo = new THREE.BufferGeometry();
+  poolGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  poolGeo.setIndex(indices);
+  poolGeo.computeVertexNormals();
+
+  const poolMat = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color(0xc85206),
+    transmission: 0.78,
+    thickness: 0.44,
+    attenuationColor: new THREE.Color(0x5c1400),
+    attenuationDistance: 0.16,
+    ior: 1.49,
+    roughness: 0.02,
+    metalness: 0.0,
+    reflectivity: 1.0,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.012,
+    envMapIntensity: 1.55
+  });
+
+  const poolMesh = new THREE.Mesh(poolGeo, poolMat);
+  poolMesh.receiveShadow = true;
+  group.add(poolMesh);
+
+  // Small natural syrup droplets on the white plate beside the main pool
+  const dropSpecs = [
+    { ang: 0.52, dist: 2.34, rad: 0.068 },
+    { ang: -0.68, dist: 2.38, rad: 0.052 },
+    { ang: 2.15, dist: 2.32, rad: 0.058 }
+  ];
+  const dropGeo = new THREE.SphereGeometry(1, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.56);
+  for (const ds of dropSpecs) {
+    const drop = new THREE.Mesh(dropGeo, poolMat);
+    drop.scale.set(ds.rad, ds.rad * 0.46, ds.rad * 1.08);
+    drop.position.set(Math.sin(ds.ang) * ds.dist, 0.002, Math.cos(ds.ang) * ds.dist);
+    drop.rotation.y = ds.ang;
+    group.add(drop);
+  }
+
+  return { group, causticPlane };
+}
+
+const { group: caramelPoolGroup, causticPlane: plateCausticMesh } = createCaramelSyrupPool();
+dessertRoot.add(caramelPoolGroup);
+
+// ---------------------------------------------------------------------------
+// 10. Swirled Fluted Rosette of White Whipped Cream + Ruby Maraschino Cherry
+// ---------------------------------------------------------------------------
+const toppingAnchorGroup = new THREE.Group();
+const creamFollowGroup = new THREE.Group();
+toppingAnchorGroup.add(creamFollowGroup);
+puddingGroup.add(toppingAnchorGroup);
+
+const creamMat = new THREE.MeshPhysicalMaterial({
+  color: new THREE.Color(0xfffdf7),
+  roughness: 0.39,
+  metalness: 0.0,
+  ior: 1.42,
+  sheen: 0.62,
+  sheenRoughness: 0.42,
+  sheenColor: new THREE.Color(0xffffff),
+  clearcoat: 0.16,
+  clearcoatRoughness: 0.36,
+  emissive: new THREE.Color(0xffe8c4),
+  emissiveIntensity: 0.065,
+  envMapIntensity: 0.95
+});
+
+function buildWhippedCreamRosette() {
+  const group = new THREE.Group();
+
+  // 1) Piped 8-point star-nozzle conical spiral rosette with parallel-transport frame
+  const N_PATH = 240;
+  const N_CROSS = 56; // 7 segments per star flute for crisp ridges + smooth troughs
+  const STAR_POINTS = 8;
+
+  const pathPts = [];
+  for (let i = 0; i <= N_PATH; i++) {
+    const t = i / N_PATH;
+    const theta = t * Math.PI * 2 * 2.38 + 0.35;
+    // Spiral tapers inward from outer rosette base (r ~ 0.60) to lush top curl beside cherry
+    const r = 0.61 * Math.pow(1.0 - 0.88 * t, 0.92) * (1.0 - 0.55 * smoothstep(0.92, 1.0, t));
+    const y = 0.09 + 0.40 * Math.pow(t, 1.08) + 0.075 * Math.pow(smoothstep(0.84, 1.0, t), 1.6);
+    pathPts.push(new THREE.Vector3(r * Math.sin(theta), y, r * Math.cos(theta)));
+  }
+
+  // Tangents + parallel-transport frame (N_i x B_i = T_i)
+  const tangents = [];
+  for (let i = 0; i <= N_PATH; i++) {
+    const pPrev = pathPts[Math.max(0, i - 1)];
+    const pNext = pathPts[Math.min(N_PATH, i + 1)];
+    tangents.push(new THREE.Vector3().subVectors(pNext, pPrev).normalize());
+  }
+
+  const normals = [];
+  const binormals = [];
+  let nCurr = new THREE.Vector3(0, 1, 0);
+  if (Math.abs(nCurr.dot(tangents[0])) > 0.9) nCurr.set(1, 0, 0);
+  nCurr.addScaledVector(tangents[0], -nCurr.dot(tangents[0])).normalize();
+  normals.push(nCurr.clone());
+  binormals.push(new THREE.Vector3().crossVectors(tangents[0], nCurr).normalize());
+
+  for (let i = 1; i <= N_PATH; i++) {
+    const tVec = tangents[i];
+    const nNext = normals[i - 1].clone();
+    nNext.addScaledVector(tVec, -nNext.dot(tVec));
+    if (nNext.lengthSq() < 1e-6) nNext.set(1, 0, 0);
+    nNext.normalize();
+    const bNext = new THREE.Vector3().crossVectors(tVec, nNext).normalize();
+    normals.push(nNext);
+    binormals.push(bNext);
+  }
+
+  const vertCount = 1 + (N_PATH + 1) * N_CROSS + 1;
+  const positions = new Float32Array(vertCount * 3);
+  const indices = [];
+
+  // Start cap pole (index 0)
+  positions[0] = pathPts[0].x;
+  positions[1] = pathPts[0].y;
+  positions[2] = pathPts[0].z;
+
+  for (let i = 0; i <= N_PATH; i++) {
+    const t = i / N_PATH;
+    const startCap = smoothstep(0.0, 0.045, t);
+    const endTaper = 1.0 - 0.96 * Math.pow(smoothstep(0.86, 1.0, t), 1.45);
+    const baseTubeR = (0.215 - 0.068 * t) * startCap * endTaper;
+    const twist = t * 3.6;
+
+    const P = pathPts[i];
+    const N = normals[i];
+    const B = binormals[i];
+
+    for (let j = 0; j < N_CROSS; j++) {
+      const phi = (j / N_CROSS) * Math.PI * 2;
+      // Crisp pastry star-tip cross section: sharp outer ridges + smooth rounded U-channels
+      const sHalf = Math.sin((STAR_POINTS * phi + twist) * 0.5);
+      const starCrest = 1.0 - 2.0 * Math.pow(Math.sqrt(sHalf * sHalf + 0.012) / 1.006, 0.82);
+      const rLocal = baseTubeR * (1.0 + 0.27 * starCrest);
+
+      const vx = P.x + rLocal * (Math.cos(phi) * N.x + Math.sin(phi) * B.x);
+      let vy = P.y + rLocal * (Math.cos(phi) * N.y + Math.sin(phi) * B.y);
+      const vz = P.z + rLocal * (Math.cos(phi) * N.z + Math.sin(phi) * B.z);
+      // Soft settle against caramel cap at bottom of outer coil
+      vy = Math.max(-0.008, vy);
+
+      const vi = 1 + i * N_CROSS + j;
+      positions[vi * 3] = vx;
+      positions[vi * 3 + 1] = vy;
+      positions[vi * 3 + 2] = vz;
+    }
+  }
+
+  const endPoleIdx = 1 + (N_PATH + 1) * N_CROSS;
+  const endPt = pathPts[N_PATH];
+  positions[endPoleIdx * 3] = endPt.x;
+  positions[endPoleIdx * 3 + 1] = endPt.y;
+  positions[endPoleIdx * 3 + 2] = endPt.z;
+
+  // Start cap fan: (0, B0, A0) -> -T outward
+  for (let j = 0; j < N_CROSS; j++) {
+    const jNext = (j + 1) % N_CROSS;
+    indices.push(0, 1 + jNext, 1 + j);
+  }
+
+  // Tube strips: (A0, B0, B1) & (A0, B1, A1) -> +N outward (since B x T = +N)
+  for (let i = 0; i < N_PATH; i++) {
+    const r0 = 1 + i * N_CROSS;
+    const r1 = 1 + (i + 1) * N_CROSS;
+    for (let j = 0; j < N_CROSS; j++) {
+      const jNext = (j + 1) % N_CROSS;
+      const a0 = r0 + j;
+      const b0 = r0 + jNext;
+      const a1 = r1 + j;
+      const b1 = r1 + jNext;
+      indices.push(a0, b0, b1);
+      indices.push(a0, b1, a1);
+    }
+  }
+
+  // End tip fan: (A, B, endPole) -> +T outward
+  const lastRing = 1 + N_PATH * N_CROSS;
+  for (let j = 0; j < N_CROSS; j++) {
+    const jNext = (j + 1) % N_CROSS;
+    indices.push(lastRing + j, lastRing + jNext, endPoleIdx);
+  }
+
+  const spiralGeo = new THREE.BufferGeometry();
+  spiralGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  spiralGeo.setIndex(indices);
+  spiralGeo.computeVertexNormals();
+
+  const spiralMesh = new THREE.Mesh(spiralGeo, creamMat);
+  spiralMesh.castShadow = true;
+  spiralMesh.receiveShadow = true;
+  group.add(spiralMesh);
+
+  // 2) Plush fluted center cream cushion (fills inner spiral core & forms soft dimple cradle for cherry)
+  const coreK = 96;
+  const coreM = 20;
+  const coreVerts = new Float32Array((1 + coreM * coreK) * 3);
+  const coreIndices = [];
+  coreVerts[0] = 0;
+  coreVerts[1] = 0.36; // Cushioned cherry cradle height
+  coreVerts[2] = 0;
+
+  for (let i = 0; i < coreM; i++) {
+    const u = (i + 1) / coreM;
+    for (let j = 0; j < coreK; j++) {
+      const th = (j / coreK) * Math.PI * 2;
+      const flute = 1.0 + 0.08 * Math.cos(12 * th + u * 2.2);
+      const r = 0.56 * Math.sin(u * Math.PI * 0.52) * flute;
+      // Soft indented dimple near u = 0 where cherry sits, puffing up around cherry's lower cheek
+      const cushionCheek = 0.065 * Math.sin(u * Math.PI);
+      const y = THREE.MathUtils.lerp(0.36, 0.01, Math.pow(u, 1.35)) + cushionCheek;
+      const vi = 1 + i * coreK + j;
+      coreVerts[vi * 3] = r * Math.sin(th);
+      coreVerts[vi * 3 + 1] = y;
+      coreVerts[vi * 3 + 2] = r * Math.cos(th);
+    }
+  }
+  for (let j = 0; j < coreK; j++) {
+    coreIndices.push(0, 1 + j, 1 + ((j + 1) % coreK));
+  }
+  for (let i = 0; i < coreM - 1; i++) {
+    const r0 = 1 + i * coreK;
+    const r1 = 1 + (i + 1) * coreK;
+    for (let j = 0; j < coreK; j++) {
+      const jn = (j + 1) % coreK;
+      coreIndices.push(r0 + j, r1 + j, r1 + jn);
+      coreIndices.push(r0 + j, r1 + jn, r0 + jn);
+    }
+  }
+  const coreGeo = new THREE.BufferGeometry();
+  coreGeo.setAttribute('position', new THREE.BufferAttribute(coreVerts, 3));
+  coreGeo.setIndex(coreIndices);
+  coreGeo.computeVertexNormals();
+  const coreMesh = new THREE.Mesh(coreGeo, creamMat);
+  coreMesh.castShadow = true;
+  coreMesh.receiveShadow = true;
+  group.add(coreMesh);
+
+  return group;
+}
+
+const whippedCreamGroup = buildWhippedCreamRosette();
+creamFollowGroup.add(whippedCreamGroup);
+
+// ---------------------------------------------------------------------------
+// 11. Glossy Ruby-Red Maraschino Cherry with Curved Green Stem
+// ---------------------------------------------------------------------------
+function buildCherryAndStem() {
+  const cherryGroup = new THREE.Group();
+
+  // 1) Sculpted plump heart-cleft Maraschino cherry (closed manifold mesh)
+  const K = 96;
+  const M = 48;
+  const vertCount = 1 + (M - 1) * K + 1;
+  const positions = new Float32Array(vertCount * 3);
+  const indices = [];
+
+  const R = 0.305;
+
+  const evalCherryPoint = (v, theta, out) => {
+    // v = 0: top stem dimple center -> v = 1: softly tapered bottom apex
+    const phi = v * Math.PI;
+    const sinP = Math.sin(phi);
+    const cosP = Math.cos(phi);
+
+    // Classic cherry heart-shoulder & top umbilical dimple
+    const dimple = 0.088 * Math.exp(-Math.pow(v / 0.16, 2.0));
+    const shoulder = 1.0 + 0.085 * Math.sin(phi * 0.92) + 0.045 * Math.sin(2 * phi - 0.5);
+    // Subtle vertical suture crease down one side
+    const cleft = 1.0 - 0.058 * Math.exp(-Math.pow(wrapAngleSigned(theta - 0.45) / 0.48, 2.0)) * Math.pow(sinP, 1.3);
+
+    const r = R * sinP * shoulder * cleft;
+    const y = R * (0.93 * cosP - dimple + 0.03 * Math.sin(phi));
+    out.set(r * Math.sin(theta), y, r * Math.cos(theta));
+  };
+
+  const tmp = new THREE.Vector3();
+  evalCherryPoint(0, 0, tmp);
+  positions[0] = 0;
+  positions[1] = tmp.y;
+  positions[2] = 0;
+
+  for (let i = 1; i < M; i++) {
+    const v = i / M;
+    for (let j = 0; j < K; j++) {
+      const th = (j / K) * Math.PI * 2;
+      evalCherryPoint(v, th, tmp);
+      const vi = 1 + (i - 1) * K + j;
+      positions[vi * 3] = tmp.x;
+      positions[vi * 3 + 1] = tmp.y;
+      positions[vi * 3 + 2] = tmp.z;
+    }
+  }
+
+  const botIdx = 1 + (M - 1) * K;
+  evalCherryPoint(1, 0, tmp);
+  positions[botIdx * 3] = 0;
+  positions[botIdx * 3 + 1] = tmp.y;
+  positions[botIdx * 3 + 2] = 0;
+
+  for (let j = 0; j < K; j++) {
+    indices.push(0, 1 + j, 1 + ((j + 1) % K));
+  }
+  for (let i = 0; i < M - 2; i++) {
+    const r0 = 1 + i * K;
+    const r1 = 1 + (i + 1) * K;
+    for (let j = 0; j < K; j++) {
+      const jn = (j + 1) % K;
+      indices.push(r0 + j, r1 + j, r1 + jn);
+      indices.push(r0 + j, r1 + jn, r0 + jn);
+    }
+  }
+  const lastR = 1 + (M - 2) * K;
+  for (let j = 0; j < K; j++) {
+    indices.push(lastR + j, botIdx, lastR + ((j + 1) % K));
+  }
+
+  const cherryGeo = new THREE.BufferGeometry();
+  cherryGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  cherryGeo.setIndex(indices);
+  cherryGeo.computeVertexNormals();
+
+  const cherryMat = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color(0xd8081c),
+    transmission: 0.36,
+    thickness: 0.62,
+    attenuationColor: new THREE.Color(0x6e0008),
+    attenuationDistance: 0.26,
+    ior: 1.49,
+    roughness: 0.032,
+    metalness: 0.0,
+    reflectivity: 1.0,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.012,
+    emissive: new THREE.Color(0x4d0008),
+    emissiveIntensity: 0.16,
+    envMapIntensity: 1.65
+  });
+
+  const cherryMesh = new THREE.Mesh(cherryGeo, cherryMat);
+  cherryMesh.castShadow = true;
+  cherryMesh.receiveShadow = true;
+  cherryGroup.add(cherryMesh);
+
+  // Subtle glistening syrup dew droplets on the candied cherry cheek
+  const dewGeo = new THREE.SphereGeometry(0.018, 14, 10);
+  const dewPositions = [
+    [0.21, 0.09, 0.19],
+    [-0.16, 0.14, 0.21],
+    [0.09, -0.04, 0.285]
+  ];
+  for (const dp of dewPositions) {
+    const dew = new THREE.Mesh(dewGeo, cherryMat);
+    dew.position.set(dp[0], dp[1], dp[2]);
+    dew.scale.set(1.0, 0.85, 0.65);
+    cherryGroup.add(dew);
+  }
+
+  // 2) Gracefully curved green cherry stem with tapered shaft & flared woody-olive bud tip
+  const stemPivot = new THREE.Group();
+  stemPivot.position.set(0, 0.195, 0); // Anchored inside top dimple
+  cherryGroup.add(stemPivot);
+
+  const stemCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0.00, -0.02, 0.00),
+    new THREE.Vector3(0.03, 0.20, -0.02),
+    new THREE.Vector3(0.14, 0.46, -0.06),
+    new THREE.Vector3(0.32, 0.70, -0.08),
+    new THREE.Vector3(0.54, 0.86, -0.04)
+  ]);
+
+  const S_SEGS = 56;
+  const S_RAD = 18;
+  const sPts = stemCurve.getPoints(S_SEGS);
+  const sTangents = [];
+  for (let i = 0; i <= S_SEGS; i++) {
+    const p0 = sPts[Math.max(0, i - 1)];
+    const p1 = sPts[Math.min(S_SEGS, i + 1)];
+    sTangents.push(new THREE.Vector3().subVectors(p1, p0).normalize());
+  }
+  const sNormals = [];
+  const sBinormals = [];
+  const initN = new THREE.Vector3(0, 0, 1);
+  initN.addScaledVector(sTangents[0], -initN.dot(sTangents[0])).normalize();
+  sNormals.push(initN);
+  sBinormals.push(new THREE.Vector3().crossVectors(sTangents[0], initN).normalize());
+  for (let i = 1; i <= S_SEGS; i++) {
+    const tv = sTangents[i];
+    const nn = sNormals[i - 1].clone().addScaledVector(tv, -sNormals[i - 1].dot(tv)).normalize();
+    const bb = new THREE.Vector3().crossVectors(tv, nn).normalize();
+    sNormals.push(nn);
+    sBinormals.push(bb);
+  }
+
+  const stemVertCount = (S_SEGS + 1) * S_RAD + 1;
+  const stemPos = new Float32Array(stemVertCount * 3);
+  const stemCol = new Float32Array(stemVertCount * 3);
+  const stemIdx = [];
+
+  const colStemBase = new THREE.Color(0x528d1c);
+  const colStemMid = new THREE.Color(0x64a824);
+  const colStemTip = new THREE.Color(0x6d6124);
+  const tmpSC = new THREE.Color();
+
+  for (let i = 0; i <= S_SEGS; i++) {
+    const t = i / S_SEGS;
+    // Swollen receptacle at cherry dimple, slender middle shaft, flared knuckle bud at tip
+    const baseFlare = 0.017 * Math.exp(-Math.pow(t / 0.10, 2.0));
+    const tipKnuckle = 0.015 * Math.exp(-Math.pow((t - 0.96) / 0.055, 2.0));
+    const endRound = 1.0 - 0.65 * Math.pow(smoothstep(0.96, 1.0, t), 2.0);
+    const rad = (0.0165 - 0.003 * t + baseFlare + tipKnuckle) * endRound;
+
+    if (t < 0.82) {
+      tmpSC.copy(colStemBase).lerp(colStemMid, Math.sin((t / 0.82) * Math.PI * 0.8));
+    } else {
+      tmpSC.copy(colStemMid).lerp(colStemTip, smoothstep(0.82, 0.98, t));
+    }
+
+    const P = sPts[i];
+    const N = sNormals[i];
+    const B = sBinormals[i];
+    for (let j = 0; j < S_RAD; j++) {
+      const phi = (j / S_RAD) * Math.PI * 2;
+      const vi = i * S_RAD + j;
+      stemPos[vi * 3]     = P.x + rad * (Math.cos(phi) * N.x + Math.sin(phi) * B.x);
+      stemPos[vi * 3 + 1] = P.y + rad * (Math.cos(phi) * N.y + Math.sin(phi) * B.y);
+      stemPos[vi * 3 + 2] = P.z + rad * (Math.cos(phi) * N.z + Math.sin(phi) * B.z);
+      stemCol[vi * 3] = tmpSC.r;
+      stemCol[vi * 3 + 1] = tmpSC.g;
+      stemCol[vi * 3 + 2] = tmpSC.b;
+    }
+  }
+
+  const tipCapIdx = (S_SEGS + 1) * S_RAD;
+  const endTipP = sPts[S_SEGS].clone().addScaledVector(sTangents[S_SEGS], 0.008);
+  stemPos[tipCapIdx * 3] = endTipP.x;
+  stemPos[tipCapIdx * 3 + 1] = endTipP.y;
+  stemPos[tipCapIdx * 3 + 2] = endTipP.z;
+  stemCol[tipCapIdx * 3] = colStemTip.r;
+  stemCol[tipCapIdx * 3 + 1] = colStemTip.g;
+  stemCol[tipCapIdx * 3 + 2] = colStemTip.b;
+
+  for (let i = 0; i < S_SEGS; i++) {
+    const r0 = i * S_RAD;
+    const r1 = (i + 1) * S_RAD;
+    for (let j = 0; j < S_RAD; j++) {
+      const jn = (j + 1) % S_RAD;
+      stemIdx.push(r0 + j, r0 + jn, r1 + jn);
+      stemIdx.push(r0 + j, r1 + jn, r1 + j);
+    }
+  }
+  const sLast = S_SEGS * S_RAD;
+  for (let j = 0; j < S_RAD; j++) {
+    stemIdx.push(sLast + j, sLast + ((j + 1) % S_RAD), tipCapIdx);
+  }
+
+  const stemGeo = new THREE.BufferGeometry();
+  stemGeo.setAttribute('position', new THREE.BufferAttribute(stemPos, 3));
+  stemGeo.setAttribute('color', new THREE.BufferAttribute(stemCol, 3));
+  stemGeo.setIndex(stemIdx);
+  stemGeo.computeVertexNormals();
+
+  const stemMat = new THREE.MeshPhysicalMaterial({
+    vertexColors: true,
+    roughness: 0.30,
+    metalness: 0.0,
+    clearcoat: 0.42,
+    clearcoatRoughness: 0.22,
+    sheen: 0.25,
+    sheenColor: new THREE.Color(0xc8f080)
+  });
+
+  const stemMesh = new THREE.Mesh(stemGeo, stemMat);
+  stemMesh.castShadow = true;
+  stemPivot.add(stemMesh);
+
+  // Nestle cherry snugly into the plush center of the whipped cream rosette with charming tilt
+  cherryGroup.position.set(-0.02, 0.56, 0.01);
+  cherryGroup.rotation.set(0.11, -0.25, -0.21);
+
+  return { cherryGroup, stemPivot };
+}
+
+const { cherryGroup, stemPivot } = buildCherryAndStem();
+creamFollowGroup.add(cherryGroup);
+
+// ---------------------------------------------------------------------------
+// 12. Elastic Jelly Wobble Physics (Spring-Damper Shear + Squash & Stretch + Waves)
+// ---------------------------------------------------------------------------
+const jellyState = {
+  // Horizontal shear spring-damper (initial lively unmolding bounce!)
+  shearX: 0.14,
+  shearZ: 0.09,
+  vShearX: 0.45,
+  vShearZ: -0.35,
+
+  // Vertical squash-and-stretch spring-damper (volume-preserving)
+  squash: -0.075,
+  vSquash: 0.32,
+
+  // Quadrupole elliptical jelly mode (m = 2)
+  qCos: 0.03,
+  qSin: -0.02,
+  vQCos: 0.15,
+  vQSin: -0.18,
+
+  // Secondary inertial follow-through tilt for whipped cream & cherry stem
+  creamTiltX: 0,
+  creamTiltZ: 0,
+  vCreamTiltX: 0,
+  vCreamTiltZ: 0,
+  stemQuiverX: 0,
+  stemQuiverZ: 0,
+  vStemX: 0,
+  vStemZ: 0,
+
+  // Plate tap bounce
+  plateY: 0,
+  vPlateY: 0
+};
+
+// Ring buffer of traveling 3D surface jiggle waves excited by mouse hover & click
+const MAX_WAVES = 14;
+const activeWaves = [];
+
+function spawnJellyWave(localOrigin, amp, freq = 9.2, speed = 4.1, decay = 3.1) {
+  if (activeWaves.length >= MAX_WAVES) activeWaves.shift();
+  activeWaves.push({
+    ox: localOrigin.x,
+    oy: localOrigin.y,
+    oz: localOrigin.z,
+    amp,
+    freq,
+    speed,
+    decay,
+    age: 0
+  });
+}
+
+// Evaluates exact 3D jelly deformation at rest point (x0, y0, z0) in pudding local space
+function deformJellyPoint(x0, y0, z0, outArr, outOffset) {
+  const h = Math.max(0, y0 / PUDDING_HEIGHT);
+  // Smooth anchor at y = 0 so pudding base stays adhered to plate caramel pool
+  const hShear = Math.pow(h, 1.32);
+  const hBelly = Math.sin(Math.PI * Math.min(h, 1.0));
+  const hWaveMask = smoothstep(0.02, 0.22, h);
+
+  // 1) Volume-preserving vertical squash-and-stretch: r scales by 1/sqrt(1 + squash_local)
+  const localSquash = jellyState.squash * (0.68 + 0.62 * hBelly);
+  const rScale = 1.0 / Math.sqrt(Math.max(0.45, 1.0 + localSquash));
+
+  let rx = x0 * rScale;
+  let rz = z0 * rScale;
+  let ry = y0 * (1.0 + jellyState.squash * (0.82 + 0.18 * h));
+
+  // 2) Elliptical quadrupole jelly wobble
+  const r2 = rx * rx + rz * rz;
+  if (r2 > 1e-6) {
+    const invR2 = 1.0 / r2;
+    const cos2 = (rz * rz - rx * rx) * invR2;
+    const sin2 = (2.0 * rx * rz) * invR2;
+    const quadFactor = 1.0 + (jellyState.qCos * cos2 + jellyState.qSin * sin2) * (0.35 + 0.65 * hBelly);
+    rx *= quadFactor;
+    rz *= quadFactor;
+  }
+
+  // 3) Localized 3D traveling surface jiggle waves from mouse hover & clicks
+  if (activeWaves.length > 0 && hWaveMask > 0.001) {
+    let waveRadial = 0;
+    let waveVert = 0;
+    for (let w = 0; w < activeWaves.length; w++) {
+      const wv = activeWaves[w];
+      const dx = x0 - wv.ox;
+      const dy = y0 - wv.oy;
+      const dz = z0 - wv.oz;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const front = wv.age * wv.speed;
+      if (dist < front + 0.45) {
+        const frontMask = 1.0 - smoothstep(front - 0.1, front + 0.45, dist);
+        const env = wv.amp * Math.exp(-wv.decay * wv.age) * Math.exp(-1.15 * dist) * frontMask;
+        const osc = Math.sin(dist * wv.freq - wv.age * wv.speed * wv.freq);
+        waveRadial += env * osc;
+        waveVert += env * osc * 0.42;
+      }
+    }
+    const rLen = Math.hypot(rx, rz);
+    if (rLen > 1e-4) {
+      const scaleW = (rLen + waveRadial * hWaveMask) / rLen;
+      rx *= scaleW;
+      rz *= scaleW;
+    }
+    ry += waveVert * hWaveMask;
+  }
+
+  // 4) Horizontal shear + organic cantilever cross-section tilt
+  const sx = jellyState.shearX * hShear;
+  const sz = jellyState.shearZ * hShear;
+  const bendTilt = -0.26 * (rx * jellyState.shearX + rz * jellyState.shearZ) * smoothstep(0.05, 0.95, h);
+
+  outArr[outOffset]     = rx + sx;
+  outArr[outOffset + 1] = Math.max(0.0005, ry + bendTilt);
+  outArr[outOffset + 2] = rz + sz;
+}
+
+function updateJellyMeshes() {
+  const pArr = puddingGeo.attributes.position.array;
+  for (let i = 0; i < puddingBasePos.length; i += 3) {
+    deformJellyPoint(puddingBasePos[i], puddingBasePos[i + 1], puddingBasePos[i + 2], pArr, i);
+  }
+  puddingGeo.attributes.position.needsUpdate = true;
+  puddingGeo.computeVertexNormals();
+
+  const cArr = caramelGeo.attributes.position.array;
+  for (let i = 0; i < caramelBasePos.length; i += 3) {
+    deformJellyPoint(caramelBasePos[i], caramelBasePos[i + 1], caramelBasePos[i + 2], cArr, i);
+  }
+  caramelGeo.attributes.position.needsUpdate = true;
+  caramelGeo.computeVertexNormals();
+
+  // Exact kinematic surface attachment + tangent frame at top center of caramel cap for whipped cream & cherry
+  const topH = PUDDING_HEIGHT + 0.032 + 0.044;
+  const pC = [0, 0, 0];
+  const pX = [0, 0, 0];
+  const pZ = [0, 0, 0];
+  deformJellyPoint(0, topH, 0, pC, 0);
+  deformJellyPoint(0.22, topH, 0, pX, 0);
+  deformJellyPoint(0, topH, 0.22, pZ, 0);
+
+  toppingAnchorGroup.position.set(pC[0], pC[1] - 0.015, pC[2]);
+
+  // Surface tangent tilt + secondary whipped-cream follow-through lag
+  const slopeX = (pX[1] - pC[1]) / 0.22;
+  const slopeZ = (pZ[1] - pC[1]) / 0.22;
+  creamFollowGroup.rotation.z = Math.atan2(slopeX, 1.0) + jellyState.creamTiltX;
+  creamFollowGroup.rotation.x = -Math.atan2(slopeZ, 1.0) + jellyState.creamTiltZ;
+
+  // Subtle coupled squash-and-stretch on the whipped cream itself
+  const creamSq = 1.0 + jellyState.squash * 0.34;
+  const creamRad = 1.0 / Math.sqrt(Math.max(0.6, creamSq));
+  creamFollowGroup.scale.set(creamRad, creamSq, creamRad);
+
+  // Tertiary elastic quiver on the curved green cherry stem
+  stemPivot.rotation.z = jellyState.stemQuiverX;
+  stemPivot.rotation.x = jellyState.stemQuiverZ;
+
+  // Move internal subsurface light & subtle caustic halo with pudding wobble
+  internalCustardLight.position.set(
+    pC[0] * 0.55,
+    PLATE_WELL_Y + PUDDING_HEIGHT * 0.56 * (1.0 + jellyState.squash * 0.5),
+    pC[2] * 0.55
+  );
+  plateCausticMesh.position.x = jellyState.shearX * 0.32;
+  plateCausticMesh.position.z = jellyState.shearZ * 0.32;
+  const causticScale = 1.0 - jellyState.squash * 0.22;
+  plateCausticMesh.scale.set(causticScale, causticScale, 1);
+
+  dessertRoot.position.y = jellyState.plateY;
+}
+
+function stepPhysics(dt, elapsed) {
+  const subSteps = 3;
+  const hDt = dt / subSteps;
+
+  for (let s = 0; s < subSteps; s++) {
+    const t = elapsed + s * hDt;
+
+    // Continuous gentle ambient elastic wobble excitation (ensures constant living jelly motion!)
+    const ambFx = 9.2 * Math.sin(3.35 * t) + 4.8 * Math.cos(5.15 * t + 0.7);
+    const ambFz = 8.6 * Math.cos(3.05 * t + 0.4) + 4.5 * Math.sin(4.75 * t + 1.3);
+    const ambFsquash = 10.4 * Math.sin(4.45 * t + 0.2) + 5.2 * Math.cos(6.7 * t);
+    const ambFqCos = 4.6 * Math.sin(5.6 * t);
+    const ambFqSin = 4.6 * Math.cos(5.2 * t + 0.9);
+
+    const prevVX = jellyState.vShearX;
+    const prevVZ = jellyState.vShearZ;
+
+    // 1) Horizontal shear spring-damper (under-damped elastic jelly)
+    const kShear = 128.0;
+    const cShear = 2.45;
+    const ax = -kShear * jellyState.shearX - cShear * jellyState.vShearX + ambFx;
+    const az = -kShear * jellyState.shearZ - cShear * jellyState.vShearZ + ambFz;
+    jellyState.vShearX += ax * hDt;
+    jellyState.vShearZ += az * hDt;
+    jellyState.shearX = THREE.MathUtils.clamp(jellyState.shearX + jellyState.vShearX * hDt, -0.46, 0.46);
+    jellyState.shearZ = THREE.MathUtils.clamp(jellyState.shearZ + jellyState.vShearZ * hDt, -0.46, 0.46);
+
+    // 2) Vertical squash-and-stretch spring-damper (coupled nonlinearly to horizontal shear swing)
+    const shearEnergyPull = -24.0 * (jellyState.shearX * jellyState.shearX + jellyState.shearZ * jellyState.shearZ);
+    const kSquash = 178.0;
+    const cSquash = 2.95;
+    const aSq = -kSquash * jellyState.squash - cSquash * jellyState.vSquash + ambFsquash + shearEnergyPull;
+    jellyState.vSquash += aSq * hDt;
+    jellyState.squash = THREE.MathUtils.clamp(jellyState.squash + jellyState.vSquash * hDt, -0.32, 0.34);
+
+    // 3) Quadrupole elliptical wobble mode
+    const kQuad = 235.0;
+    const cQuad = 3.5;
+    jellyState.vQCos += (-kQuad * jellyState.qCos - cQuad * jellyState.vQCos + ambFqCos) * hDt;
+    jellyState.vQSin += (-kQuad * jellyState.qSin - cQuad * jellyState.vQSin + ambFqSin) * hDt;
+    jellyState.qCos = THREE.MathUtils.clamp(jellyState.qCos + jellyState.vQCos * hDt, -0.18, 0.18);
+    jellyState.qSin = THREE.MathUtils.clamp(jellyState.qSin + jellyState.vQSin * hDt, -0.18, 0.18);
+
+    // 4) Secondary follow-through whip tilt on whipped cream & cherry
+    const accelX = (jellyState.vShearX - prevVX) / Math.max(1e-5, hDt);
+    const accelZ = (jellyState.vShearZ - prevVZ) / Math.max(1e-5, hDt);
+    jellyState.vCreamTiltX += (-165.0 * jellyState.creamTiltX - 3.8 * jellyState.vCreamTiltX + accelX * 0.085) * hDt;
+    jellyState.vCreamTiltZ += (-165.0 * jellyState.creamTiltZ - 3.8 * jellyState.vCreamTiltZ - accelZ * 0.085) * hDt;
+    jellyState.creamTiltX = THREE.MathUtils.clamp(jellyState.creamTiltX + jellyState.vCreamTiltX * hDt, -0.28, 0.28);
+    jellyState.creamTiltZ = THREE.MathUtils.clamp(jellyState.creamTiltZ + jellyState.vCreamTiltZ * hDt, -0.28, 0.28);
+
+    // 5) Tertiary green cherry stem whip quiver
+    jellyState.vStemX += (-260.0 * jellyState.stemQuiverX - 3.2 * jellyState.vStemX - accelX * 0.14) * hDt;
+    jellyState.vStemZ += (-260.0 * jellyState.stemQuiverZ - 3.2 * jellyState.vStemZ + accelZ * 0.14) * hDt;
+    jellyState.stemQuiverX = THREE.MathUtils.clamp(jellyState.stemQuiverX + jellyState.vStemX * hDt, -0.36, 0.36);
+    jellyState.stemQuiverZ = THREE.MathUtils.clamp(jellyState.stemQuiverZ + jellyState.vStemZ * hDt, -0.36, 0.36);
+
+    // 6) Plate micro-tap settle
+    jellyState.vPlateY += (-420.0 * jellyState.plateY - 18.0 * jellyState.vPlateY) * hDt;
+    jellyState.plateY = THREE.MathUtils.clamp(jellyState.plateY + jellyState.vPlateY * hDt, -0.05, 0.05);
+  }
+
+  // Advance and prune traveling surface jiggle waves
+  for (let i = activeWaves.length - 1; i >= 0; i--) {
+    activeWaves[i].age += dt;
+    if (activeWaves[i].age > 2.2) activeWaves.splice(i, 1);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 13. Interactive Mouse Raycaster Physics (Hover Ripples + Strong Click Jiggle)
+// ---------------------------------------------------------------------------
+const raycaster = new THREE.Raycaster();
+const pointerNDC = new THREE.Vector2(-99, -99);
+const prevPointerNDC = new THREE.Vector2(-99, -99);
+let wasHoveringPudding = false;
+let lastHoverWaveTime = 0;
+
+const interactiveTargets = [puddingMesh, caramelMesh, whippedCreamGroup, cherryGroup, plateMesh];
+const _camRight = new THREE.Vector3();
+const _camForward = new THREE.Vector3();
+const _localHit = new THREE.Vector3();
+
+function getWorldSweepVector(dxNDC, dyNDC, outVec) {
+  _camRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
+  _camRight.y = 0;
+  if (_camRight.lengthSq() > 1e-5) _camRight.normalize();
+
+  _camForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
+  _camForward.y = 0;
+  if (_camForward.lengthSq() > 1e-5) _camForward.normalize();
+
+  outVec.set(0, 0, 0)
+    .addScaledVector(_camRight, dxNDC)
+    .addScaledVector(_camForward, dyNDC);
+  return outVec;
+}
+
+const _sweepWorld = new THREE.Vector3();
+
+window.addEventListener('pointermove', (e) => {
+  const nx = (e.clientX / window.innerWidth) * 2 - 1;
+  const ny = -(e.clientY / window.innerHeight) * 2 + 1;
+
+  if (prevPointerNDC.x < -50) {
+    prevPointerNDC.set(nx, ny);
+  }
+  const dx = nx - prevPointerNDC.x;
+  const dy = ny - prevPointerNDC.y;
+  prevPointerNDC.set(nx, ny);
+  pointerNDC.set(nx, ny);
+
+  raycaster.setFromCamera(pointerNDC, camera);
+  const hits = raycaster.intersectObjects(interactiveTargets, true);
+
+  if (hits.length > 0 && hits[0].object !== plateMesh) {
+    const hit = hits[0];
+    _localHit.copy(hit.point);
+    puddingGroup.worldToLocal(_localHit);
+
+    getWorldSweepVector(dx, dy, _sweepWorld);
+    const speedNDC = Math.hypot(dx, dy);
+
+    // Immediate lively greeting wobble on hover entry + continuous elastic brush response
+    const entryBoost = !wasHoveringPudding ? 1.0 : 0.0;
+    wasHoveringPudding = true;
+
+    jellyState.vShearX += _sweepWorld.x * 26.0 - _localHit.x * (0.55 * entryBoost);
+    jellyState.vShearZ += _sweepWorld.z * 26.0 - _localHit.z * (0.55 * entryBoost);
+    jellyState.vSquash += (-0.85 * entryBoost - Math.min(0.9, speedNDC * 12.0));
+
+    // Quadrupole excitation aligned with hit azimuth
+    const hitAng = Math.atan2(_localHit.x, _localHit.z);
+    const qPush = 0.35 * entryBoost + Math.min(0.65, speedNDC * 9.0);
+    jellyState.vQCos -= Math.cos(2 * hitAng) * qPush;
+    jellyState.vQSin -= Math.sin(2 * hitAng) * qPush;
+
+    const now = performance.now() * 0.001;
+    if (entryBoost > 0 || (speedNDC > 0.004 && now - lastHoverWaveTime > 0.045)) {
+      lastHoverWaveTime = now;
+      const waveAmp = THREE.MathUtils.clamp(0.032 * entryBoost + speedNDC * 0.85, 0.024, 0.068);
+      spawnJellyWave(_localHit, waveAmp, 10.5, 4.3, 3.3);
+    }
+  } else {
+    wasHoveringPudding = false;
+  }
+}, { passive: true });
+
+window.addEventListener('pointerdown', (e) => {
+  const nx = (e.clientX / window.innerWidth) * 2 - 1;
+  const ny = -(e.clientY / window.innerHeight) * 2 + 1;
+  pointerNDC.set(nx, ny);
+  prevPointerNDC.set(nx, ny);
+
+  raycaster.setFromCamera(pointerNDC, camera);
+  const hits = raycaster.intersectObjects(interactiveTargets, true);
+  if (hits.length === 0) return;
+
+  const hit = hits[0];
+  if (hit.object === plateMesh) {
+    // Spoon-tap on ceramic plate -> crisp vertical bounce & concentric base ripple
+    jellyState.vPlateY -= 0.42;
+    jellyState.vSquash -= 2.35;
+    jellyState.vShearX += (Math.random() - 0.5) * 1.1;
+    jellyState.vShearZ += (Math.random() - 0.5) * 1.1;
+    spawnJellyWave(new THREE.Vector3(0, 0.12, 0), 0.065, 8.8, 4.0, 2.8);
+    return;
+  }
+
+  _localHit.copy(hit.point);
+  puddingGroup.worldToLocal(_localHit);
+
+  // Strong elastic poke impulse away from clicked surface point + juicy squash-and-stretch + strong jiggle wave!
+  const radialLen = Math.hypot(_localHit.x, _localHit.z);
+  const dirX = radialLen > 0.05 ? -_localHit.x / radialLen : (Math.random() - 0.5);
+  const dirZ = radialLen > 0.05 ? -_localHit.z / radialLen : (Math.random() - 0.5);
+
+  const isTopHit = _localHit.y > PUDDING_HEIGHT * 0.72;
+  const shearKick = isTopHit ? 1.85 : 3.15;
+  jellyState.vShearX += dirX * shearKick;
+  jellyState.vShearZ += dirZ * shearKick;
+  jellyState.vSquash += isTopHit ? -3.1 : 1.95;
+
+  const hitAng = Math.atan2(_localHit.x, _localHit.z);
+  jellyState.vQCos -= Math.cos(2 * hitAng) * 1.45;
+  jellyState.vQSin -= Math.sin(2 * hitAng) * 1.45;
+
+  spawnJellyWave(_localHit, 0.095, 9.4, 4.2, 2.55);
+});
+
+// ---------------------------------------------------------------------------
+// 14. Resize & Main Render Loop
+// ---------------------------------------------------------------------------
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  const dt = Math.min(clock.getDelta(), 0.033);
+  const elapsed = clock.elapsedTime;
+
+  stepPhysics(dt, elapsed);
+  updateJellyMeshes();
+
+  // Gentle internal caustic shimmer inside the translucent custard
+  custardCausticGlowTex.offset.x = (elapsed * 0.018 + jellyState.shearX * 0.09) % 1;
+  custardCausticGlowTex.offset.y = (elapsed * 0.013 + jellyState.shearZ * 0.09) % 1;
+  custardThicknessTex.offset.copy(custardCausticGlowTex.offset);
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+updateJellyMeshes();
+animate();
+</script>
+</head>
+<body><canvas id="c"></canvas></body>
+</html>

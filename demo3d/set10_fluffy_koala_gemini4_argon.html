@@ -1,0 +1,2160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ultra-Fluffy Baby Koala Hugging a Eucalyptus Branch</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background-color: #161d1a;
+      cursor: grab;
+    }
+    body:active {
+      cursor: grabbing;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // =========================================================================
+    // 1. SCENE, RENDERER, CAMERA & CONTROLS
+    // =========================================================================
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: 'high-performance'
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.12;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+
+    const camera = new THREE.PerspectiveCamera(
+      36,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      100
+    );
+    camera.position.set(-1.35, 0.55, 5.25);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.target.set(-0.05, 0.12, 0.08);
+    controls.minDistance = 2.2;
+    controls.maxDistance = 11.0;
+    controls.maxPolarAngle = Math.PI * 0.88;
+    controls.minPolarAngle = Math.PI * 0.12;
+
+    // =========================================================================
+    // 2. PROCEDURAL ENVIRONMENT MAP & STUDIO BACKDROP
+    // =========================================================================
+    function createStudioEnvironment() {
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      pmrem.compileEquirectangularShader();
+
+      const envScene = new THREE.Scene();
+      const envGeo = new THREE.SphereGeometry(20, 48, 32);
+      const pos = envGeo.attributes.position;
+      const colors = new Float32Array(pos.count * 3);
+      const cTop = new THREE.Color(0xdcf0ec);
+      const cMid = new THREE.Color(0x7ca69c);
+      const cBot = new THREE.Color(0x3a483e);
+      const tmp = new THREE.Color();
+
+      for (let i = 0; i < pos.count; i++) {
+        const y = pos.getY(i) / 20;
+        if (y >= 0) {
+          tmp.lerpColors(cMid, cTop, Math.pow(y, 0.65));
+        } else {
+          tmp.lerpColors(cMid, cBot, Math.pow(-y, 0.7));
+        }
+        colors[i * 3] = tmp.r;
+        colors[i * 3 + 1] = tmp.g;
+        colors[i * 3 + 2] = tmp.b;
+      }
+      envGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      const envMat = new THREE.MeshBasicMaterial({
+        vertexColors: true,
+        side: THREE.BackSide
+      });
+      envScene.add(new THREE.Mesh(envGeo, envMat));
+
+      // Bright studio softbox cards in the environment map for eye catchlights & fur sheen
+      const softboxGeo = new THREE.PlaneGeometry(8, 8);
+      const softboxMat1 = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(4.5, 4.3, 3.9),
+        side: THREE.DoubleSide
+      });
+      const box1 = new THREE.Mesh(softboxGeo, softboxMat1);
+      box1.position.set(-7, 8, 9);
+      box1.lookAt(0, 0, 0);
+      envScene.add(box1);
+
+      const softboxMat2 = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(2.2, 2.8, 3.2),
+        side: THREE.DoubleSide
+      });
+      const box2 = new THREE.Mesh(softboxGeo, softboxMat2);
+      box2.position.set(10, 4, 6);
+      box2.lookAt(0, 0, 0);
+      envScene.add(box2);
+
+      const softboxMat3 = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(3.8, 3.5, 2.9),
+        side: THREE.DoubleSide
+      });
+      const box3 = new THREE.Mesh(softboxGeo, softboxMat3);
+      box3.position.set(2, 9, -10);
+      box3.lookAt(0, 0, 0);
+      envScene.add(box3);
+
+      const envMap = pmrem.fromScene(envScene, 0.035).texture;
+      pmrem.dispose();
+      return envMap;
+    }
+
+    scene.environment = createStudioEnvironment();
+
+    // Soft out-of-focus eucalyptus forest bokeh studio backdrop dome
+    function createBackdropDome() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1024;
+      canvas.height = 512;
+      const ctx = canvas.getContext('2d');
+
+      const grad = ctx.createLinearGradient(0, 0, 0, 512);
+      grad.addColorStop(0.0, '#1e2d28');
+      grad.addColorStop(0.45, '#293d36');
+      grad.addColorStop(0.75, '#1f2e28');
+      grad.addColorStop(1.0, '#121a17');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 1024, 512);
+
+      // Soft forest bokeh circles
+      let seed = 42;
+      const rand = () => {
+        seed = (seed * 1664525 + 1013904223) % 4294967296;
+        return seed / 4294967296;
+      };
+
+      for (let i = 0; i < 95; i++) {
+        const x = rand() * 1024;
+        const y = rand() * 420;
+        const r = 18 + rand() * 68;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        const hue = 145 + rand() * 35;
+        const light = 45 + rand() * 35;
+        const alpha = 0.03 + rand() * 0.065;
+        g.addColorStop(0, `hsla(${hue}, 32%, ${light}%, ${alpha})`);
+        g.addColorStop(0.6, `hsla(${hue}, 28%, ${light - 8}%, ${alpha * 0.5})`);
+        g.addColorStop(1, `hsla(${hue}, 25%, ${light - 15}%, 0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const dome = new THREE.Mesh(
+        new THREE.SphereGeometry(32, 48, 32),
+        new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, depthWrite: false })
+      );
+      scene.add(dome);
+    }
+    createBackdropDome();
+
+    // =========================================================================
+    // 3. STUDIO THREE-POINT LIGHTING + RIM HALO & CONTACT SHADOWS
+    // =========================================================================
+    const hemiLight = new THREE.HemisphereLight(0xdff2ee, 0x3b493f, 0.72);
+    scene.add(hemiLight);
+
+    // 1. Key Light (warm golden afternoon sun)
+    const keyLight = new THREE.DirectionalLight(0xfff4e2, 2.45);
+    keyLight.position.set(-4.2, 6.2, 5.4);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(2048, 2048);
+    keyLight.shadow.camera.near = 1.0;
+    keyLight.shadow.camera.far = 16.0;
+    const d = 3.2;
+    keyLight.shadow.camera.left = -d;
+    keyLight.shadow.camera.right = d;
+    keyLight.shadow.camera.top = d;
+    keyLight.shadow.camera.bottom = -d;
+    keyLight.shadow.bias = -0.0004;
+    keyLight.shadow.normalBias = 0.015;
+    scene.add(keyLight);
+
+    // 2. Fill Light (cool eucalyptus sky bounce)
+    const fillLight = new THREE.DirectionalLight(0xbbe0ec, 1.05);
+    fillLight.position.set(5.2, 1.8, 3.8);
+    scene.add(fillLight);
+
+    // 3. Rim / Back Light (bright warm halo for fluffy fur tufts)
+    const rimLight = new THREE.DirectionalLight(0xffe9c8, 2.25);
+    rimLight.position.set(1.5, 4.5, -5.2);
+    scene.add(rimLight);
+
+    // Soft under-bounce light for white chest fur
+    const bounceLight = new THREE.PointLight(0xd2e8dc, 0.75, 8.0);
+    bounceLight.position.set(-1.5, -2.5, 2.2);
+    scene.add(bounceLight);
+
+    // =========================================================================
+    // 4. PROCEDURAL TEXTURES (EUCALYPTUS BARK, BLUE-GREEN LEAVES, KOALA NOSE)
+    // =========================================================================
+    function createEucalyptusBarkTextures() {
+      const size = 1024;
+      const colorCanvas = document.createElement('canvas');
+      colorCanvas.width = size;
+      colorCanvas.height = size;
+      const ctx = colorCanvas.getContext('2d');
+
+      const bumpCanvas = document.createElement('canvas');
+      bumpCanvas.width = size;
+      bumpCanvas.height = size;
+      const bCtx = bumpCanvas.getContext('2d');
+
+      // Base smooth silver-cream eucalyptus trunk color
+      ctx.fillStyle = '#b9b4a8';
+      ctx.fillRect(0, 0, size, size);
+
+      bCtx.fillStyle = '#808080';
+      bCtx.fillRect(0, 0, size, size);
+
+      let s = 1337;
+      const rnd = () => {
+        s = (s * 1664525 + 1013904223) % 4294967296;
+        return s / 4294967296;
+      };
+
+      // Mottled ghost-gum / ribbon-gum patches (sage grey, warm tan, pale cream)
+      const patchColors = ['#c9c4b8', '#9ea49b', '#a89886', '#8a7e70', '#d4cfc3', '#777c74'];
+      for (let i = 0; i < 180; i++) {
+        const x = rnd() * size;
+        const y = rnd() * size;
+        const w = 24 + rnd() * 90;
+        const h = 110 + rnd() * 340;
+        ctx.fillStyle = patchColors[Math.floor(rnd() * patchColors.length)];
+        ctx.globalAlpha = 0.22 + rnd() * 0.28;
+        ctx.beginPath();
+        ctx.ellipse(x, y, w, h, (rnd() - 0.5) * 0.08, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Vertical peeling bark ribbons & dark crevices
+      for (let i = 0; i < 420; i++) {
+        const x = rnd() * size;
+        const y = rnd() * size;
+        const w = 2 + rnd() * 14;
+        const h = 60 + rnd() * 280;
+        const isDarkStrip = rnd() > 0.45;
+        ctx.globalAlpha = 0.35 + rnd() * 0.45;
+        ctx.fillStyle = isDarkStrip ? '#56473b' : '#ded9ce';
+        ctx.fillRect(x, y, w, h);
+
+        bCtx.globalAlpha = 0.45;
+        bCtx.fillStyle = isDarkStrip ? '#282828' : '#d8d8d8';
+        bCtx.fillRect(x, y, w, h);
+      }
+
+      // Fine bark grain striations
+      for (let i = 0; i < 2200; i++) {
+        const x = rnd() * size;
+        const y = rnd() * size;
+        const len = 25 + rnd() * 95;
+        ctx.globalAlpha = 0.16;
+        ctx.strokeStyle = rnd() > 0.5 ? '#3d332a' : '#e6e2d8';
+        ctx.lineWidth = 1 + rnd() * 2;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + (rnd() - 0.5) * 4, y + len);
+        ctx.stroke();
+
+        bCtx.globalAlpha = 0.25;
+        bCtx.strokeStyle = rnd() > 0.5 ? '#181818' : '#efefef';
+        bCtx.lineWidth = 1 + rnd() * 2.2;
+        bCtx.beginPath();
+        bCtx.moveTo(x, y);
+        bCtx.lineTo(x + (rnd() - 0.5) * 4, y + len);
+        bCtx.stroke();
+      }
+
+      const colorTex = new THREE.CanvasTexture(colorCanvas);
+      colorTex.wrapS = THREE.RepeatWrapping;
+      colorTex.wrapT = THREE.RepeatWrapping;
+      colorTex.repeat.set(2, 4);
+      colorTex.colorSpace = THREE.SRGBColorSpace;
+
+      const bumpTex = new THREE.CanvasTexture(bumpCanvas);
+      bumpTex.wrapS = THREE.RepeatWrapping;
+      bumpTex.wrapT = THREE.RepeatWrapping;
+      bumpTex.repeat.set(2, 4);
+
+      return { colorTex, bumpTex };
+    }
+
+    function createEucalyptusLeafTextures() {
+      const w = 256, h = 512;
+      const cCanvas = document.createElement('canvas');
+      cCanvas.width = w;
+      cCanvas.height = h;
+      const ctx = cCanvas.getContext('2d');
+
+      const bCanvas = document.createElement('canvas');
+      bCanvas.width = w;
+      bCanvas.height = h;
+      const bCtx = bCanvas.getContext('2d');
+
+      // Waxy blue-green eucalyptus gradient with silvery bloom
+      const grad = ctx.createLinearGradient(0, 0, w, h);
+      grad.addColorStop(0.0, '#5a948b');
+      grad.addColorStop(0.5, '#6ca89e');
+      grad.addColorStop(1.0, '#4f857c');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+
+      bCtx.fillStyle = '#808080';
+      bCtx.fillRect(0, 0, w, h);
+
+      // Pale cream-green midrib vein
+      ctx.strokeStyle = '#9ec4b7';
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(w * 0.5, 0);
+      ctx.quadraticCurveTo(w * 0.46, h * 0.5, w * 0.5, h);
+      ctx.stroke();
+
+      bCtx.strokeStyle = '#ffffff';
+      bCtx.lineWidth = 6;
+      bCtx.beginPath();
+      bCtx.moveTo(w * 0.5, 0);
+      bCtx.quadraticCurveTo(w * 0.46, h * 0.5, w * 0.5, h);
+      bCtx.stroke();
+
+      // Lateral feather veins & oil gland speckles
+      ctx.strokeStyle = 'rgba(175, 215, 205, 0.35)';
+      ctx.lineWidth = 1.8;
+      bCtx.strokeStyle = 'rgba(210, 210, 210, 0.45)';
+      bCtx.lineWidth = 2.0;
+
+      for (let i = 1; i < 18; i++) {
+        const y = (i / 18) * h;
+        const cx = w * 0.5 - Math.sin((i / 18) * Math.PI) * (w * 0.02);
+        // Left vein
+        ctx.beginPath();
+        ctx.moveTo(cx, y);
+        ctx.quadraticCurveTo(cx - w * 0.22, y - 14, cx - w * 0.44, y - 28);
+        ctx.stroke();
+
+        bCtx.beginPath();
+        bCtx.moveTo(cx, y);
+        bCtx.quadraticCurveTo(cx - w * 0.22, y - 14, cx - w * 0.44, y - 28);
+        bCtx.stroke();
+
+        // Right vein
+        ctx.beginPath();
+        ctx.moveTo(cx, y);
+        ctx.quadraticCurveTo(cx + w * 0.22, y - 14, cx + w * 0.44, y - 28);
+        ctx.stroke();
+
+        bCtx.beginPath();
+        bCtx.moveTo(cx, y);
+        bCtx.quadraticCurveTo(cx + w * 0.22, y - 14, cx + w * 0.44, y - 28);
+        bCtx.stroke();
+      }
+
+      const colorTex = new THREE.CanvasTexture(cCanvas);
+      colorTex.colorSpace = THREE.SRGBColorSpace;
+      const bumpTex = new THREE.CanvasTexture(bCanvas);
+      return { colorTex, bumpTex };
+    }
+
+    function createKoalaNoseTextures() {
+      const size = 512;
+      const cCanvas = document.createElement('canvas');
+      cCanvas.width = size;
+      cCanvas.height = size;
+      const ctx = cCanvas.getContext('2d');
+
+      const bCanvas = document.createElement('canvas');
+      bCanvas.width = size;
+      bCanvas.height = size;
+      const bCtx = bCanvas.getContext('2d');
+
+      // Deep charcoal leathery base with subtle dusty highlight down the bridge
+      const radGrad = ctx.createRadialGradient(
+        size * 0.48, size * 0.42, size * 0.05,
+        size * 0.5, size * 0.5, size * 0.5
+      );
+      radGrad.addColorStop(0.0, '#2e3137');
+      radGrad.addColorStop(0.55, '#1f2126');
+      radGrad.addColorStop(1.0, '#15161a');
+      ctx.fillStyle = radGrad;
+      ctx.fillRect(0, 0, size, size);
+
+      bCtx.fillStyle = '#606060';
+      bCtx.fillRect(0, 0, size, size);
+
+      // Pebbled leathery pores across the nose
+      let s = 9001;
+      const rnd = () => {
+        s = (s * 1664525 + 1013904223) % 4294967296;
+        return s / 4294967296;
+      };
+
+      for (let i = 0; i < 4500; i++) {
+        const x = rnd() * size;
+        const y = rnd() * size;
+        const r = 1.5 + rnd() * 3.8;
+        bCtx.fillStyle = rnd() > 0.35 ? 'rgba(235,235,235,0.28)' : 'rgba(20,20,20,0.38)';
+        bCtx.beginPath();
+        bCtx.arc(x, y, r, 0, Math.PI * 2);
+        bCtx.fill();
+
+        if (rnd() > 0.7) {
+          ctx.fillStyle = rnd() > 0.5 ? 'rgba(65,68,75,0.16)' : 'rgba(12,12,15,0.2)';
+          ctx.beginPath();
+          ctx.arc(x, y, r * 0.85, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      const colorTex = new THREE.CanvasTexture(cCanvas);
+      colorTex.colorSpace = THREE.SRGBColorSpace;
+      const bumpTex = new THREE.CanvasTexture(bCanvas);
+      return { colorTex, bumpTex };
+    }
+
+    // =========================================================================
+    // 5. DIAGONAL EUCALYPTUS TREE TRUNK, BRANCHES & SWAYING LEAVES
+    // =========================================================================
+    const treeGroup = new THREE.Group();
+    scene.add(treeGroup);
+
+    const { colorTex: barkColorTex, bumpTex: barkBumpTex } = createEucalyptusBarkTextures();
+    const barkMaterial = new THREE.MeshStandardMaterial({
+      map: barkColorTex,
+      bumpMap: barkBumpTex,
+      bumpScale: 0.032,
+      roughness: 0.84,
+      metalness: 0.02
+    });
+
+    // Main diagonal trunk curve passing right through the koala's embrace
+    // At y = 0, trunk center is around (0.34, 0.0, 0.10)
+    const trunkCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-0.72, -3.4, -0.18),
+      new THREE.Vector3(-0.18, -1.65, -0.02),
+      new THREE.Vector3(0.32, 0.0, 0.10),
+      new THREE.Vector3(0.76, 1.55, 0.06),
+      new THREE.Vector3(1.28, 3.35, -0.12)
+    ]);
+
+    function createTaperedBranchGeometry(curve, tubularSegments, radialSegments, rStart, rEnd, gnarlSeed = 1) {
+      const geo = new THREE.TubeGeometry(curve, tubularSegments, 1.0, radialSegments, false);
+      const pos = geo.attributes.position;
+      const norm = geo.attributes.normal;
+      const uv = geo.attributes.uv;
+
+      const center = new THREE.Vector3();
+      const offset = new THREE.Vector3();
+
+      for (let i = 0; i < pos.count; i++) {
+        const u = uv.getX(i);
+        const v = uv.getY(i);
+        curve.getPointAt(u, center);
+
+        offset.set(pos.getX(i), pos.getY(i), pos.getZ(i)).sub(center);
+
+        const baseRadius = THREE.MathUtils.lerp(rStart, rEnd, u);
+        // Organic bark ridges & knots
+        const angle = v * Math.PI * 2;
+        const ridge =
+          0.018 * Math.sin(angle * 7 + u * 18 + gnarlSeed) +
+          0.012 * Math.cos(angle * 4 - u * 11) +
+          0.014 * Math.sin(u * Math.PI * 6);
+
+        offset.multiplyScalar(baseRadius + ridge);
+        pos.setXYZ(i, center.x + offset.x, center.y + offset.y, center.z + offset.z);
+      }
+      geo.computeVertexNormals();
+      return geo;
+    }
+
+    const mainTrunkGeo = createTaperedBranchGeometry(trunkCurve, 96, 28, 0.43, 0.27, 2.1);
+    const mainTrunkMesh = new THREE.Mesh(mainTrunkGeo, barkMaterial);
+    mainTrunkMesh.castShadow = true;
+    mainTrunkMesh.receiveShadow = true;
+    treeGroup.add(mainTrunkMesh);
+
+    // Lower support fork branch (where the baby koala rests its chubby bottom)
+    const lowerForkCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0.02, -0.98, 0.02),
+      new THREE.Vector3(-0.52, -0.88, 0.06),
+      new THREE.Vector3(-1.18, -0.62, 0.14),
+      new THREE.Vector3(-1.82, -0.22, 0.24)
+    ]);
+    const lowerForkGeo = createTaperedBranchGeometry(lowerForkCurve, 48, 20, 0.24, 0.08, 5.4);
+    const lowerForkMesh = new THREE.Mesh(lowerForkGeo, barkMaterial);
+    lowerForkMesh.castShadow = true;
+    lowerForkMesh.receiveShadow = true;
+    treeGroup.add(lowerForkMesh);
+
+    // Upper canopy branch fork curving over the koala
+    const upperForkCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0.68, 1.25, 0.08),
+      new THREE.Vector3(0.18, 1.55, 0.16),
+      new THREE.Vector3(-0.55, 1.82, 0.18),
+      new THREE.Vector3(-1.35, 2.02, 0.08)
+    ]);
+    const upperForkGeo = createTaperedBranchGeometry(upperForkCurve, 48, 20, 0.19, 0.06, 8.7);
+    const upperForkMesh = new THREE.Mesh(upperForkGeo, barkMaterial);
+    upperForkMesh.castShadow = true;
+    upperForkMesh.receiveShadow = true;
+    treeGroup.add(upperForkMesh);
+
+    // Right side secondary branch
+    const rightForkCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0.54, 0.72, 0.08),
+      new THREE.Vector3(1.12, 0.82, 0.22),
+      new THREE.Vector3(1.75, 1.05, 0.30)
+    ]);
+    const rightForkGeo = createTaperedBranchGeometry(rightForkCurve, 36, 16, 0.16, 0.05, 11.2);
+    const rightForkMesh = new THREE.Mesh(rightForkGeo, barkMaterial);
+    rightForkMesh.castShadow = true;
+    rightForkMesh.receiveShadow = true;
+    treeGroup.add(rightForkMesh);
+
+    // Curly peeling eucalyptus bark ribbons hanging from the trunk
+    function createPeelingBarkRibbons() {
+      const ribbonMat = new THREE.MeshStandardMaterial({
+        color: 0x6e5442,
+        roughness: 0.78,
+        side: THREE.DoubleSide
+      });
+
+      const ribbonSpecs = [
+        { base: new THREE.Vector3(0.32, -1.25, 0.36), rotZ: 0.3, scale: 1.0 },
+        { base: new THREE.Vector3(0.88, 1.68, 0.24), rotZ: -0.25, scale: 0.85 },
+        { base: new THREE.Vector3(-0.08, -1.85, 0.28), rotZ: 0.15, scale: 1.15 }
+      ];
+
+      ribbonSpecs.forEach((spec, idx) => {
+        const curve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(0.06, -0.22, 0.08),
+          new THREE.Vector3(0.14, -0.45, 0.02),
+          new THREE.Vector3(0.05, -0.62, -0.06),
+          new THREE.Vector3(0.12, -0.72, 0.04)
+        ]);
+        const tube = new THREE.TubeGeometry(curve, 24, 0.028 * spec.scale, 6, false);
+        tube.scale(1.8, 1.0, 0.22);
+        const mesh = new THREE.Mesh(tube, ribbonMat);
+        mesh.position.copy(spec.base);
+        mesh.rotation.z = spec.rotZ + idx * 0.1;
+        mesh.castShadow = true;
+        treeGroup.add(mesh);
+      });
+    }
+    createPeelingBarkRibbons();
+
+    // =========================================================================
+    // 6. FRESH BLUE-GREEN EUCALYPTUS LEAVES & GUM NUTS (SWAYING IN BREEZE)
+    // =========================================================================
+    const { colorTex: leafColorTex, bumpTex: leafBumpTex } = createEucalyptusLeafTextures();
+
+    function createSickleLeafGeometry() {
+      const segX = 8;
+      const segY = 20;
+      const geo = new THREE.PlaneGeometry(0.24, 0.72, segX, segY);
+      geo.translate(0, 0.36, 0); // Pivot at base stem (y=0)
+
+      const pos = geo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i); // -0.12 .. +0.12
+        const y = pos.getY(i); // 0 .. 0.72
+        const t = y / 0.72;    // normalized 0 .. 1 from base to tip
+
+        // Lanceolate / sickle-shaped leaf width profile:
+        // Narrow petiole stem from t=0..0.1, widest around t=0.38, tapering to a point at t=1.0
+        let widthFactor;
+        if (t < 0.1) {
+          widthFactor = 0.08 + (t / 0.1) * 0.25;
+        } else {
+          widthFactor = Math.sin(((t - 0.08) / 0.92) * Math.PI);
+          widthFactor = Math.pow(Math.max(0, widthFactor), 0.72);
+        }
+
+        // Characteristic eucalyptus sickle curve along X and droop along Z
+        const sickleBendX = Math.pow(t, 1.7) * 0.11;
+        const archZ = Math.sin(t * Math.PI) * 0.045 - Math.pow(t, 2.2) * 0.06;
+        // Subtle V-cup across leaf blade width
+        const cupZ = Math.abs(x / 0.12) * 0.018 * widthFactor;
+
+        pos.setXYZ(
+          i,
+          x * widthFactor + sickleBendX,
+          y,
+          archZ + cupZ
+        );
+      }
+      geo.computeVertexNormals();
+      return geo;
+    }
+
+    const leafGeometry = createSickleLeafGeometry();
+    const leafMaterials = [
+      new THREE.MeshPhysicalMaterial({
+        map: leafColorTex,
+        bumpMap: leafBumpTex,
+        bumpScale: 0.008,
+        color: 0xd8f0ea,
+        roughness: 0.42,
+        metalness: 0.02,
+        clearcoat: 0.28,
+        clearcoatRoughness: 0.45,
+        sheen: 0.35,
+        sheenColor: new THREE.Color(0xa8d8cf),
+        side: THREE.DoubleSide
+      }),
+      new THREE.MeshPhysicalMaterial({
+        map: leafColorTex,
+        bumpMap: leafBumpTex,
+        bumpScale: 0.008,
+        color: 0xbde2da,
+        roughness: 0.46,
+        metalness: 0.02,
+        clearcoat: 0.22,
+        clearcoatRoughness: 0.5,
+        sheen: 0.4,
+        sheenColor: new THREE.Color(0x98cec4),
+        side: THREE.DoubleSide
+      })
+    ];
+
+    const gumNutMaterial = new THREE.MeshStandardMaterial({
+      color: 0x5c6958,
+      roughness: 0.72,
+      metalness: 0.05
+    });
+    const twigMaterial = new THREE.MeshStandardMaterial({
+      color: 0x6e4736,
+      roughness: 0.68
+    });
+
+    const animatedLeafSprigs = [];
+    const leafColliders = [];
+
+    function createEucalyptusSprig(origin, baseEuler, scale = 1.0, leafCount = 7) {
+      const sprigGroup = new THREE.Group();
+      sprigGroup.position.copy(origin);
+      sprigGroup.rotation.copy(baseEuler);
+      sprigGroup.scale.setScalar(scale);
+      treeGroup.add(sprigGroup);
+
+      // Reddish-brown flexible eucalyptus twig stem
+      const stemCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0.05, -0.22, 0.08),
+        new THREE.Vector3(0.02, -0.48, 0.14),
+        new THREE.Vector3(-0.04, -0.75, 0.18)
+      ]);
+      const stemGeo = new THREE.TubeGeometry(stemCurve, 16, 0.016, 8, false);
+      const stemMesh = new THREE.Mesh(stemGeo, twigMaterial);
+      stemMesh.castShadow = true;
+      sprigGroup.add(stemMesh);
+
+      // Add a pair of cute woody eucalyptus gum nuts (seed capsules) near the upper stem
+      for (let g = 0; g < 2; g++) {
+        const nutGroup = new THREE.Group();
+        const pt = stemCurve.getPointAt(0.28 + g * 0.12);
+        nutGroup.position.copy(pt);
+        nutGroup.rotation.set(0.5 + g * 0.4, g * 1.8, 0.6 - g * 1.2);
+
+        const cupGeo = new THREE.CylinderGeometry(0.036, 0.016, 0.058, 12);
+        const cup = new THREE.Mesh(cupGeo, gumNutMaterial);
+        cup.position.y = 0.03;
+        nutGroup.add(cup);
+
+        const rimGeo = new THREE.TorusGeometry(0.035, 0.006, 8, 12);
+        rimGeo.rotateX(Math.PI / 2);
+        const rim = new THREE.Mesh(rimGeo, gumNutMaterial);
+        rim.position.y = 0.058;
+        nutGroup.add(rim);
+
+        sprigGroup.add(nutGroup);
+      }
+
+      const individualLeaves = [];
+      for (let i = 0; i < leafCount; i++) {
+        const u = 0.18 + (i / Math.max(1, leafCount - 1)) * 0.8;
+        const pt = stemCurve.getPointAt(Math.min(0.99, u));
+        const leafPivot = new THREE.Group();
+        leafPivot.position.copy(pt);
+
+        const side = i % 2 === 0 ? 1 : -1;
+        const rx = 2.35 + (i * 0.08) % 0.35; // Hanging downward naturally
+        const ry = side * (0.45 + (i * 0.17) % 0.55);
+        const rz = side * (0.28 + (i * 0.09) % 0.25);
+        leafPivot.rotation.set(rx, ry, rz);
+
+        const leafMesh = new THREE.Mesh(leafGeometry, leafMaterials[i % 2]);
+        const s = 0.78 + ((i * 37) % 10) * 0.042;
+        leafMesh.scale.set(s * side, s, s);
+        leafMesh.castShadow = true;
+        leafMesh.receiveShadow = true;
+        leafPivot.add(leafMesh);
+        sprigGroup.add(leafPivot);
+
+        individualLeaves.push({
+          pivot: leafPivot,
+          baseRot: leafPivot.rotation.clone(),
+          phase: i * 1.13 + origin.x * 2.1 + origin.y * 1.7
+        });
+      }
+
+      // Invisible sphere collider for interactive mouse rustling on leaves
+      const col = new THREE.Mesh(
+        new THREE.SphereGeometry(0.55, 8, 8),
+        new THREE.MeshBasicMaterial({ visible: false })
+      );
+      col.position.set(0, -0.45, 0.1);
+      sprigGroup.add(col);
+
+      const sprigRecord = {
+        group: sprigGroup,
+        baseRot: baseEuler.clone(),
+        leaves: individualLeaves,
+        phase: origin.x * 1.9 + origin.y * 2.7,
+        rustleVel: new THREE.Vector2(0, 0),
+        rustleAngle: new THREE.Vector2(0, 0)
+      };
+      col.userData.sprigRecord = sprigRecord;
+      leafColliders.push(col);
+      animatedLeafSprigs.push(sprigRecord);
+    }
+
+    // Place lush blue-green eucalyptus clusters framing the baby koala
+    createEucalyptusSprig(new THREE.Vector3(-0.52, 1.82, 0.20), new THREE.Euler(0.12, 0.25, -0.18), 1.05, 8);
+    createEucalyptusSprig(new THREE.Vector3(-1.28, 1.98, 0.10), new THREE.Euler(0.08, -0.30, 0.22), 0.95, 7);
+    createEucalyptusSprig(new THREE.Vector3(0.24, 1.56, 0.18), new THREE.Euler(0.18, 0.55, -0.12), 0.90, 6);
+    createEucalyptusSprig(new THREE.Vector3(1.18, 0.85, 0.24), new THREE.Euler(0.10, -0.40, -0.20), 1.05, 8);
+    createEucalyptusSprig(new THREE.Vector3(1.68, 1.04, 0.30), new THREE.Euler(0.15, 0.20, -0.35), 0.92, 7);
+    createEucalyptusSprig(new THREE.Vector3(-1.15, -0.60, 0.16), new THREE.Euler(0.20, 0.35, 0.18), 0.95, 7);
+    createEucalyptusSprig(new THREE.Vector3(-1.76, -0.24, 0.24), new THREE.Euler(0.05, -0.25, 0.28), 0.88, 6);
+    createEucalyptusSprig(new THREE.Vector3(0.95, 2.25, 0.02), new THREE.Euler(0.14, 0.15, -0.15), 1.0, 7);
+    // Cute small eucalyptus sprig right near the baby koala's chest/paw!
+    createEucalyptusSprig(new THREE.Vector3(0.45, 0.68, 0.22), new THREE.Euler(0.25, 0.65, -0.38), 0.62, 5);
+
+    // =========================================================================
+    // 7. BABY KOALA ANATOMY, HIERARCHY & BASE SCULPTED MESHES
+    // =========================================================================
+    const koalaRoot = new THREE.Group();
+    scene.add(koalaRoot);
+
+    const bodyGroup = new THREE.Group();
+    // Positioned snuggled tightly against the left-front of the diagonal trunk
+    bodyGroup.position.set(-0.26, -0.14, 0.16);
+    bodyGroup.rotation.set(0.06, 0.28, -0.22);
+    koalaRoot.add(bodyGroup);
+
+    const headGroup = new THREE.Group();
+    // Perched atop the torso, tilted adorably toward the viewer
+    headGroup.position.set(0.06, 0.78, 0.12);
+    headGroup.rotation.set(0.08, 0.26, 0.14);
+    bodyGroup.add(headGroup);
+
+    const leftEarGroup = new THREE.Group();
+    leftEarGroup.position.set(-0.46, 0.22, -0.04);
+    leftEarGroup.rotation.set(0.06, 0.22, 0.24);
+    headGroup.add(leftEarGroup);
+
+    const rightEarGroup = new THREE.Group();
+    rightEarGroup.position.set(0.46, 0.22, -0.04);
+    rightEarGroup.rotation.set(0.06, -0.22, -0.24);
+    headGroup.add(rightEarGroup);
+
+    // Underlying dense undercoat skin materials so no gap ever shows beneath the 28,000+ fur strands
+    const greyUndercoatMat = new THREE.MeshStandardMaterial({
+      color: 0x5c6068,
+      roughness: 0.92,
+      metalness: 0.0
+    });
+    const whiteUndercoatMat = new THREE.MeshStandardMaterial({
+      color: 0xe8e5df,
+      roughness: 0.90,
+      metalness: 0.0
+    });
+    const pinkInnerEarMat = new THREE.MeshPhysicalMaterial({
+      color: 0xe3949b,
+      roughness: 0.62,
+      metalness: 0.0,
+      sheen: 0.65,
+      sheenColor: new THREE.Color(0xffccd2),
+      clearcoat: 0.08
+    });
+
+    // Helper to define analytic ellipsoid metaballs for both base meshes and exact fur surface placement
+    const bodyEllipsoids = [
+      // 0: Plump baby koala lower belly & rump
+      { center: new THREE.Vector3(0.0, -0.18, -0.02), radii: new THREE.Vector3(0.56, 0.62, 0.54), rot: new THREE.Euler(0.1, 0, 0), weight: 1.35, role: 'rump' },
+      // 1: Upper torso / shoulders
+      { center: new THREE.Vector3(0.04, 0.30, 0.04), radii: new THREE.Vector3(0.48, 0.48, 0.46), rot: new THREE.Euler(-0.08, 0, -0.05), weight: 1.0, role: 'chest' },
+      // 2: Fluffy white belly / chest bulge facing the trunk & viewer
+      { center: new THREE.Vector3(0.18, 0.08, 0.22), radii: new THREE.Vector3(0.38, 0.50, 0.35), rot: new THREE.Euler(0, 0.2, 0), weight: 0.75, role: 'belly' },
+      // 3: Cute round koala tail-button bump on lower back
+      { center: new THREE.Vector3(-0.22, -0.52, -0.32), radii: new THREE.Vector3(0.18, 0.16, 0.18), rot: new THREE.Euler(0, 0, 0), weight: 0.2, role: 'tail' },
+      // 4: Left upper arm (viewer's left, reaching forward & right to hug front of trunk)
+      { center: new THREE.Vector3(-0.12, 0.34, 0.30), radii: new THREE.Vector3(0.23, 0.20, 0.28), rot: new THREE.Euler(0.25, 0.45, -0.15), weight: 0.48, role: 'limb' },
+      // 5: Left forearm gripping the front-right bark
+      { center: new THREE.Vector3(0.24, 0.34, 0.38), radii: new THREE.Vector3(0.26, 0.17, 0.19), rot: new THREE.Euler(0.10, -0.35, 0.12), weight: 0.45, role: 'limb' },
+      // 6: Right upper arm (hugging around the back of the eucalyptus trunk)
+      { center: new THREE.Vector3(0.28, 0.42, -0.20), radii: new THREE.Vector3(0.25, 0.20, 0.25), rot: new THREE.Euler(-0.2, -0.3, -0.1), weight: 0.42, role: 'limb' },
+      // 7: Right forearm wrapping back of trunk
+      { center: new THREE.Vector3(0.62, 0.44, -0.16), radii: new THREE.Vector3(0.24, 0.16, 0.18), rot: new THREE.Euler(0, 0.4, 0.15), weight: 0.38, role: 'limb' },
+      // 8: Left chubby thigh
+      { center: new THREE.Vector3(-0.08, -0.44, 0.26), radii: new THREE.Vector3(0.28, 0.26, 0.30), rot: new THREE.Euler(0.15, 0.3, -0.2), weight: 0.55, role: 'limb' },
+      // 9: Left lower leg & ankle gripping lower front of trunk
+      { center: new THREE.Vector3(0.25, -0.46, 0.32), radii: new THREE.Vector3(0.26, 0.18, 0.20), rot: new THREE.Euler(0.05, -0.3, 0.22), weight: 0.45, role: 'limb' },
+      // 10: Right thigh & lower leg wrapping back of trunk
+      { center: new THREE.Vector3(0.32, -0.36, -0.24), radii: new THREE.Vector3(0.28, 0.22, 0.26), rot: new THREE.Euler(-0.1, -0.25, 0.15), weight: 0.45, role: 'limb' }
+    ];
+
+    const headEllipsoids = [
+      // 0: Main round baby koala cranium
+      { center: new THREE.Vector3(0, 0.04, -0.02), radii: new THREE.Vector3(0.49, 0.46, 0.47), rot: new THREE.Euler(0, 0, 0), weight: 1.35, role: 'cranium' },
+      // 1: Left chubby cheek
+      { center: new THREE.Vector3(-0.26, -0.10, 0.12), radii: new THREE.Vector3(0.30, 0.26, 0.28), rot: new THREE.Euler(0, 0.2, 0), weight: 0.65, role: 'cheek' },
+      // 2: Right chubby cheek
+      { center: new THREE.Vector3(0.26, -0.10, 0.12), radii: new THREE.Vector3(0.30, 0.26, 0.28), rot: new THREE.Euler(0, -0.2, 0), weight: 0.65, role: 'cheek' },
+      // 3: Snout / muzzle bridge
+      { center: new THREE.Vector3(0, -0.04, 0.28), radii: new THREE.Vector3(0.25, 0.23, 0.26), rot: new THREE.Euler(0.12, 0, 0), weight: 0.55, role: 'muzzle' },
+      // 4: Soft rounded chin / lower jaw
+      { center: new THREE.Vector3(0, -0.24, 0.22), radii: new THREE.Vector3(0.22, 0.16, 0.22), rot: new THREE.Euler(0, 0, 0), weight: 0.35, role: 'chin' }
+    ];
+
+    // Build underlying solid base meshes for bodyEllipsoids and headEllipsoids
+    const baseSphereGeo = new THREE.SphereGeometry(1, 24, 18);
+    bodyEllipsoids.forEach((e) => {
+      const mat = e.role === 'belly' ? whiteUndercoatMat : greyUndercoatMat;
+      const m = new THREE.Mesh(baseSphereGeo, mat);
+      m.position.copy(e.center);
+      m.rotation.copy(e.rot);
+      m.scale.copy(e.radii).multiplyScalar(0.97);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      bodyGroup.add(m);
+    });
+
+    headEllipsoids.forEach((e) => {
+      const mat = e.role === 'chin' ? whiteUndercoatMat : greyUndercoatMat;
+      const m = new THREE.Mesh(baseSphereGeo, mat);
+      m.position.copy(e.center);
+      m.rotation.copy(e.rot);
+      m.scale.copy(e.radii).multiplyScalar(0.97);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      headGroup.add(m);
+    });
+
+    // Build the two round ears with warm pink inner ear shells
+    function buildEarBase(earGroup, isLeft) {
+      const sign = isLeft ? -1 : 1;
+      // Outer grey cartilage cup
+      const outerEar = new THREE.Mesh(baseSphereGeo, greyUndercoatMat);
+      outerEar.scale.set(0.27, 0.29, 0.12);
+      outerEar.position.set(sign * 0.04, 0.02, -0.02);
+      outerEar.castShadow = true;
+      outerEar.receiveShadow = true;
+      earGroup.add(outerEar);
+
+      // Warm pink inner ear concha (smoothly recessed pink dish)
+      const innerEar = new THREE.Mesh(baseSphereGeo, pinkInnerEarMat);
+      innerEar.scale.set(0.20, 0.22, 0.075);
+      innerEar.position.set(sign * 0.03, 0.01, 0.045);
+      innerEar.receiveShadow = true;
+      earGroup.add(innerEar);
+
+      // Deeper warm rose inner ear hollow fold
+      const innerFoldMat = new THREE.MeshStandardMaterial({
+        color: 0xc8747c,
+        roughness: 0.72
+      });
+      const innerFold = new THREE.Mesh(baseSphereGeo, innerFoldMat);
+      innerFold.scale.set(0.11, 0.13, 0.05);
+      innerFold.position.set(sign * 0.01, -0.02, 0.068);
+      earGroup.add(innerFold);
+    }
+    buildEarBase(leftEarGroup, true);
+    buildEarBase(rightEarGroup, false);
+
+    // =========================================================================
+    // 8. ICONIC KOALA FACE: LEATHERY CHARCOAL NOSE, GLOSSY EYES & CLAWS
+    // =========================================================================
+    const { colorTex: noseColorTex, bumpTex: noseBumpTex } = createKoalaNoseTextures();
+    const noseMaterial = new THREE.MeshPhysicalMaterial({
+      map: noseColorTex,
+      bumpMap: noseBumpTex,
+      bumpScale: 0.015,
+      roughness: 0.36,
+      metalness: 0.02,
+      clearcoat: 0.38,
+      clearcoatRoughness: 0.36,
+      sheen: 0.25,
+      sheenColor: new THREE.Color(0x6e737b)
+    });
+
+    function createSculptedKoalaNose() {
+      const noseGroup = new THREE.Group();
+      noseGroup.position.set(0, -0.02, 0.49);
+      headGroup.add(noseGroup);
+
+      // Custom sculpted oval/pear koala nose geometry with flared nostrils
+      const noseGeo = new THREE.SphereGeometry(1, 40, 36);
+      const pos = noseGeo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        let x = pos.getX(i);
+        let y = pos.getY(i);
+        let z = pos.getZ(i);
+
+        // Iconic koala nose shape:
+        // Tall oval (`y` from -1 to +1), slightly narrower at top bridge, wider and rounded at lower nostrils
+        const widthProfile = 0.88 - 0.18 * y + 0.14 * Math.exp(-Math.pow(y + 0.38, 2) * 5.0);
+        x *= 0.145 * widthProfile;
+        y *= 0.215;
+
+        // Forward arch of the nose bridge (`z`)
+        const bridgeCurve = Math.cos(y * 3.2) * 0.028;
+        z = z * 0.115 + bridgeCurve;
+
+        // Subtle philtrum groove at the very bottom center
+        if (y < -0.10 && z > 0) {
+          const groove = Math.exp(-x * x * 900) * Math.max(0, -y - 0.10) * 0.16;
+          z -= groove;
+          y += groove * 0.4;
+        }
+
+        // Sculpted nostril indentations on lower-left and lower-right
+        const nx = Math.abs(x) - 0.068;
+        const ny = y + 0.105;
+        const nDistSq = (nx * nx) / (0.042 * 0.042) + (ny * ny) / (0.052 * 0.052);
+        if (z > 0 && nDistSq < 1.35) {
+          const factor = Math.exp(-nDistSq * 2.1);
+          // Rim flare around nostril outer edge + deep pit inside
+          if (nDistSq < 0.65) {
+            z -= factor * 0.042;
+          } else {
+            z += factor * 0.012;
+          }
+        }
+
+        pos.setXYZ(i, x, y, z);
+      }
+      noseGeo.computeVertexNormals();
+
+      const noseMesh = new THREE.Mesh(noseGeo, noseMaterial);
+      noseMesh.castShadow = true;
+      noseMesh.receiveShadow = true;
+      noseGroup.add(noseMesh);
+
+      // Dark inner nostril cavities for realism
+      const nostrilDarkMat = new THREE.MeshBasicMaterial({ color: 0x070709 });
+      [-1, 1].forEach((side) => {
+        const cav = new THREE.Mesh(new THREE.SphereGeometry(0.028, 14, 12), nostrilDarkMat);
+        cav.scale.set(0.85, 1.25, 0.65);
+        cav.position.set(side * 0.066, -0.105, 0.072);
+        cav.rotation.z = side * 0.35;
+        cav.rotation.y = side * 0.42;
+        noseGroup.add(cav);
+      });
+
+      // Cute peaceful baby mouth & warm pink-grey lower lip tucked beneath nose
+      const mouthLipMat = new THREE.MeshStandardMaterial({
+        color: 0x9e7278,
+        roughness: 0.55
+      });
+      const lowerLip = new THREE.Mesh(new THREE.SphereGeometry(0.055, 16, 12), mouthLipMat);
+      lowerLip.scale.set(1.35, 0.45, 0.85);
+      lowerLip.position.set(0, -0.215, 0.015);
+      noseGroup.add(lowerLip);
+
+      const mouthLineMat = new THREE.MeshBasicMaterial({ color: 0x241a1d });
+      [-1, 1].forEach((side) => {
+        const smileCurve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(0, -0.195, 0.062),
+          new THREE.Vector3(side * 0.048, -0.205, 0.048),
+          new THREE.Vector3(side * 0.092, -0.188, 0.015)
+        ]);
+        const smileMesh = new THREE.Mesh(
+          new THREE.TubeGeometry(smileCurve, 12, 0.006, 6, false),
+          mouthLineMat
+        );
+        noseGroup.add(smileMesh);
+      });
+    }
+    createSculptedKoalaNose();
+
+    // Glossy dark eyes with catchlights & sleepy animated eyelids
+    const eyelidControllers = [];
+
+    function createKoalaEyes() {
+      const eyeOuterMat = new THREE.MeshPhysicalMaterial({
+        color: 0x120b07,
+        roughness: 0.015,
+        metalness: 0.0,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.01,
+        ior: 1.52,
+        envMapIntensity: 2.4
+      });
+
+      const irisRimMat = new THREE.MeshStandardMaterial({
+        color: 0x3b2212,
+        roughness: 0.35
+      });
+
+      const catchlightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const catchlightWarmMat = new THREE.MeshBasicMaterial({ color: 0xfff3dd });
+
+      const eyelidMat = new THREE.MeshStandardMaterial({
+        color: 0x45484f,
+        roughness: 0.78
+      });
+
+      [-1, 1].forEach((side) => {
+        const eyeSocket = new THREE.Group();
+        eyeSocket.position.set(side * 0.225, 0.055, 0.405);
+        eyeSocket.rotation.y = side * 0.32;
+        eyeSocket.rotation.x = -0.05;
+        headGroup.add(eyeSocket);
+
+        const eyeRadius = 0.068;
+        const eyeball = new THREE.Mesh(new THREE.SphereGeometry(eyeRadius, 28, 24), eyeOuterMat);
+        eyeSocket.add(eyeball);
+
+        // Subtle warm brown iris ring just beneath cornea front
+        const irisRing = new THREE.Mesh(
+          new THREE.RingGeometry(eyeRadius * 0.38, eyeRadius * 0.68, 24),
+          irisRimMat
+        );
+        irisRing.position.z = eyeRadius * 0.94;
+        eyeSocket.add(irisRing);
+
+        // Primary glossy studio catchlight sparkle
+        const catch1 = new THREE.Mesh(new THREE.SphereGeometry(0.014, 12, 12), catchlightMat);
+        catch1.scale.set(1.15, 1.35, 0.35);
+        catch1.position.set(-0.020, 0.024, eyeRadius * 0.98);
+        eyeSocket.add(catch1);
+
+        // Secondary pinpoint sparkle
+        const catch2 = new THREE.Mesh(new THREE.SphereGeometry(0.007, 10, 10), catchlightWarmMat);
+        catch2.scale.set(1.0, 1.0, 0.35);
+        catch2.position.set(0.022, -0.018, eyeRadius * 0.98);
+        eyeSocket.add(catch2);
+
+        // Animated Upper Eyelid (hemisphere shell)
+        const upperLidGeo = new THREE.SphereGeometry(
+          eyeRadius * 1.08,
+          24,
+          16,
+          0,
+          Math.PI * 2,
+          0,
+          Math.PI * 0.54
+        );
+        const upperLid = new THREE.Mesh(upperLidGeo, eyelidMat);
+        // Slightly sleepy default resting lid angle (-1.12 rad = open with cozy baby droop)
+        upperLid.rotation.x = -1.12;
+        eyeSocket.add(upperLid);
+
+        // Animated Lower Eyelid (for happy squint when petted)
+        const lowerLidGeo = new THREE.SphereGeometry(
+          eyeRadius * 1.07,
+          24,
+          16,
+          0,
+          Math.PI * 2,
+          Math.PI * 0.5,
+          Math.PI * 0.5
+        );
+        const lowerLid = new THREE.Mesh(lowerLidGeo, eyelidMat);
+        lowerLid.rotation.x = 1.18;
+        eyeSocket.add(lowerLid);
+
+        eyelidControllers.push({ upperLid, lowerLid, side });
+      });
+    }
+    createKoalaEyes();
+
+    // Paws & Curved Gripping Claws holding the eucalyptus bark
+    function createGrippingPawsAndClaws() {
+      const pawPadMat = new THREE.MeshStandardMaterial({
+        color: 0x2f3136,
+        roughness: 0.65
+      });
+      const clawMat = new THREE.MeshPhysicalMaterial({
+        color: 0x23201e,
+        roughness: 0.28,
+        metalness: 0.05,
+        clearcoat: 0.55,
+        clearcoatRoughness: 0.25
+      });
+
+      function makeCurvedClaw(scale = 1.0) {
+        const clawCurve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(0.035 * scale, 0.012 * scale, 0.03 * scale),
+          new THREE.Vector3(0.075 * scale, -0.008 * scale, 0.048 * scale),
+          new THREE.Vector3(0.105 * scale, -0.042 * scale, 0.042 * scale)
+        ]);
+        const geo = createTaperedBranchGeometry(clawCurve, 14, 8, 0.016 * scale, 0.002 * scale, 0);
+        const mesh = new THREE.Mesh(geo, clawMat);
+        mesh.castShadow = true;
+        return mesh;
+      }
+
+      // 1. Left Front Paw gripping front-right of the trunk (highly visible!)
+      const leftFrontPaw = new THREE.Group();
+      leftFrontPaw.position.set(0.45, 0.34, 0.36);
+      leftFrontPaw.rotation.set(0.15, -0.38, 0.12);
+      bodyGroup.add(leftFrontPaw);
+
+      const palm1 = new THREE.Mesh(baseSphereGeo, greyUndercoatMat);
+      palm1.scale.set(0.13, 0.11, 0.13);
+      leftFrontPaw.add(palm1);
+
+      // Koala zygodactyl front digits: 2 opposable thumbs + 3 fingers with curved claws digging into bark
+      const frontDigitOffsets = [
+        { pos: new THREE.Vector3(0.06, 0.075, -0.02), rot: new THREE.Euler(0.1, -0.45, -0.25), s: 0.92 },
+        { pos: new THREE.Vector3(0.08, 0.035, -0.03), rot: new THREE.Euler(0.05, -0.52, -0.10), s: 1.0 },
+        { pos: new THREE.Vector3(0.08, -0.010, -0.03), rot: new THREE.Euler(0.0, -0.55, 0.02), s: 1.05 },
+        { pos: new THREE.Vector3(0.07, -0.052, -0.02), rot: new THREE.Euler(-0.08, -0.50, 0.15), s: 0.96 },
+        { pos: new THREE.Vector3(0.05, -0.085, 0.00), rot: new THREE.Euler(-0.15, -0.42, 0.28), s: 0.85 }
+      ];
+      frontDigitOffsets.forEach((d) => {
+        const toe = new THREE.Mesh(baseSphereGeo, pawPadMat);
+        toe.scale.set(0.042 * d.s, 0.024 * d.s, 0.028 * d.s);
+        toe.position.copy(d.pos);
+        toe.rotation.copy(d.rot);
+        leftFrontPaw.add(toe);
+
+        const claw = makeCurvedClaw(d.s);
+        claw.position.copy(d.pos);
+        claw.rotation.copy(d.rot);
+        leftFrontPaw.add(claw);
+      });
+
+      // 2. Left Hind Paw gripping lower-front of the trunk
+      const leftHindPaw = new THREE.Group();
+      leftHindPaw.position.set(0.44, -0.46, 0.30);
+      leftHindPaw.rotation.set(0.08, -0.32, 0.22);
+      bodyGroup.add(leftHindPaw);
+
+      const palm2 = new THREE.Mesh(baseSphereGeo, greyUndercoatMat);
+      palm2.scale.set(0.14, 0.11, 0.13);
+      leftHindPaw.add(palm2);
+
+      const hindDigitOffsets = [
+        { pos: new THREE.Vector3(0.05, 0.068, -0.01), rot: new THREE.Euler(0.1, -0.35, -0.2), s: 0.85 },
+        { pos: new THREE.Vector3(0.08, 0.025, -0.03), rot: new THREE.Euler(0.05, -0.50, -0.05), s: 1.05 },
+        { pos: new THREE.Vector3(0.08, -0.022, -0.03), rot: new THREE.Euler(0.0, -0.52, 0.08), s: 1.0 },
+        { pos: new THREE.Vector3(0.06, -0.065, -0.02), rot: new THREE.Euler(-0.08, -0.46, 0.20), s: 0.90 }
+      ];
+      hindDigitOffsets.forEach((d) => {
+        const toe = new THREE.Mesh(baseSphereGeo, pawPadMat);
+        toe.scale.set(0.045 * d.s, 0.026 * d.s, 0.030 * d.s);
+        toe.position.copy(d.pos);
+        toe.rotation.copy(d.rot);
+        leftHindPaw.add(toe);
+
+        const claw = makeCurvedClaw(d.s);
+        claw.position.copy(d.pos);
+        claw.rotation.copy(d.rot);
+        leftHindPaw.add(claw);
+      });
+
+      // 3. Right Front Paw claws peeking around the far right side of the trunk
+      const rightFrontPaw = new THREE.Group();
+      rightFrontPaw.position.set(0.78, 0.42, -0.04);
+      rightFrontPaw.rotation.set(0.1, -2.35, 0.15);
+      bodyGroup.add(rightFrontPaw);
+      for (let i = -1; i <= 2; i++) {
+        const claw = makeCurvedClaw(0.95);
+        claw.position.set(0.02, i * 0.036, 0);
+        rightFrontPaw.add(claw);
+      }
+
+      // 4. Right Hind Paw claws peeking around the lower right side of the trunk
+      const rightHindPaw = new THREE.Group();
+      rightHindPaw.position.set(0.60, -0.38, -0.06);
+      rightHindPaw.rotation.set(0.05, -2.25, 0.18);
+      bodyGroup.add(rightHindPaw);
+      for (let i = -1; i <= 1; i++) {
+        const claw = makeCurvedClaw(0.95);
+        claw.position.set(0.02, i * 0.038, 0);
+        rightHindPaw.add(claw);
+      }
+    }
+    createGrippingPawsAndClaws();
+
+    // =========================================================================
+    // 9. 28,000+ 3D FUR STRAND SYSTEM (`InstancedMesh`) WITH SHADER & PHYSICS
+    // =========================================================================
+    // Create a curved, finely tapered 3D fur blade/cone with root-to-tip UV & natural arc
+    function createCurvedFurStrandGeometry() {
+      const radialSegs = 5;
+      const heightSegs = 5;
+      const geo = new THREE.CylinderGeometry(0.0005, 0.015, 1.0, radialSegs, heightSegs, false);
+      geo.translate(0, 0.5, 0); // Base root at (0, 0, 0), tip at (0, 1, 0)
+
+      const pos = geo.attributes.position;
+      const uv = geo.attributes.uv;
+      for (let i = 0; i < pos.count; i++) {
+        const y = Math.max(0, Math.min(1, pos.getY(i)));
+        // Non-linear smooth taper + natural hair curve along +Z
+        const radiusScale = Math.pow(1.0 - y, 0.55);
+        const x = pos.getX(i) * (radiusScale / Math.max(0.001, 1.0 - y * 0.96));
+        const z = pos.getZ(i) * (radiusScale / Math.max(0.001, 1.0 - y * 0.96)) + 0.24 * y * y;
+        pos.setXYZ(i, x, y, z);
+        uv.setXY(i, uv.getX(i), y);
+      }
+      geo.computeVertexNormals();
+      return geo;
+    }
+
+    const furStrandGeometry = createCurvedFurStrandGeometry();
+    const furShaderUniforms = {
+      uTime: { value: 0 }
+    };
+
+    function createFurMaterial() {
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.68,
+        metalness: 0.02
+      });
+
+      mat.onBeforeCompile = (shader) => {
+        shader.uniforms.uTime = furShaderUniforms.uTime;
+        shader.vertexShader =
+          `
+          uniform float uTime;
+          varying float vHairH;
+          varying vec3 vWorldPos;
+          ` +
+          shader.vertexShader
+            .replace(
+              '#include <begin_vertex>',
+              `
+              #include <begin_vertex>
+              vHairH = clamp(uv.y, 0.0, 1.0);
+              // Gentle organic breeze flutter at the hair tips
+              float tipWeight = vHairH * vHairH;
+              float seed = instanceMatrix[3][0] * 13.7 + instanceMatrix[3][1] * 19.3 + instanceMatrix[3][2] * 11.1;
+              transformed.x += sin(uTime * 2.4 + seed) * 0.028 * tipWeight;
+              transformed.z += cos(uTime * 1.9 + seed * 0.8) * 0.024 * tipWeight;
+              `
+            )
+            .replace(
+              '#include <worldpos_vertex>',
+              `
+              #include <worldpos_vertex>
+              vWorldPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
+              `
+            );
+
+        shader.fragmentShader =
+          `
+          varying float vHairH;
+          varying vec3 vWorldPos;
+          ` +
+          shader.fragmentShader
+            .replace(
+              '#include <color_fragment>',
+              `
+              #include <color_fragment>
+              // Root ambient occlusion deep in coat, bright silver-soft tip illumination
+              float rootAO = mix(0.42, 1.16, pow(vHairH, 0.62));
+              diffuseColor.rgb *= rootAO;
+              `
+            )
+            .replace(
+              '#include <dithering_fragment>',
+              `
+              // Velvet subsurface rim sheen on fur tips
+              vec3 viewDir = normalize(cameraPosition - vWorldPos);
+              float fresnel = pow(1.0 - abs(dot(normalize(vNormal), viewDir)), 2.2);
+              gl_FragColor.rgb += diffuseColor.rgb * fresnel * (0.22 + 0.48 * vHairH);
+              #include <dithering_fragment>
+              `
+            );
+      };
+      return mat;
+    }
+
+    const furMaterial = createFurMaterial();
+
+    // Deterministic PRNG for reproducible ultra-fluffy fur coat
+    let furSeed = 20261103;
+    function nextRand() {
+      furSeed = (furSeed * 1664525 + 1013904223) % 4294967296;
+      return furSeed / 4294967296;
+    }
+
+    // Evaluate signed distance & gradient of ellipsoid union for seamless surface placement
+    const _vLocal = new THREE.Vector3();
+    const _qInv = new THREE.Quaternion();
+    const _qFwd = new THREE.Quaternion();
+    const _gradLocal = new THREE.Vector3();
+
+    function projectOntoEllipsoidUnion(ellipsoids, startPoint, startNormal) {
+      const p = startPoint.clone();
+      const grad = new THREE.Vector3();
+
+      // 3 Newton steps onto the smooth metaball iso-surface
+      for (let iter = 0; iter < 3; iter++) {
+        let field = 0;
+        grad.set(0, 0, 0);
+
+        for (let i = 0; i < ellipsoids.length; i++) {
+          const el = ellipsoids[i];
+          _qFwd.setFromEuler(el.rot);
+          _qInv.copy(_qFwd).invert();
+          _vLocal.copy(p).sub(el.center).applyQuaternion(_qInv);
+
+          const nx = _vLocal.x / el.radii.x;
+          const ny = _vLocal.y / el.radii.y;
+          const nz = _vLocal.z / el.radii.z;
+          const r2 = nx * nx + ny * ny + nz * nz;
+          const w = Math.exp(-r2 * 2.4);
+          field += w;
+
+          _gradLocal.set(
+            (-4.8 * nx / el.radii.x) * w,
+            (-4.8 * ny / el.radii.y) * w,
+            (-4.8 * nz / el.radii.z) * w
+          ).applyQuaternion(_qFwd);
+          grad.add(_gradLocal);
+        }
+
+        const targetIso = Math.exp(-2.4);
+        const err = field - targetIso;
+        const gLenSq = grad.lengthSq();
+        if (gLenSq > 1e-6) {
+          p.addScaledVector(grad, -err / gLenSq * 0.55);
+        }
+      }
+
+      const normal = grad.lengthSq() > 1e-6 ? grad.negate().normalize() : startNormal.clone();
+      return { pos: p, normal };
+    }
+
+    // Store all fur systems for fast interactive mouse brushing physics
+    const furSystems = [];
+    const _dummyMat = new THREE.Matrix4();
+    const _dummyQuat = new THREE.Quaternion();
+    const _deflectQuat = new THREE.Quaternion();
+    const _dummyScale = new THREE.Vector3();
+    const _upAxis = new THREE.Vector3(0, 1, 0);
+    const _zAxis = new THREE.Vector3(0, 0, 1);
+    const _tmpDir = new THREE.Vector3();
+    const _tmpTan = new THREE.Vector3();
+    const _tmpColor = new THREE.Color();
+
+    function buildFurLayer(parentGroup, count, generatorFn) {
+      const instMesh = new THREE.InstancedMesh(furStrandGeometry, furMaterial, count);
+      instMesh.castShadow = true;
+      instMesh.receiveShadow = true;
+      instMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      parentGroup.add(instMesh);
+
+      const positions = new Float32Array(count * 3);
+      const normals = new Float32Array(count * 3);
+      const baseQuats = new Float32Array(count * 4);
+      const baseScales = new Float32Array(count * 3);
+      const deflectX = new Float32Array(count);
+      const deflectZ = new Float32Array(count);
+      const velX = new Float32Array(count);
+      const velZ = new Float32Array(count);
+      const fluffBoost = new Float32Array(count);
+      const activeIndices = new Set();
+
+      for (let i = 0; i < count; i++) {
+        const spec = generatorFn(i);
+        positions[i * 3] = spec.pos.x;
+        positions[i * 3 + 1] = spec.pos.y;
+        positions[i * 3 + 2] = spec.pos.z;
+
+        normals[i * 3] = spec.normal.x;
+        normals[i * 3 + 1] = spec.normal.y;
+        normals[i * 3 + 2] = spec.normal.z;
+
+        // Orient strand so +Y points along `spec.dir` and +Z curves along `spec.curlDir`
+        _tmpDir.copy(spec.dir).normalize();
+        _dummyQuat.setFromUnitVectors(_upAxis, _tmpDir);
+
+        // Twist around strand axis for natural curl orientation
+        const twistQuat = new THREE.Quaternion().setFromAxisAngle(_tmpDir, spec.twist);
+        _dummyQuat.premultiply(twistQuat);
+
+        baseQuats[i * 4] = _dummyQuat.x;
+        baseQuats[i * 4 + 1] = _dummyQuat.y;
+        baseQuats[i * 4 + 2] = _dummyQuat.z;
+        baseQuats[i * 4 + 3] = _dummyQuat.w;
+
+        baseScales[i * 3] = spec.scale.x;
+        baseScales[i * 3 + 1] = spec.scale.y;
+        baseScales[i * 3 + 2] = spec.scale.z;
+
+        _dummyMat.compose(spec.pos, _dummyQuat, spec.scale);
+        instMesh.setMatrixAt(i, _dummyMat);
+        instMesh.setColorAt(i, spec.color);
+      }
+
+      instMesh.instanceMatrix.needsUpdate = true;
+      instMesh.instanceColor.needsUpdate = true;
+
+      furSystems.push({
+        parentGroup,
+        instMesh,
+        count,
+        positions,
+        normals,
+        baseQuats,
+        baseScales,
+        deflectX,
+        deflectZ,
+        velX,
+        velZ,
+        fluffBoost,
+        activeIndices
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // LAYER A: 16,000 Strands on Baby Koala Body, Rump, Limbs & White Chest/Belly
+    // -------------------------------------------------------------------------
+    const bodyWeightSum = bodyEllipsoids.reduce((acc, e) => acc + e.weight, 0);
+
+    buildFurLayer(bodyGroup, 16000, () => {
+      // Sample ellipsoid proportional to weight
+      let r = nextRand() * bodyWeightSum;
+      let chosen = bodyEllipsoids[0];
+      for (let k = 0; k < bodyEllipsoids.length; k++) {
+        if (r <= bodyEllipsoids[k].weight) {
+          chosen = bodyEllipsoids[k];
+          break;
+        }
+        r -= bodyEllipsoids[k].weight;
+      }
+
+      // Uniform random point on unit sphere
+      const u = nextRand() * 2 - 1;
+      const theta = nextRand() * Math.PI * 2;
+      const s = Math.sqrt(1 - u * u);
+      const ux = s * Math.cos(theta);
+      const uy = u;
+      const uz = s * Math.sin(theta);
+
+      const localPt = new THREE.Vector3(
+        ux * chosen.radii.x,
+        uy * chosen.radii.y,
+        uz * chosen.radii.z
+      );
+      const localNorm = new THREE.Vector3(
+        ux / chosen.radii.x,
+        uy / chosen.radii.y,
+        uz / chosen.radii.z
+      ).normalize();
+
+      const q = new THREE.Quaternion().setFromEuler(chosen.rot);
+      localPt.applyQuaternion(q).add(chosen.center);
+      localNorm.applyQuaternion(q).normalize();
+
+      const projected = projectOntoEllipsoidUnion(bodyEllipsoids, localPt, localNorm);
+      const p = projected.pos;
+      const n = projected.normal;
+
+      // Determine whether this strand belongs to the bright fluffy white chest/belly patch
+      // or the dappled ash-grey / silver-grey back, rump, and limbs
+      const chestFactor =
+        Math.max(0, (p.z + 0.08) * 1.45) *
+        Math.max(0, 1.0 - Math.abs(p.x - 0.10) * 1.65) *
+        Math.max(0, 1.0 - Math.pow((p.y - 0.02) / 0.58, 2));
+
+      const isWhiteBelly = chosen.role === 'belly' || chestFactor > 0.36 + (nextRand() - 0.5) * 0.14;
+      const isRumpDapple = p.y < -0.25 && p.z < 0.05;
+
+      const color = _tmpColor;
+      if (isWhiteBelly) {
+        // Bright creamy-white fluffy chest & belly patch
+        const shade = 0.90 + nextRand() * 0.14;
+        color.setRGB(shade, shade * 0.985, shade * 0.955);
+      } else if (isRumpDapple && nextRand() > 0.42) {
+        // Characteristic dappled koala rump fur (warm ash-grey + silver speckles)
+        const v = 0.42 + nextRand() * 0.44;
+        color.setRGB(v * 1.02, v * 0.99, v * 0.96);
+      } else {
+        // Soft ash-grey and silver-grey fur with occasional bright silver guard hairs
+        const isSilverTip = nextRand() > 0.72;
+        const baseL = isSilverTip ? 0.68 + nextRand() * 0.24 : 0.42 + nextRand() * 0.25;
+        color.setRGB(baseL * 0.97, baseL * 0.99, baseL * 1.03);
+      }
+
+      // Groom direction: outward along normal + gentle downward & backward flow
+      const groomDir = n.clone();
+      groomDir.y -= 0.28;
+      groomDir.x += (nextRand() - 0.5) * 0.28;
+      groomDir.z += (nextRand() - 0.5) * 0.28;
+      groomDir.normalize();
+
+      const length = isWhiteBelly
+        ? 0.115 + nextRand() * 0.095
+        : 0.095 + nextRand() * 0.085;
+      const thickness = 1.05 + nextRand() * 0.65;
+
+      return {
+        pos: p,
+        normal: n,
+        dir: groomDir,
+        twist: nextRand() * Math.PI * 2,
+        scale: new THREE.Vector3(thickness, length, thickness),
+        color: color.clone()
+      };
+    });
+
+    // -------------------------------------------------------------------------
+    // LAYER B: 7,000 Strands on Baby Koala Head, Crown, Cheeks & Chin
+    // -------------------------------------------------------------------------
+    const headWeightSum = headEllipsoids.reduce((acc, e) => acc + e.weight, 0);
+
+    buildFurLayer(headGroup, 7000, () => {
+      let p, n, chosen;
+      let attempts = 0;
+
+      // Reject strands inside the leathery charcoal nose or glossy eye sockets
+      while (true) {
+        attempts++;
+        let r = nextRand() * headWeightSum;
+        chosen = headEllipsoids[0];
+        for (let k = 0; k < headEllipsoids.length; k++) {
+          if (r <= headEllipsoids[k].weight) {
+            chosen = headEllipsoids[k];
+            break;
+          }
+          r -= headEllipsoids[k].weight;
+        }
+
+        const u = nextRand() * 2 - 1;
+        const theta = nextRand() * Math.PI * 2;
+        const s = Math.sqrt(1 - u * u);
+        const ux = s * Math.cos(theta);
+        const uy = u;
+        const uz = s * Math.sin(theta);
+
+        const localPt = new THREE.Vector3(
+          ux * chosen.radii.x,
+          uy * chosen.radii.y,
+          uz * chosen.radii.z
+        );
+        const localNorm = new THREE.Vector3(
+          ux / chosen.radii.x,
+          uy / chosen.radii.y,
+          uz / chosen.radii.z
+        ).normalize();
+
+        const q = new THREE.Quaternion().setFromEuler(chosen.rot);
+        localPt.applyQuaternion(q).add(chosen.center);
+        localNorm.applyQuaternion(q).normalize();
+
+        const projected = projectOntoEllipsoidUnion(headEllipsoids, localPt, localNorm);
+        p = projected.pos;
+        n = projected.normal;
+
+        // Check exclusion zones around nose (0, -0.02, 0.49) and eyes (±0.225, 0.055, 0.405)
+        if (p.z > 0.25) {
+          const noseDist = Math.pow(p.x / 0.155, 2) + Math.pow((p.y + 0.025) / 0.225, 2);
+          if (noseDist < 1.08 && attempts < 20) continue;
+
+          const eyeDistL = Math.hypot(p.x + 0.225, p.y - 0.055, (p.z - 0.405) * 0.6);
+          const eyeDistR = Math.hypot(p.x - 0.225, p.y - 0.055, (p.z - 0.405) * 0.6);
+          if ((eyeDistL < 0.088 || eyeDistR < 0.088) && attempts < 20) continue;
+        }
+        break;
+      }
+
+      // Color & length variation across head:
+      // Fluffy bright silver-white cheeks & chin, soft ash/silver-grey crown & forehead
+      const isCheekOrChin =
+        chosen.role === 'chin' ||
+        (p.y < -0.06 && Math.abs(p.x) > 0.16 && p.z > -0.08) ||
+        (p.y < -0.18 && p.z > 0.05);
+
+      const isBrowHighlight = p.y > 0.08 && p.y < 0.24 && p.z > 0.26 && Math.abs(p.x) > 0.12;
+
+      const color = _tmpColor;
+      if (isCheekOrChin) {
+        const w = 0.84 + nextRand() * 0.18;
+        color.setRGB(w, w * 0.99, w * 0.97);
+      } else if (isBrowHighlight) {
+        const w = 0.72 + nextRand() * 0.22;
+        color.setRGB(w * 0.98, w, w * 1.03);
+      } else {
+        const isSilver = nextRand() > 0.65;
+        const g = isSilver ? 0.66 + nextRand() * 0.24 : 0.44 + nextRand() * 0.22;
+        color.setRGB(g * 0.97, g * 0.99, g * 1.03);
+      }
+
+      // Radial facial grooming away from the nose bridge so fur frames the eyes and nose cleanly
+      const groomDir = n.clone();
+      if (p.z > 0.15) {
+        const radialFromNose = new THREE.Vector3(p.x, p.y + 0.02, 0.12).normalize();
+        groomDir.lerp(radialFromNose, 0.48).normalize();
+      } else {
+        groomDir.y -= 0.12;
+        groomDir.normalize();
+      }
+      groomDir.x += (nextRand() - 0.5) * 0.18;
+      groomDir.y += (nextRand() - 0.5) * 0.18;
+      groomDir.normalize();
+
+      // Shorter velvety fur right near the eyes/snout, extra fluffy on cheeks & crown
+      let proximityScale = 1.0;
+      if (p.z > 0.28) {
+        const dEye = Math.min(
+          Math.hypot(p.x + 0.225, p.y - 0.055),
+          Math.hypot(p.x - 0.225, p.y - 0.055)
+        );
+        const dNose = Math.hypot(p.x * 1.2, (p.y + 0.02) * 0.9);
+        proximityScale = THREE.MathUtils.clamp(Math.min(dEye / 0.18, dNose / 0.25), 0.32, 1.0);
+      }
+
+      const baseLen = isCheekOrChin
+        ? 0.105 + nextRand() * 0.085
+        : 0.082 + nextRand() * 0.068;
+      const length = baseLen * proximityScale;
+      const thickness = (0.95 + nextRand() * 0.55) * Math.max(0.65, proximityScale);
+
+      return {
+        pos: p,
+        normal: n,
+        dir: groomDir,
+        twist: nextRand() * Math.PI * 2,
+        scale: new THREE.Vector3(thickness, length, thickness),
+        color: color.clone()
+      };
+    });
+
+    // -------------------------------------------------------------------------
+    // LAYER C: 5,000 Extra-Long Ultra-Fluffy White & Silver-Grey Ear Tufts
+    // (2,500 strands on Left Ear + 2,500 strands on Right Ear)
+    // -------------------------------------------------------------------------
+    function buildEarTuftLayer(earGroup, isLeft) {
+      const sign = isLeft ? -1 : 1;
+
+      buildFurLayer(earGroup, 2500, (idx) => {
+        // 65% of ear strands are dramatic long outer-rim & inner-lobe wispy white/silver tufts,
+        // 35% cover the rounded outer ear back and upper rim in plush silver-grey fur
+        const isLongRimTuft = idx < 1650;
+
+        let p, n, groomDir, length, thickness;
+        const color = _tmpColor;
+
+        if (isLongRimTuft) {
+          // Angle around the outer & lower ear rim where koala ear plumes fan out
+          // Emphasize outer side, lower lobe, and inner-rim bursts
+          const angle = (nextRand() * 1.35 - 0.55) * Math.PI; // -0.55pi (bottom) to +0.80pi (top-outer)
+          const radialBand = 0.72 + nextRand() * 0.34;
+          const ex = sign * Math.cos(angle) * 0.23 * radialBand + sign * 0.04;
+          const ey = Math.sin(angle) * 0.25 * radialBand + 0.01;
+          const ez = (nextRand() - 0.38) * 0.085;
+
+          p = new THREE.Vector3(ex, ey, ez);
+          n = new THREE.Vector3(sign * Math.cos(angle), Math.sin(angle), 0.25).normalize();
+
+          // Fan out dramatically outward and slightly downward like feathery plumes
+          groomDir = new THREE.Vector3(
+            sign * (0.72 + nextRand() * 0.45),
+            Math.sin(angle) * 0.65 - 0.28 + (nextRand() - 0.5) * 0.32,
+            0.18 + (nextRand() - 0.5) * 0.38
+          ).normalize();
+
+          // Extra-long wispy tufts!
+          const isLowerPlume = angle < 0.22 * Math.PI;
+          length = isLowerPlume
+            ? 0.22 + nextRand() * 0.21
+            : 0.16 + nextRand() * 0.16;
+          thickness = 1.15 + nextRand() * 0.75;
+
+          // Pure snowy white & pearl-silver ear tufts with subtle ash-grey accents on upper rim
+          if (isLowerPlume || nextRand() > 0.25) {
+            const w = 0.92 + nextRand() * 0.14;
+            color.setRGB(w, w * 0.99, w * 0.97);
+          } else {
+            const g = 0.65 + nextRand() * 0.25;
+            color.setRGB(g * 0.98, g, g * 1.04);
+          }
+        } else {
+          // Back and upper crown of ear (avoiding the warm pink front inner concha dish)
+          const u = nextRand() * 2 - 1;
+          const theta = nextRand() * Math.PI * 2;
+          const s = Math.sqrt(1 - u * u);
+          const ux = s * Math.cos(theta);
+          let uy = u;
+          let uz = s * Math.sin(theta);
+
+          // Keep off the front-center pink inner ear dish (`uz > 0.25` near center)
+          if (uz > 0.15 && Math.hypot(ux, uy) < 0.78) {
+            uz = -Math.abs(uz);
+          }
+
+          p = new THREE.Vector3(
+            ux * 0.26 + sign * 0.04,
+            uy * 0.28 + 0.02,
+            uz * 0.11 - 0.02
+          );
+          n = new THREE.Vector3(ux, uy, uz * 1.5).normalize();
+          groomDir = n.clone().add(new THREE.Vector3(sign * 0.35, 0.1, 0)).normalize();
+
+          length = 0.10 + nextRand() * 0.11;
+          thickness = 1.05 + nextRand() * 0.55;
+
+          const g = 0.50 + nextRand() * 0.36;
+          color.setRGB(g * 0.97, g * 0.99, g * 1.02);
+        }
+
+        return {
+          pos: p,
+          normal: n,
+          dir: groomDir,
+          twist: nextRand() * Math.PI * 2,
+          scale: new THREE.Vector3(thickness, length, thickness),
+          color: color.clone()
+        };
+      });
+    }
+
+    buildEarTuftLayer(leftEarGroup, true);
+    buildEarTuftLayer(rightEarGroup, false);
+    // Total 3D Fur Strands: 16,000 + 7,000 + 2,500 + 2,500 = 28,000 InstancedMesh strands!
+
+    // =========================================================================
+    // 10. INTERACTIVE RAYCASTER COLLIDERS & MOUSE PETTING / FLUFFING PHYSICS
+    // =========================================================================
+    const koalaColliders = [];
+    const colliderMat = new THREE.MeshBasicMaterial({ visible: false });
+
+    function addColliderSphere(parent, center, radii, tag) {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 12), colliderMat);
+      m.position.copy(center);
+      // Slightly inflated to catch fur tips when brushing
+      m.scale.copy(radii).multiplyScalar(1.16);
+      m.userData.tag = tag;
+      parent.add(m);
+      koalaColliders.push(m);
+    }
+
+    bodyEllipsoids.forEach((e) => addColliderSphere(bodyGroup, e.center, e.radii, 'body'));
+    headEllipsoids.forEach((e) => addColliderSphere(headGroup, e.center, e.radii, 'head'));
+    addColliderSphere(leftEarGroup, new THREE.Vector3(-0.08, 0.02, 0), new THREE.Vector3(0.38, 0.38, 0.24), 'leftEar');
+    addColliderSphere(rightEarGroup, new THREE.Vector3(0.08, 0.02, 0), new THREE.Vector3(0.38, 0.38, 0.24), 'rightEar');
+
+    const raycaster = new THREE.Raycaster();
+    const pointerNDC = new THREE.Vector2(-99, -99);
+    const prevPointerNDC = new THREE.Vector2(-99, -99);
+    const pointerDeltaNDC = new THREE.Vector2(0, 0);
+
+    // Interactive koala reactions (happy squint, cuddle tilt, ear twitch)
+    let happySquintLevel = 0;
+    let cuddleNodTarget = new THREE.Vector2(0, 0);
+    let cuddleNodCurrent = new THREE.Vector2(0, 0);
+    let leftEarTwitchImpulse = 0;
+    let rightEarTwitchImpulse = 0;
+
+    const _localHit = new THREE.Vector3();
+    const _localPrevHit = new THREE.Vector3();
+    const _localStroke = new THREE.Vector3();
+    const _strandPos = new THREE.Vector3();
+    const _strandNorm = new THREE.Vector3();
+
+    function applyFurBrushAtWorldPoint(worldPoint, worldStrokeVec, radius, strength, fluffOut) {
+      for (let s = 0; s < furSystems.length; s++) {
+        const sys = furSystems[s];
+        sys.parentGroup.updateWorldMatrix(true, false);
+
+        _localHit.copy(worldPoint);
+        sys.parentGroup.worldToLocal(_localHit);
+
+        _localPrevHit.copy(worldPoint).sub(worldStrokeVec);
+        sys.parentGroup.worldToLocal(_localPrevHit);
+        _localStroke.copy(_localHit).sub(_localPrevHit);
+
+        const rSq = radius * radius;
+        const posArr = sys.positions;
+        const normArr = sys.normals;
+
+        for (let i = 0; i < sys.count; i++) {
+          const idx3 = i * 3;
+          const dx = posArr[idx3] - _localHit.x;
+          const dy = posArr[idx3 + 1] - _localHit.y;
+          const dz = posArr[idx3 + 2] - _localHit.z;
+          const dSq = dx * dx + dy * dy + dz * dz;
+
+          if (dSq < rSq) {
+            const dist = Math.sqrt(dSq);
+            const falloff = Math.pow(1.0 - dist / radius, 1.5);
+
+            // Radial parting away from brush center + mouse stroke brushing direction
+            const radialX = dist > 1e-4 ? dx / dist : 0;
+            const radialZ = dist > 1e-4 ? dz / dist : 0;
+
+            const impulseX = (_localStroke.x * 16.0 + radialX * fluffOut + ( dy * 0.4)) * falloff * strength;
+            const impulseZ = (_localStroke.z * 16.0 + _localStroke.y * 10.0 + radialZ * fluffOut) * falloff * strength;
+
+            sys.velX[i] += impulseX;
+            sys.velZ[i] += impulseZ;
+            sys.fluffBoost[i] = Math.min(0.55, sys.fluffBoost[i] + falloff * 0.26 * strength);
+            sys.activeIndices.add(i);
+          }
+        }
+      }
+    }
+
+    function handlePointerInteraction(isClick = false) {
+      raycaster.setFromCamera(pointerNDC, camera);
+
+      // 1. Check intersections with the koala
+      const hits = raycaster.intersectObjects(koalaColliders, false);
+      if (hits.length > 0) {
+        const hit = hits[0];
+        const tag = hit.object.userData.tag;
+
+        // Calculate 3D stroke vector in camera plane at hit distance
+        const camRight = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+        const camUp = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+        const worldStroke = new THREE.Vector3()
+          .addScaledVector(camRight, pointerDeltaNDC.x * hit.distance * 0.85)
+          .addScaledVector(camUp, pointerDeltaNDC.y * hit.distance * 0.85);
+
+        const radius = isClick ? 0.62 : 0.44;
+        const strength = isClick ? 2.4 : 1.05;
+        const fluffOut = isClick ? 3.2 : 1.15;
+
+        applyFurBrushAtWorldPoint(hit.point, worldStroke, radius, strength, fluffOut);
+
+        // Trigger adorable behavioral reactions when petted!
+        happySquintLevel = Math.min(1.0, happySquintLevel + (isClick ? 0.75 : 0.14));
+
+        if (tag === 'leftEar') {
+          leftEarTwitchImpulse = Math.min(1.2, leftEarTwitchImpulse + (isClick ? 0.9 : 0.25));
+        } else if (tag === 'rightEar') {
+          rightEarTwitchImpulse = Math.min(1.2, rightEarTwitchImpulse + (isClick ? 0.9 : 0.25));
+        } else if (tag === 'head') {
+          cuddleNodTarget.x = THREE.MathUtils.clamp(pointerNDC.y * 0.14, -0.14, 0.14);
+          cuddleNodTarget.y = THREE.MathUtils.clamp(pointerNDC.x * 0.18, -0.18, 0.18);
+          if (isClick) {
+            leftEarTwitchImpulse = 0.65;
+            rightEarTwitchImpulse = 0.55;
+          }
+        } else if (isClick) {
+          leftEarTwitchImpulse = 0.45;
+          rightEarTwitchImpulse = 0.45;
+        }
+      } else {
+        cuddleNodTarget.set(0, 0);
+      }
+
+      // 2. Check intersections with eucalyptus leaf sprigs for interactive leaf rustling
+      const leafHits = raycaster.intersectObjects(leafColliders, false);
+      if (leafHits.length > 0) {
+        const sprig = leafHits[0].object.userData.sprigRecord;
+        if (sprig) {
+          const boost = isClick ? 2.8 : 1.1;
+          sprig.rustleVel.x += (pointerDeltaNDC.y * 5.0 + (Math.random() - 0.5) * 0.8) * boost;
+          sprig.rustleVel.y += (pointerDeltaNDC.x * 5.0 + (Math.random() - 0.5) * 0.8) * boost;
+        }
+      }
+    }
+
+    window.addEventListener('pointermove', (e) => {
+      const nx = (e.clientX / window.innerWidth) * 2 - 1;
+      const ny = -(e.clientY / window.innerHeight) * 2 + 1;
+      if (prevPointerNDC.x < -50) {
+        prevPointerNDC.set(nx, ny);
+      }
+      pointerDeltaNDC.set(nx - prevPointerNDC.x, ny - prevPointerNDC.y);
+      pointerNDC.set(nx, ny);
+      prevPointerNDC.set(nx, ny);
+
+      handlePointerInteraction(false);
+    });
+
+    window.addEventListener('pointerdown', (e) => {
+      const nx = (e.clientX / window.innerWidth) * 2 - 1;
+      const ny = -(e.clientY / window.innerHeight) * 2 + 1;
+      pointerNDC.set(nx, ny);
+      pointerDeltaNDC.set(0.015, 0.015);
+      handlePointerInteraction(true);
+    });
+
+    // Update spring-damper physics for all active fur strands each frame
+    const _rotAxis = new THREE.Vector3();
+    function updateFurSpringPhysics(dt) {
+      const clampedDt = Math.min(dt, 0.033);
+      const springK = 26.0;
+      const damping = 5.8;
+
+      for (let s = 0; s < furSystems.length; s++) {
+        const sys = furSystems[s];
+        if (sys.activeIndices.size === 0) continue;
+
+        let needsUpload = false;
+        const toRemove = [];
+
+        sys.activeIndices.forEach((i) => {
+          // Spring-damper integration on angular deflection (deflectX, deflectZ)
+          const ax = -springK * sys.deflectX[i] - damping * sys.velX[i];
+          const az = -springK * sys.deflectZ[i] - damping * sys.velZ[i];
+
+          sys.velX[i] += ax * clampedDt;
+          sys.velZ[i] += az * clampedDt;
+          sys.deflectX[i] += sys.velX[i] * clampedDt;
+          sys.deflectZ[i] += sys.velZ[i] * clampedDt;
+
+          // Clamp max angular bend so strands never invert
+          sys.deflectX[i] = THREE.MathUtils.clamp(sys.deflectX[i], -0.95, 0.95);
+          sys.deflectZ[i] = THREE.MathUtils.clamp(sys.deflectZ[i], -0.95, 0.95);
+
+          // Decay fluff length boost smoothly
+          sys.fluffBoost[i] *= Math.exp(-2.8 * clampedDt);
+
+          const energy =
+            Math.abs(sys.deflectX[i]) +
+            Math.abs(sys.deflectZ[i]) +
+            Math.abs(sys.velX[i]) +
+            Math.abs(sys.velZ[i]) +
+            sys.fluffBoost[i];
+
+          const i3 = i * 3;
+          const i4 = i * 4;
+          _strandPos.set(sys.positions[i3], sys.positions[i3 + 1], sys.positions[i3 + 2]);
+          _dummyQuat.set(
+            sys.baseQuats[i4],
+            sys.baseQuats[i4 + 1],
+            sys.baseQuats[i4 + 2],
+            sys.baseQuats[i4 + 3]
+          );
+
+          if (energy < 0.0025) {
+            sys.deflectX[i] = 0;
+            sys.deflectZ[i] = 0;
+            sys.velX[i] = 0;
+            sys.velZ[i] = 0;
+            sys.fluffBoost[i] = 0;
+            _dummyScale.set(sys.baseScales[i3], sys.baseScales[i3 + 1], sys.baseScales[i3 + 2]);
+            _dummyMat.compose(_strandPos, _dummyQuat, _dummyScale);
+            sys.instMesh.setMatrixAt(i, _dummyMat);
+            toRemove.push(i);
+          } else {
+            // Apply local bending rotation & fluff-up scale
+            const angleMag = Math.hypot(sys.deflectX[i], sys.deflectZ[i]);
+            if (angleMag > 1e-4) {
+              _rotAxis.set(-sys.deflectZ[i] / angleMag, 0, sys.deflectX[i] / angleMag);
+              _deflectQuat.setFromAxisAngle(_rotAxis, angleMag);
+              _dummyQuat.multiply(_deflectQuat);
+            }
+
+            const fluff = 1.0 + sys.fluffBoost[i];
+            _dummyScale.set(
+              sys.baseScales[i3] * (1.0 + sys.fluffBoost[i] * 0.35),
+              sys.baseScales[i3 + 1] * fluff,
+              sys.baseScales[i3 + 2] * (1.0 + sys.fluffBoost[i] * 0.35)
+            );
+            _dummyMat.compose(_strandPos, _dummyQuat, _dummyScale);
+            sys.instMesh.setMatrixAt(i, _dummyMat);
+          }
+          needsUpload = true;
+        });
+
+        for (let r = 0; r < toRemove.length; r++) {
+          sys.activeIndices.delete(toRemove[r]);
+        }
+        if (needsUpload) {
+          sys.instMesh.instanceMatrix.needsUpdate = true;
+        }
+      }
+    }
+
+    // =========================================================================
+    // 11. ANIMATION LOOP (BREATHING, SLEEPY BLINKS, EAR TWITCHES, LEAF SWAY)
+    // =========================================================================
+    const clock = new THREE.Clock();
+    let prevTime = 0;
+
+    // Sleepy blink timer state
+    let nextBlinkTime = 1.8;
+    let blinkProgress = -1;
+    let isDoubleBlink = false;
+
+    // Autonomous ear twitch timers
+    let nextLeftEarTwitch = 2.6;
+    let nextRightEarTwitch = 4.1;
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const elapsed = clock.getElapsedTime();
+      const dt = Math.min(0.05, elapsed - prevTime);
+      prevTime = elapsed;
+
+      furShaderUniforms.uTime.value = elapsed;
+
+      // 1. Slow peaceful baby koala breathing (chest/belly expansion + gentle body cuddle sway)
+      const breathWave = Math.sin(elapsed * 1.45);
+      const breathScaleXZ = 1.0 + breathWave * 0.022;
+      const breathScaleY = 1.0 - breathWave * 0.008;
+      bodyGroup.scale.set(breathScaleXZ, breathScaleY, breathScaleXZ);
+      bodyGroup.position.y = -0.14 + Math.sin(elapsed * 1.45 - 0.5) * 0.012;
+      bodyGroup.rotation.z = -0.22 + Math.sin(elapsed * 0.72) * 0.014;
+
+      // 2. Head sleepy nod & interactive cuddle tilt toward mouse
+      cuddleNodCurrent.lerp(cuddleNodTarget, Math.min(1.0, dt * 5.0));
+      headGroup.rotation.x = 0.08 + Math.sin(elapsed * 1.45 - 0.8) * 0.032 + cuddleNodCurrent.x;
+      headGroup.rotation.y = 0.26 + Math.sin(elapsed * 0.55) * 0.045 + cuddleNodCurrent.y;
+      headGroup.rotation.z = 0.14 + Math.cos(elapsed * 0.68) * 0.025;
+      // Counter-scale head slightly so breathing stays centered in the torso
+      headGroup.scale.set(1 / breathScaleXZ, 1 / breathScaleY, 1 / breathScaleXZ);
+
+      // 3. Sleepy eye blinks & happy squints when petted
+      happySquintLevel = Math.max(0, happySquintLevel - dt * 0.75);
+
+      if (elapsed >= nextBlinkTime && blinkProgress < 0) {
+        blinkProgress = 0;
+        isDoubleBlink = Math.random() > 0.62;
+      }
+
+      let blinkAmount = 0;
+      if (blinkProgress >= 0) {
+        blinkProgress += dt * 3.2; // Slow, sleepy baby koala blink speed
+        if (blinkProgress < 1.0) {
+          blinkAmount = Math.sin(blinkProgress * Math.PI);
+        } else if (isDoubleBlink && blinkProgress < 2.0) {
+          blinkAmount = Math.sin((blinkProgress - 1.0) * Math.PI);
+        } else {
+          blinkProgress = -1;
+          nextBlinkTime = elapsed + 2.4 + Math.random() * 3.6;
+        }
+      }
+
+      const lidClosure = Math.max(blinkAmount, happySquintLevel * 0.68);
+      for (let i = 0; i < eyelidControllers.length; i++) {
+        const ctrl = eyelidControllers[i];
+        // Upper lid rotates from -1.12 (open with cozy baby expression) to -0.02 (closed)
+        ctrl.upperLid.rotation.x = THREE.MathUtils.lerp(-1.12, -0.02, lidClosure);
+        // Lower lid rises slightly during happy squints & blinks
+        ctrl.lowerLid.rotation.x = THREE.MathUtils.lerp(1.18, 0.55, Math.max(blinkAmount * 0.5, happySquintLevel));
+      }
+
+      // 4. Cute asynchronous ear twitches
+      if (elapsed >= nextLeftEarTwitch) {
+        leftEarTwitchImpulse = Math.max(leftEarTwitchImpulse, 0.55 + Math.random() * 0.45);
+        nextLeftEarTwitch = elapsed + 2.8 + Math.random() * 4.5;
+      }
+      if (elapsed >= nextRightEarTwitch) {
+        rightEarTwitchImpulse = Math.max(rightEarTwitchImpulse, 0.55 + Math.random() * 0.45);
+        nextRightEarTwitch = elapsed + 3.1 + Math.random() * 4.8;
+      }
+
+      leftEarTwitchImpulse = Math.max(0, leftEarTwitchImpulse - dt * 2.8);
+      rightEarTwitchImpulse = Math.max(0, rightEarTwitchImpulse - dt * 2.8);
+
+      const leftTwitchWave = Math.sin(elapsed * 26.0) * leftEarTwitchImpulse * 0.22;
+      const rightTwitchWave = Math.sin(elapsed * 28.0 + 1.2) * rightEarTwitchImpulse * 0.22;
+
+      leftEarGroup.rotation.z = 0.24 + Math.sin(elapsed * 1.3) * 0.025 + leftTwitchWave;
+      leftEarGroup.rotation.y = 0.22 + leftEarTwitchImpulse * 0.14;
+
+      rightEarGroup.rotation.z = -0.24 - Math.sin(elapsed * 1.3 + 0.8) * 0.025 - rightTwitchWave;
+      rightEarGroup.rotation.y = -0.22 - rightEarTwitchImpulse * 0.14;
+
+      // 5. Eucalyptus leaves swaying in the breeze + interactive mouse rustle
+      for (let i = 0; i < animatedLeafSprigs.length; i++) {
+        const sprig = animatedLeafSprigs[i];
+        // Spring-damper for interactive mouse rustle
+        const ax = -18.0 * sprig.rustleAngle.x - 4.2 * sprig.rustleVel.x;
+        const ay = -18.0 * sprig.rustleAngle.y - 4.2 * sprig.rustleVel.y;
+        sprig.rustleVel.x += ax * dt;
+        sprig.rustleVel.y += ay * dt;
+        sprig.rustleAngle.x += sprig.rustleVel.x * dt;
+        sprig.rustleAngle.y += sprig.rustleVel.y * dt;
+
+        const windZ = Math.sin(elapsed * 1.65 + sprig.phase) * 0.055 + Math.sin(elapsed * 3.1 + sprig.phase) * 0.018;
+        const windX = Math.cos(elapsed * 1.35 + sprig.phase * 0.7) * 0.04;
+
+        sprig.group.rotation.x = sprig.baseRot.x + windX + sprig.rustleAngle.x;
+        sprig.group.rotation.z = sprig.baseRot.z + windZ + sprig.rustleAngle.y;
+
+        for (let j = 0; j < sprig.leaves.length; j++) {
+          const lf = sprig.leaves[j];
+          lf.pivot.rotation.z =
+            lf.baseRot.z +
+            Math.sin(elapsed * 2.4 + lf.phase) * 0.065 +
+            sprig.rustleAngle.y * 0.55;
+          lf.pivot.rotation.x =
+            lf.baseRot.x +
+            Math.cos(elapsed * 2.1 + lf.phase) * 0.045 +
+            sprig.rustleAngle.x * 0.55;
+        }
+      }
+
+      // 6. Interactive fur spring-damper physics
+      updateFurSpringPhysics(dt);
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    // =========================================================================
+    // 12. RESPONSIVE WINDOW RESIZE
+    // =========================================================================
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    animate();
+  </script>
+</body>
+</html>

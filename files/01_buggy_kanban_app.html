@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>SprintFlow Kanban Board (Buggy Exercise)</title>
+  <style>
+    * { box-sizing: border-box; font-family: 'Noto Sans KR', system-ui, sans-serif; }
+    body { margin: 0; padding: 28px; background: #F9FAFB; color: #111827; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .controls { display: flex; gap: 8px; }
+    input, select, button { padding: 9px 13px; border-radius: 6px; border: 1px solid #D1D5DB; font-size: 14px; }
+    button.primary { background: #174EA6; color: #fff; border: none; font-weight: 600; cursor: pointer; }
+    .stats { display: flex; gap: 14px; margin-bottom: 18px; }
+    .stat-card { background: #fff; border: 1px solid #E5E7EB; padding: 12px 18px; border-radius: 8px; min-width: 150px; }
+    .board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .col { background: #F3F4F6; border: 1px solid #E5E7EB; border-radius: 8px; padding: 14px; min-height: 320px; }
+    .col h3 { margin: 0 0 12px; font-size: 15px; color: #174EA6; }
+    .card { background: #fff; border: 1px solid #D1D5DB; padding: 12px; border-radius: 6px; margin-bottom: 10px; }
+    .card-actions { display: flex; gap: 6px; margin-top: 8px; }
+    .badge { font-size: 11px; padding: 2px 7px; border-radius: 99px; background: #E8F0FE; color: #174EA6; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1 style="margin:0;font-size:22px;">SprintFlow 이슈 보드 (디버깅 실습용)</h1>
+      <p style="margin:4px 0 0;color:#4B5563;font-size:13px;">Part 1: /browser 및 /goal 로 숨겨진 버그 3건을 자동 진단·패치하세요.</p>
+    </div>
+    <div class="controls">
+      <input id="taskTitle" placeholder="새 작업 제목 입력..." />
+      <input id="storyPoints" type="number" value="3" min="1" max="13" style="width:80px;" />
+      <button id="addBtn" class="primary" onclick="addTask()">+ 이슈 추가</button>
+      <button onclick="runSelfTest()">자가 테스트 실행</button>
+    </div>
+  </header>
+
+  <div class="stats">
+    <div class="stat-card">전체 이슈: <strong id="totalCount">0</strong>건</div>
+    <div class="stat-card">완료율: <strong id="doneRate">0%</strong></div>
+    <div class="stat-card">총 스토리 포인트: <strong id="totalPoints">0</strong> SP</div>
+  </div>
+
+  <div id="testResult" style="display:none;padding:10px 14px;border-radius:6px;margin-bottom:14px;font-weight:600;"></div>
+
+  <div class="board">
+    <div class="col" id="col-todo"><h3>TODO</h3><div class="list"></div></div>
+    <div class="col" id="col-doing"><h3>IN PROGRESS</h3><div class="list"></div></div>
+    <div class="col" id="col-done"><h3>DONE</h3><div class="list"></div></div>
+  </div>
+
+  <script>
+    let tasks = [
+      { id: 1, title: "OAuth2 토큰 갱신 인터셉터 구현", points: 5, status: "todo" },
+      { id: 2, title: "WebGL 3D 뷰포트 리사이즈 핸들러", points: 3, status: "doing" },
+      { id: 3, title: "단위 테스트 CI 파이프라인 연동", points: 2, status: "done" }
+    ];
+
+    function addTask() {
+      // BUG 1: Wrong selector ID ('#taskInput' does not exist -> TypeError in console!)
+      const titleEl = document.querySelector("#taskInput");
+      const ptsEl = document.getElementById("storyPoints");
+      if (!titleEl.value.trim()) return;
+      // BUG 2: ptsEl.value is string, causing string concatenation in totalPoints ("10" + "3" = "103")
+      tasks.push({ id: Date.now(), title: titleEl.value.trim(), points: ptsEl.value, status: "todo" });
+      titleEl.value = "";
+      render();
+    }
+
+    function moveTask(id, nextStatus) {
+      // BUG 3: Duplicate card bug when moving quickly & NaN% when all tasks deleted
+      const item = tasks.find(t => t.id === id);
+      if (item) item.status = nextStatus;
+      render();
+    }
+
+    function deleteTask(id) {
+      tasks = tasks.filter(t => t.id !== id);
+      render();
+    }
+
+    function render() {
+      ["todo", "doing", "done"].forEach(st => {
+        const container = document.querySelector(`#col-${st} .list`);
+        container.innerHTML = "";
+        tasks.filter(t => t.status === st).forEach(t => {
+          const el = document.createElement("div");
+          el.className = "card";
+          el.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <strong>${t.title}</strong>
+              <span class="badge">${t.points} SP</span>
+            </div>
+            <div class="card-actions">
+              ${st !== "todo" ? `<button onclick="moveTask(${t.id}, 'todo')">◀ Todo</button>` : ""}
+              ${st !== "doing" ? `<button onclick="moveTask(${t.id}, 'doing')">Doing</button>` : ""}
+              ${st !== "done" ? `<button onclick="moveTask(${t.id}, 'done')">Done ▶</button>` : ""}
+              <button onclick="deleteTask(${t.id})" style="margin-left:auto;color:#A50E0E;">삭제</button>
+            </div>
+          `;
+          container.appendChild(el);
+        });
+      });
+
+      document.getElementById("totalCount").textContent = tasks.length;
+      const doneCount = tasks.filter(t => t.status === "done").length;
+      // BUG 3b: ZeroDivision -> NaN% when tasks.length === 0
+      const rate = Math.round((doneCount / tasks.length) * 100);
+      document.getElementById("doneRate").textContent = rate + "%";
+
+      const sumPts = tasks.reduce((acc, cur) => acc + cur.points, 0);
+      document.getElementById("totalPoints").textContent = sumPts;
+    }
+
+    function runSelfTest() {
+      const box = document.getElementById("testResult");
+      box.style.display = "block";
+      try {
+        const saved = JSON.parse(JSON.stringify(tasks));
+        document.getElementById("taskTitle").value = "자동검증 테스트 카드";
+        document.getElementById("storyPoints").value = "4";
+        addTask();
+        const pts = Number(document.getElementById("totalPoints").textContent);
+        tasks = [];
+        render();
+        const zeroRate = document.getElementById("doneRate").textContent;
+        tasks = saved;
+        render();
+        if (pts === 14 && zeroRate === "0%") {
+          box.style.background = "#E6F4EA";
+          box.style.color = "#0D652D";
+          box.textContent = "ALL PASS: 이슈 추가, 숫자형 포인트 합산(14 SP), 빈 보드 완료율(0%) 검증 통과!";
+        } else {
+          throw new Error(`검증 실패: 기대값(14 SP, 0%) vs 실제값(${pts} SP, ${zeroRate})`);
+        }
+      } catch (err) {
+        box.style.background = "#FCE8E6";
+        box.style.color = "#A50E0E";
+        box.textContent = "TEST FAILED: " + err.message;
+      }
+    }
+
+    render();
+  </script>
+</body>
+</html>

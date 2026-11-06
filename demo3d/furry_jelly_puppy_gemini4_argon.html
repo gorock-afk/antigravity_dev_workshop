@@ -1,0 +1,1521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; background: #1a1218; }
+  canvas { width: 100vw; height: 100vh; display: block; cursor: grab; }
+  canvas:active { cursor: grabbing; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  powerPreference: 'high-performance'
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.06;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+
+// Soft studio gradient background texture
+function createBackgroundTexture() {
+  const bgCanvas = document.createElement('canvas');
+  bgCanvas.width = 512;
+  bgCanvas.height = 512;
+  const ctx = bgCanvas.getContext('2d');
+  const grad = ctx.createRadialGradient(256, 220, 30, 256, 256, 360);
+  grad.addColorStop(0.0, '#fff4f0');
+  grad.addColorStop(0.45, '#f6dce0');
+  grad.addColorStop(0.8, '#d9b8c4');
+  grad.addColorStop(1.0, '#b38fa0');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 512);
+  const tex = new THREE.CanvasTexture(bgCanvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+scene.background = createBackgroundTexture();
+
+const pmremGenerator = new THREE.PMREMGenerator(renderer);
+scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.75;
+
+const camera = new THREE.PerspectiveCamera(
+  36,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  100
+);
+camera.position.set(0.0, 1.55, 4.95);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.target.set(0, 0.72, 0.08);
+controls.minDistance = 2.0;
+controls.maxDistance = 10.0;
+controls.maxPolarAngle = Math.PI * 0.56;
+controls.update();
+
+// Studio Lighting
+const ambientLight = new THREE.HemisphereLight(0xfff6eb, 0xe8a5b8, 0.85);
+scene.add(ambientLight);
+
+const keyLight = new THREE.DirectionalLight(0xfff7ed, 2.1);
+keyLight.position.set(3.2, 5.2, 4.0);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 1.0;
+keyLight.shadow.camera.far = 15.0;
+const d = 2.8;
+keyLight.shadow.camera.left = -d;
+keyLight.shadow.camera.right = d;
+keyLight.shadow.camera.top = d;
+keyLight.shadow.camera.bottom = -d;
+keyLight.shadow.bias = -0.0005;
+keyLight.shadow.normalBias = 0.02;
+scene.add(keyLight);
+
+const rimLight = new THREE.DirectionalLight(0xffd2a6, 1.45);
+rimLight.position.set(-2.8, 3.6, -3.8);
+scene.add(rimLight);
+
+const fillLight = new THREE.DirectionalLight(0xffdae8, 0.75);
+fillLight.position.set(-3.4, 2.0, 2.6);
+scene.add(fillLight);
+
+const jellyBounceLight = new THREE.PointLight(0xff6b8b, 1.2, 4.0);
+jellyBounceLight.position.set(0, 0.12, 0.25);
+scene.add(jellyBounceLight);
+
+// ============================================================================
+// 1. TRANSLUCENT WOBBLY JELLY PUDDING CUSHION BASE (반투명 탱글탱글 젤리 쿠션)
+// ============================================================================
+const cushionGroup = new THREE.Group();
+scene.add(cushionGroup);
+
+// Porcelain Dessert Plate under the jelly cushion for realistic refraction contrast
+const plateGeo = new THREE.CylinderGeometry(2.05, 1.75, 0.11, 64);
+const plateMat = new THREE.MeshPhysicalMaterial({
+  color: 0xfffaf6,
+  roughness: 0.14,
+  metalness: 0.0,
+  clearcoat: 0.9,
+  clearcoatRoughness: 0.08
+});
+const plateMesh = new THREE.Mesh(plateGeo, plateMat);
+plateMesh.position.y = -0.89;
+plateMesh.receiveShadow = true;
+cushionGroup.add(plateMesh);
+
+// Gold rim accent on plate
+const plateRimGeo = new THREE.TorusGeometry(1.98, 0.024, 16, 80);
+plateRimGeo.rotateX(Math.PI * 0.5);
+const plateRimMat = new THREE.MeshStandardMaterial({
+  color: 0xf4c97e,
+  roughness: 0.25,
+  metalness: 0.75
+});
+const plateRimMesh = new THREE.Mesh(plateRimGeo, plateRimMat);
+plateRimMesh.position.y = -0.835;
+cushionGroup.add(plateRimMesh);
+
+// Procedural Scalloped Pudding Cushion Geometry
+const radialSegs = 96;
+const heightSegs = 28;
+const topRingSegs = 22;
+
+function createJellyPuddingGeometry() {
+  const geo = new THREE.CylinderGeometry(1.42, 1.76, 0.90, radialSegs, heightSegs, false);
+  geo.translate(0, -0.40, 0); // top at +0.05, bottom at -0.85
+  const pos = geo.attributes.position;
+  const vCount = pos.count;
+  const restPos = new Float32Array(vCount * 3);
+
+  for (let i = 0; i < vCount; i++) {
+    let x = pos.getX(i);
+    let y = pos.getY(i);
+    let z = pos.getZ(i);
+
+    const hNorm = THREE.MathUtils.clamp((y + 0.85) / 0.90, 0, 1); // 0 bottom -> 1 top
+    const r = Math.hypot(x, z);
+    const angle = Math.atan2(z, x);
+
+    // 12 plump pudding scallops around perimeter
+    const scallop = Math.cos(angle * 12.0);
+    const scallopAmp = 0.068 * Math.sin(hNorm * Math.PI) * THREE.MathUtils.smoothstep(r, 0.25, 1.4);
+
+    // Rounded puffy belly profile of pudding
+    const bellyProfile = Math.sin(hNorm * Math.PI) * 0.16 * THREE.MathUtils.smoothstep(r, 0.2, 1.4);
+    const rScale = 1.0 + scallop * scallopAmp + bellyProfile;
+
+    x *= rScale;
+    z *= rScale;
+
+    // Smooth dome & soft indentation on top where the puppy sits
+    if (hNorm > 0.92) {
+      const distFromCenter = Math.hypot(x, z);
+      const sitIndent = -0.11 * Math.exp(-distFromCenter * distFromCenter * 1.35);
+      const rimDome = 0.065 * Math.sin(THREE.MathUtils.clamp(distFromCenter / 1.45, 0, 1) * Math.PI);
+      const topBlend = (hNorm - 0.92) / 0.08;
+      y += (sitIndent + rimDome + 0.015 * scallop * THREE.MathUtils.smoothstep(distFromCenter, 0.4, 1.4)) * topBlend;
+    }
+
+    pos.setXYZ(i, x, y, z);
+    restPos[i * 3] = x;
+    restPos[i * 3 + 1] = y;
+    restPos[i * 3 + 2] = z;
+  }
+
+  geo.computeVertexNormals();
+  geo.userData.restPos = restPos;
+  return geo;
+}
+
+const jellyGeo = createJellyPuddingGeometry();
+const jellyMat = new THREE.MeshPhysicalMaterial({
+  color: new THREE.Color(0xff9eb5),
+  emissive: new THREE.Color(0xff4778),
+  emissiveIntensity: 0.12,
+  transmission: 0.91,
+  thickness: 2.35,
+  ior: 1.42,
+  roughness: 0.11,
+  metalness: 0.0,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.05,
+  attenuationColor: new THREE.Color(0xff3d6e),
+  attenuationDistance: 1.65,
+  specularIntensity: 1.0,
+  specularColor: new THREE.Color(0xffffff),
+  transparent: true
+});
+
+const jellyMesh = new THREE.Mesh(jellyGeo, jellyMat);
+jellyMesh.castShadow = true;
+jellyMesh.receiveShadow = true;
+cushionGroup.add(jellyMesh);
+
+// Internal glowing strawberry-peach pudding core & suspended jelly bubbles (visible through transmission!)
+const innerCoreGeo = new THREE.SphereGeometry(0.95, 32, 24);
+innerCoreGeo.scale(1.22, 0.34, 1.22);
+const innerCoreMat = new THREE.MeshBasicMaterial({
+  color: 0xffb899,
+  transparent: true,
+  opacity: 0.36
+});
+const innerCoreMesh = new THREE.Mesh(innerCoreGeo, innerCoreMat);
+innerCoreMesh.position.set(0, -0.44, 0);
+cushionGroup.add(innerCoreMesh);
+
+// Suspended tiny sparkling bubbles inside the jelly cushion
+const bubbleCount = 85;
+const bubbleGeo = new THREE.SphereGeometry(0.028, 10, 10);
+const bubbleMat = new THREE.MeshPhysicalMaterial({
+  color: 0xffffff,
+  transmission: 0.95,
+  roughness: 0.05,
+  ior: 1.15,
+  clearcoat: 1.0
+});
+const bubbleInst = new THREE.InstancedMesh(bubbleGeo, bubbleMat, bubbleCount);
+const dummy = new THREE.Object3D();
+const bubbleData = [];
+for (let i = 0; i < bubbleCount; i++) {
+  const ang = i * 2.39996;
+  const rad = 0.25 + Math.sqrt((i + 0.5) / bubbleCount) * 1.28;
+  const bx = Math.cos(ang) * rad;
+  const bz = Math.sin(ang) * rad;
+  const by = -0.72 + ((i * 0.6180339) % 1) * 0.62;
+  const bs = 0.45 + ((i * 0.314159) % 1) * 1.15;
+  bubbleData.push({ x: bx, y: by, z: bz, s: bs });
+  dummy.position.set(bx, by, bz);
+  dummy.scale.setScalar(bs);
+  dummy.updateMatrix();
+  bubbleInst.setMatrixAt(i, dummy.matrix);
+}
+cushionGroup.add(bubbleInst);
+
+// ============================================================================
+// 2. POMERANIAN PUPPY ANATOMY & HIERARCHY (한눈에 강아지임을 알 수 있는 해부학적 비율)
+// ============================================================================
+const puppyRoot = new THREE.Group();
+puppyRoot.position.set(0, 0.02, 0);
+scene.add(puppyRoot);
+
+// Base plush undercoat materials (prevents any skin gaps between the 25,000+ fur strands)
+const creamUnderMat = new THREE.MeshStandardMaterial({
+  color: 0xfbf0df,
+  roughness: 0.85,
+  metalness: 0.0
+});
+const goldenUnderMat = new THREE.MeshStandardMaterial({
+  color: 0xe89f58,
+  roughness: 0.85,
+  metalness: 0.0
+});
+
+// Hierarchical groups for animation
+const bodyGroup = new THREE.Group();
+bodyGroup.position.set(0, 0.52, -0.08);
+puppyRoot.add(bodyGroup);
+
+const headGroup = new THREE.Group();
+headGroup.position.set(0, 0.76, 0.26); // relative to bodyGroup -> world (0, 1.28, 0.18)
+bodyGroup.add(headGroup);
+
+const earLGroup = new THREE.Group();
+earLGroup.position.set(-0.29, 0.34, -0.02);
+headGroup.add(earLGroup);
+
+const earRGroup = new THREE.Group();
+earRGroup.position.set(0.29, 0.34, -0.02);
+headGroup.add(earRGroup);
+
+const tailGroup = new THREE.Group();
+tailGroup.position.set(0, 0.12, -0.50);
+bodyGroup.add(tailGroup);
+
+const pawRGroup = new THREE.Group();
+// Raised right front paw showing cute translucent pink jelly paw pads!
+pawRGroup.position.set(0.35, 0.05, 0.54);
+bodyGroup.add(pawRGroup);
+
+// Collider meshes for interactive raycasting (petting the puppy)
+const puppyColliders = [];
+
+// --- BODY & LION CHEST MANE UNDERCOAT ---
+const torsoGeo = new THREE.SphereGeometry(0.54, 32, 24);
+torsoGeo.scale(1.06, 0.96, 1.18);
+const torsoMesh = new THREE.Mesh(torsoGeo, goldenUnderMat);
+torsoMesh.castShadow = true;
+torsoMesh.receiveShadow = true;
+bodyGroup.add(torsoMesh);
+puppyColliders.push(torsoMesh);
+
+const chestManeGeo = new THREE.SphereGeometry(0.52, 32, 24);
+chestManeGeo.scale(1.16, 0.98, 0.95);
+const chestManeMesh = new THREE.Mesh(chestManeGeo, creamUnderMat);
+chestManeMesh.position.set(0, 0.22, 0.24);
+chestManeMesh.castShadow = true;
+bodyGroup.add(chestManeMesh);
+puppyColliders.push(chestManeMesh);
+
+const rumpGeo = new THREE.SphereGeometry(0.50, 28, 22);
+rumpGeo.scale(1.08, 0.92, 1.02);
+const rumpMesh = new THREE.Mesh(rumpGeo, goldenUnderMat);
+rumpMesh.position.set(0, -0.08, -0.22);
+bodyGroup.add(rumpMesh);
+puppyColliders.push(rumpMesh);
+
+// Planted Left Front Leg & Paw
+const legFLGeo = new THREE.CapsuleGeometry(0.14, 0.26, 12, 18);
+const legFLMesh = new THREE.Mesh(legFLGeo, creamUnderMat);
+legFLMesh.position.set(-0.31, -0.22, 0.42);
+legFLMesh.rotation.x = -0.14;
+bodyGroup.add(legFLMesh);
+puppyColliders.push(legFLMesh);
+
+const pawFLGeo = new THREE.SphereGeometry(0.165, 22, 18);
+pawFLGeo.scale(1.05, 0.72, 1.18);
+const pawFLMesh = new THREE.Mesh(pawFLGeo, creamUnderMat);
+pawFLMesh.position.set(-0.32, -0.40, 0.52);
+bodyGroup.add(pawFLMesh);
+puppyColliders.push(pawFLMesh);
+
+// Hind Legs & Paws (sitting posture)
+for (const side of [-1, 1]) {
+  const thighGeo = new THREE.SphereGeometry(0.26, 20, 16);
+  thighGeo.scale(0.9, 1.05, 1.15);
+  const thighMesh = new THREE.Mesh(thighGeo, goldenUnderMat);
+  thighMesh.position.set(side * 0.40, -0.18, -0.16);
+  bodyGroup.add(thighMesh);
+
+  const hindPawGeo = new THREE.SphereGeometry(0.16, 20, 16);
+  hindPawGeo.scale(1.02, 0.68, 1.24);
+  const hindPawMesh = new THREE.Mesh(hindPawGeo, creamUnderMat);
+  hindPawMesh.position.set(side * 0.43, -0.41, 0.14);
+  hindPawMesh.rotation.y = side * 0.22;
+  bodyGroup.add(hindPawMesh);
+}
+
+// --- RAISED RIGHT FRONT PAW & TRANSLUCENT PINK JELLY PAW PADS (분홍빛 반투명 젤리 육구) ---
+const armFRGeo = new THREE.CapsuleGeometry(0.135, 0.22, 12, 18);
+const armFRMesh = new THREE.Mesh(armFRGeo, creamUnderMat);
+armFRMesh.position.set(-0.03, 0.02, -0.08);
+armFRMesh.rotation.set(0.65, 0.0, -0.18);
+pawRGroup.add(armFRMesh);
+
+const raisedPawBallGeo = new THREE.SphereGeometry(0.175, 28, 22);
+raisedPawBallGeo.scale(1.06, 0.95, 0.82);
+const raisedPawBallMesh = new THREE.Mesh(raisedPawBallGeo, creamUnderMat);
+raisedPawBallMesh.position.set(0, 0.04, 0.04);
+raisedPawBallMesh.castShadow = true;
+pawRGroup.add(raisedPawBallMesh);
+puppyColliders.push(raisedPawBallMesh);
+
+// Translucent Squishy Pink Jelly Paw Pads Material
+const jellyPawPadMat = new THREE.MeshPhysicalMaterial({
+  color: new THREE.Color(0xff7ca3),
+  emissive: new THREE.Color(0xff2e63),
+  emissiveIntensity: 0.22,
+  transmission: 0.78,
+  thickness: 0.55,
+  ior: 1.40,
+  roughness: 0.14,
+  metalness: 0.0,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.06,
+  attenuationColor: new THREE.Color(0xff3868),
+  attenuationDistance: 0.45,
+  sheen: 0.4,
+  sheenColor: new THREE.Color(0xffc2d4)
+});
+
+// Central Heart/Mound Metacarpal Jelly Pad (created from 3 blended plump lobes)
+const palmPadGroup = new THREE.Group();
+palmPadGroup.position.set(0, 0.04, 0.172);
+pawRGroup.add(palmPadGroup);
+
+const mainPadTopGeo = new THREE.SphereGeometry(0.056, 22, 18);
+mainPadTopGeo.scale(1.22, 0.95, 0.62);
+const mainPadTop = new THREE.Mesh(mainPadTopGeo, jellyPawPadMat);
+mainPadTop.position.set(0, -0.015, 0.008);
+palmPadGroup.add(mainPadTop);
+
+for (const s of [-1, 1]) {
+  const lobeGeo = new THREE.SphereGeometry(0.042, 18, 16);
+  lobeGeo.scale(1.05, 0.95, 0.60);
+  const lobe = new THREE.Mesh(lobeGeo, jellyPawPadMat);
+  lobe.position.set(s * 0.032, -0.038, 0.004);
+  lobe.rotation.z = s * 0.35;
+  palmPadGroup.add(lobe);
+}
+
+// 4 Plump Translucent Toe Beans arranged in an adorable arc!
+const toeBeanOffsets = [
+  { x: -0.092, y: 0.042, z: -0.005, rz: 0.38, s: 0.92 },
+  { x: -0.034, y: 0.078, z: 0.004,  rz: 0.12, s: 1.02 },
+  { x:  0.034, y: 0.078, z: 0.004,  rz: -0.12, s: 1.02 },
+  { x:  0.092, y: 0.042, z: -0.005, rz: -0.38, s: 0.92 }
+];
+const toeBeanGeo = new THREE.SphereGeometry(0.034, 20, 16);
+toeBeanGeo.scale(0.86, 1.22, 0.68);
+
+for (const b of toeBeanOffsets) {
+  const bean = new THREE.Mesh(toeBeanGeo, jellyPawPadMat);
+  bean.position.set(b.x, b.y, b.z);
+  bean.rotation.z = b.rz;
+  bean.scale.setScalar(b.s);
+  palmPadGroup.add(bean);
+}
+
+// --- HEAD, CHEEKS, MUZZLE, EYES, NOSE, MOUTH & TONGUE ---
+const skullGeo = new THREE.SphereGeometry(0.44, 32, 24);
+skullGeo.scale(1.10, 0.98, 1.02);
+const skullMesh = new THREE.Mesh(skullGeo, goldenUnderMat);
+skullMesh.castShadow = true;
+headGroup.add(skullMesh);
+puppyColliders.push(skullMesh);
+
+// Fluffy cheek puffs undercoat
+for (const side of [-1, 1]) {
+  const cheekGeo = new THREE.SphereGeometry(0.28, 22, 18);
+  cheekGeo.scale(1.05, 0.88, 0.95);
+  const cheekMesh = new THREE.Mesh(cheekGeo, creamUnderMat);
+  cheekMesh.position.set(side * 0.25, -0.08, 0.12);
+  headGroup.add(cheekMesh);
+  puppyColliders.push(cheekMesh);
+}
+
+// Short Cream Pomeranian Muzzle
+const muzzleGeo = new THREE.SphereGeometry(0.20, 28, 22);
+muzzleGeo.scale(1.06, 0.82, 1.12);
+const muzzleMesh = new THREE.Mesh(muzzleGeo, creamUnderMat);
+muzzleMesh.position.set(0, -0.095, 0.39);
+headGroup.add(muzzleMesh);
+
+// Lower Jaw / Chin
+const chinGeo = new THREE.SphereGeometry(0.145, 22, 18);
+chinGeo.scale(1.0, 0.68, 1.05);
+const chinMesh = new THREE.Mesh(chinGeo, creamUnderMat);
+chinMesh.position.set(0, -0.205, 0.36);
+headGroup.add(chinMesh);
+
+// Shiny Black Button Nose
+const noseMat = new THREE.MeshPhysicalMaterial({
+  color: 0x110e12,
+  roughness: 0.14,
+  metalness: 0.05,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.06
+});
+const noseGeo = new THREE.SphereGeometry(0.064, 24, 20);
+noseGeo.scale(1.26, 0.88, 0.92);
+const noseMesh = new THREE.Mesh(noseGeo, noseMat);
+noseMesh.position.set(0, -0.028, 0.598);
+headGroup.add(noseMesh);
+
+// Nostril indentations
+for (const side of [-1, 1]) {
+  const nostrilGeo = new THREE.SphereGeometry(0.016, 12, 10);
+  nostrilGeo.scale(0.8, 1.2, 0.6);
+  const nostrilMat = new THREE.MeshBasicMaterial({ color: 0x050406 });
+  const nostril = new THREE.Mesh(nostrilGeo, nostrilMat);
+  nostril.position.set(side * 0.028, -0.036, 0.642);
+  nostril.rotation.z = side * 0.45;
+  headGroup.add(nostril);
+}
+
+// Cute Puppy Smile Line (ω lip philtrum) & Happy Open Mouth + Peeking Pink Tongue
+const lipMat = new THREE.MeshStandardMaterial({ color: 0x24181c, roughness: 0.5 });
+const philtrumGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.055, 8);
+const philtrum = new THREE.Mesh(philtrumGeo, lipMat);
+philtrum.position.set(0, -0.072, 0.588);
+philtrum.rotation.x = -0.22;
+headGroup.add(philtrum);
+
+for (const side of [-1, 1]) {
+  const smileArcGeo = new THREE.TorusGeometry(0.052, 0.009, 10, 24, Math.PI * 0.85);
+  const smileArc = new THREE.Mesh(smileArcGeo, lipMat);
+  smileArc.position.set(side * 0.048, -0.095, 0.568);
+  smileArc.rotation.set(0.32, side * 0.25, Math.PI + side * 0.12);
+  headGroup.add(smileArc);
+}
+
+// Dark Mouth Cavity
+const mouthCavityGeo = new THREE.SphereGeometry(0.068, 20, 16);
+mouthCavityGeo.scale(1.15, 0.72, 0.8);
+const mouthCavityMat = new THREE.MeshBasicMaterial({ color: 0x3b121d });
+const mouthCavity = new THREE.Mesh(mouthCavityGeo, mouthCavityMat);
+mouthCavity.position.set(0, -0.145, 0.505);
+headGroup.add(mouthCavity);
+
+// Soft Pink Peeking Tongue (animated with breathing!)
+const tongueGroup = new THREE.Group();
+tongueGroup.position.set(0, -0.135, 0.52);
+headGroup.add(tongueGroup);
+
+const tongueGeo = new THREE.SphereGeometry(0.056, 24, 18);
+tongueGeo.scale(1.02, 0.42, 1.48);
+const tongueMat = new THREE.MeshPhysicalMaterial({
+  color: 0xff6e8e,
+  emissive: 0xd92b5a,
+  emissiveIntensity: 0.15,
+  roughness: 0.22,
+  clearcoat: 0.85,
+  clearcoatRoughness: 0.12,
+  sheen: 0.35
+});
+const tongueMesh = new THREE.Mesh(tongueGeo, tongueMat);
+tongueMesh.position.set(0, -0.015, 0.038);
+tongueMesh.rotation.x = 0.42;
+tongueGroup.add(tongueMesh);
+
+// Expressive Dark Glass Eyes with Dual Catchlights & Eyeliner Rims
+const eyeRimMat = new THREE.MeshStandardMaterial({ color: 0x1c1215, roughness: 0.45 });
+const irisMat = new THREE.MeshPhysicalMaterial({
+  color: 0x140b08,
+  roughness: 0.04,
+  metalness: 0.02,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.01,
+  ior: 1.5
+});
+const catchlightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const blushMat = new THREE.MeshBasicMaterial({
+  color: 0xff7a98,
+  transparent: true,
+  opacity: 0.28
+});
+
+const eyeGroups = [];
+for (const side of [-1, 1]) {
+  const eyeHolder = new THREE.Group();
+  eyeHolder.position.set(side * 0.202, 0.075, 0.415);
+  eyeHolder.rotation.y = side * 0.24;
+  eyeHolder.rotation.x = -0.08;
+  headGroup.add(eyeHolder);
+  eyeGroups.push(eyeHolder);
+
+  // Dark eyeliner cushion around the eye so it stands out unmistakably
+  const rimGeo = new THREE.SphereGeometry(0.082, 24, 20);
+  rimGeo.scale(1.08, 0.98, 0.65);
+  const rimMesh = new THREE.Mesh(rimGeo, eyeRimMat);
+  rimMesh.position.z = -0.012;
+  eyeHolder.add(rimMesh);
+
+  // Glossy dark glass eyeball
+  const eyeGeo = new THREE.SphereGeometry(0.072, 28, 24);
+  eyeGeo.scale(1.0, 1.02, 0.85);
+  const eyeMesh = new THREE.Mesh(eyeGeo, irisMat);
+  eyeHolder.add(eyeMesh);
+
+  // Warm dark brown lower iris crescent glow
+  const irisGlowGeo = new THREE.RingGeometry(0.032, 0.056, 24, 1, Math.PI * 1.15, Math.PI * 0.7);
+  const irisGlowMat = new THREE.MeshBasicMaterial({
+    color: 0x5c3018,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.65
+  });
+  const irisGlow = new THREE.Mesh(irisGlowGeo, irisGlowMat);
+  irisGlow.position.set(0, -0.005, 0.062);
+  eyeHolder.add(irisGlow);
+
+  // Primary crisp catchlight (top-inner)
+  const catch1Geo = new THREE.SphereGeometry(0.019, 14, 14);
+  catch1Geo.scale(1.0, 1.0, 0.4);
+  const catch1 = new THREE.Mesh(catch1Geo, catchlightMat);
+  catch1.position.set(-0.022, 0.026, 0.062);
+  eyeHolder.add(catch1);
+
+  // Secondary crisp catchlight (bottom-outer)
+  const catch2Geo = new THREE.SphereGeometry(0.0095, 12, 12);
+  catch2Geo.scale(1.0, 1.0, 0.4);
+  const catch2 = new THREE.Mesh(catch2Geo, catchlightMat);
+  catch2.position.set(0.024, -0.024, 0.062);
+  eyeHolder.add(catch2);
+
+  // Soft rosy cheek blush underneath eye
+  const blushGeo = new THREE.SphereGeometry(0.085, 18, 14);
+  blushGeo.scale(1.25, 0.72, 0.35);
+  const blush = new THREE.Mesh(blushGeo, blushMat);
+  blush.position.set(side * 0.285, -0.065, 0.385);
+  blush.rotation.y = side * 0.42;
+  headGroup.add(blush);
+}
+
+// --- TWO PERKY TRIANGULAR POMERANIAN EARS ---
+const innerEarMat = new THREE.MeshStandardMaterial({
+  color: 0xffb3c1,
+  roughness: 0.65
+});
+
+function populateEar(earGroup, side) {
+  earGroup.rotation.z = -side * 0.32;
+  earGroup.rotation.x = 0.14;
+  earGroup.rotation.y = side * 0.22;
+
+  const earConeGeo = new THREE.ConeGeometry(0.155, 0.30, 24, 12);
+  earConeGeo.scale(1.0, 1.0, 0.58);
+  earConeGeo.translate(0, 0.13, 0);
+  const earMesh = new THREE.Mesh(earConeGeo, goldenUnderMat);
+  earMesh.castShadow = true;
+  earGroup.add(earMesh);
+  puppyColliders.push(earMesh);
+
+  // Pink inner ear hollow
+  const innerGeo = new THREE.ConeGeometry(0.095, 0.21, 18);
+  innerGeo.scale(1.0, 1.0, 0.35);
+  innerGeo.translate(0, 0.11, 0.042);
+  const innerMesh = new THREE.Mesh(innerGeo, innerEarMat);
+  earGroup.add(innerMesh);
+}
+populateEar(earLGroup, -1);
+populateEar(earRGroup, 1);
+
+// --- FLUFFY CURLED POMERANIAN TAIL OVER BACK ---
+const tailCurve = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(0, 0.0, 0.0),
+  new THREE.Vector3(0, 0.20, -0.14),
+  new THREE.Vector3(0, 0.46, -0.06),
+  new THREE.Vector3(0, 0.60, 0.16),
+  new THREE.Vector3(0, 0.52, 0.34)
+]);
+const tailTubeGeo = new THREE.TubeGeometry(tailCurve, 20, 0.11, 14, false);
+const tailMesh = new THREE.Mesh(tailTubeGeo, creamUnderMat);
+tailMesh.castShadow = true;
+tailGroup.add(tailMesh);
+puppyColliders.push(tailMesh);
+
+// ============================================================================
+// 3. ULTRA-DENSE 3D FUR SYSTEM (24,500+ INDIVIDUAL 3D FUR STRANDS)
+// ============================================================================
+// Custom curved, tapered 3D fur blade/cone geometry
+function createFurStrandGeometry() {
+  const radialSegs = 4;
+  const heightSegs = 5;
+  const geo = new THREE.ConeGeometry(0.023, 1.0, radialSegs, heightSegs, true);
+  geo.translate(0, 0.5, 0); // root at y=0, tip at y=1
+
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    // Natural graceful arch & slight flatten for plush hair look
+    const x = pos.getX(i) * (1.0 - 0.15 * y);
+    const z = pos.getZ(i) * 0.72 + y * y * 0.16;
+    pos.setXYZ(i, x, y, z);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+const furStrandGeo = createFurStrandGeometry();
+
+const furUniforms = {
+  uTime: { value: 0 },
+  uBreath: { value: 0 }
+};
+
+const furMaterial = new THREE.MeshStandardMaterial({
+  roughness: 0.52,
+  metalness: 0.02
+});
+
+furMaterial.onBeforeCompile = (shader) => {
+  shader.uniforms.uTime = furUniforms.uTime;
+  shader.uniforms.uBreath = furUniforms.uBreath;
+
+  shader.vertexShader = `
+    attribute vec3 aRootColor;
+    attribute vec3 aTipColor;
+    attribute vec4 aFurMeta;
+    attribute vec3 aPetBend;
+    varying vec3 vRootColor;
+    varying vec3 vTipColor;
+    varying float vFurT;
+    uniform float uTime;
+    uniform float uBreath;
+  ` + shader.vertexShader;
+
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <begin_vertex>',
+    `
+    #include <begin_vertex>
+    vRootColor = aRootColor;
+    vTipColor = aTipColor;
+    float h = clamp(position.y, 0.0, 1.0);
+    vFurT = h;
+    float bendFactor = h * h;
+
+    float phase = aFurMeta.x;
+    float breezeAmp = aFurMeta.y;
+
+    // Gentle breeze ripple & breathing fluffiness across all 24,500+ strands
+    float wave1 = sin(uTime * 2.6 + phase * 6.28318) * 0.055 * breezeAmp;
+    float wave2 = cos(uTime * 1.9 + phase * 12.5663) * 0.042 * breezeAmp;
+    float breathPush = uBreath * 0.025 * breezeAmp;
+
+    transformed.x += (wave1 + aPetBend.x) * bendFactor;
+    transformed.y += (breathPush + aPetBend.y) * bendFactor;
+    transformed.z += (wave2 + aPetBend.z) * bendFactor;
+    `
+  );
+
+  shader.fragmentShader = `
+    varying vec3 vRootColor;
+    varying vec3 vTipColor;
+    varying float vFurT;
+  ` + shader.fragmentShader;
+
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <color_fragment>',
+    `
+    #include <color_fragment>
+    // Multi-tone root-to-tip fur color gradient + soft root ambient occlusion + warm velvet tip sheen
+    vec3 strandCol = mix(vRootColor, vTipColor, smoothstep(0.05, 0.88, vFurT));
+    float rootAO = mix(0.46, 1.08, pow(vFurT, 0.52));
+    diffuseColor.rgb *= strandCol * rootAO;
+    `
+  );
+};
+
+// Palette colors for Pomeranian multi-tone fur
+const colDeepApricot   = new THREE.Color(0xc96e28);
+const colGoldenApricot = new THREE.Color(0xf09b48);
+const colWarmOrange    = new THREE.Color(0xe68336);
+const colSoftPeach     = new THREE.Color(0xf9c78e);
+const colWarmCream     = new THREE.Color(0xfdf2e0);
+const colPureCream     = new THREE.Color(0xfffaef);
+const colSableTip      = new THREE.Color(0xb86426);
+
+// Deterministic Halton/Fibonacci low-discrepancy sampler
+function fibSpherePoint(i, n) {
+  const phi = Math.acos(1 - 2 * (i + 0.5) / n);
+  const theta = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
+  return new THREE.Vector3(
+    Math.sin(phi) * Math.cos(theta),
+    Math.cos(phi),
+    Math.sin(phi) * Math.sin(theta)
+  );
+}
+
+function hash01(seed) {
+  const s = Math.sin(seed * 127.1 + 311.7) * 43758.5453123;
+  return s - Math.floor(s);
+}
+
+// Helper to build an InstancedMesh fur batch attached to a bone Group
+const interactiveFurGroups = [];
+
+function createFurLayer(parentGroup, strandSpecs) {
+  const count = strandSpecs.length;
+  const instMesh = new THREE.InstancedMesh(furStrandGeo, furMaterial, count);
+  instMesh.castShadow = true;
+  instMesh.receiveShadow = true;
+
+  const rootColors = new Float32Array(count * 3);
+  const tipColors = new Float32Array(count * 3);
+  const furMeta = new Float32Array(count * 4);
+  const petBend = new Float32Array(count * 3);
+  const petVel = new Float32Array(count * 3);
+  const localPositions = new Float32Array(count * 3);
+  const localQuatInv = new Float32Array(count * 4);
+
+  const upVec = new THREE.Vector3(0, 1, 0);
+  const dummyObj = new THREE.Object3D();
+  const q = new THREE.Quaternion();
+  const dir = new THREE.Vector3();
+
+  for (let i = 0; i < count; i++) {
+    const s = strandSpecs[i];
+    dummyObj.position.copy(s.pos);
+
+    dir.copy(s.dir).normalize();
+    q.setFromUnitVectors(upVec, dir);
+    // Rotate around strand axis so the arch curves gracefully outward/downward
+    const twist = new THREE.Quaternion().setFromAxisAngle(dir, s.twist || 0);
+    q.premultiply(twist);
+
+    dummyObj.quaternion.copy(q);
+    dummyObj.scale.set(s.thickness, s.length, s.thickness);
+    dummyObj.updateMatrix();
+    instMesh.setMatrixAt(i, dummyObj.matrix);
+
+    const i3 = i * 3;
+    const i4 = i * 4;
+    rootColors[i3]     = s.rootColor.r;
+    rootColors[i3 + 1] = s.rootColor.g;
+    rootColors[i3 + 2] = s.rootColor.b;
+
+    tipColors[i3]     = s.tipColor.r;
+    tipColors[i3 + 1] = s.tipColor.g;
+    tipColors[i3 + 2] = s.tipColor.b;
+
+    furMeta[i4]     = s.phase;
+    furMeta[i4 + 1] = s.breeze;
+    furMeta[i4 + 2] = 0;
+    furMeta[i4 + 3] = 0;
+
+    localPositions[i3]     = s.pos.x;
+    localPositions[i3 + 1] = s.pos.y;
+    localPositions[i3 + 2] = s.pos.z;
+
+    const qInv = q.clone().invert();
+    localQuatInv[i4]     = qInv.x;
+    localQuatInv[i4 + 1] = qInv.y;
+    localQuatInv[i4 + 2] = qInv.z;
+    localQuatInv[i4 + 3] = qInv.w;
+  }
+
+  instMesh.geometry = furStrandGeo.clone();
+  instMesh.geometry.setAttribute('aRootColor', new THREE.InstancedBufferAttribute(rootColors, 3));
+  instMesh.geometry.setAttribute('aTipColor', new THREE.InstancedBufferAttribute(tipColors, 3));
+  instMesh.geometry.setAttribute('aFurMeta', new THREE.InstancedBufferAttribute(furMeta, 4));
+  const petAttr = new THREE.InstancedBufferAttribute(petBend, 3);
+  petAttr.setUsage(THREE.DynamicDrawUsage);
+  instMesh.geometry.setAttribute('aPetBend', petAttr);
+
+  parentGroup.add(instMesh);
+  interactiveFurGroups.push({
+    group: parentGroup,
+    count,
+    localPositions,
+    localQuatInv,
+    petBend,
+    petVel,
+    petAttr
+  });
+  return count;
+}
+
+// --- A. GENERATE BODY, LION CHEST MANE, BACK, BELLY & PLANTED PAWS FUR (12,600 STRANDS) ---
+const bodyStrands = [];
+{
+  // 1) Voluminous Lion-Like Chest Mane / Ruff (풍성한 가슴털 갈기): 5,200 extra-fluffy strands
+  const maneCount = 5200;
+  for (let i = 0; i < maneCount; i++) {
+    const u = fibSpherePoint(i, maneCount);
+    // Focus on front/sides of chest ruff
+    const pos = new THREE.Vector3(
+      u.x * 0.58,
+      0.22 + u.y * 0.48,
+      0.22 + u.z * 0.46
+    );
+    // Push back-facing points toward the lush front/side ruff collar
+    if (pos.z < -0.05) {
+      pos.z = Math.abs(pos.z) * 0.85 + 0.12;
+    }
+
+    const dir = new THREE.Vector3(u.x * 1.15, u.y * 0.55 - 0.28, Math.max(u.z, 0.15) * 1.1).normalize();
+    const jitter = (hash01(i * 3.1) - 0.5) * 0.25;
+    dir.x += jitter;
+    dir.y += (hash01(i * 7.3) - 0.5) * 0.2;
+    dir.normalize();
+
+    const frontness = THREE.MathUtils.smoothstep(pos.z, 0.0, 0.55);
+    const rootCol = colSoftPeach.clone().lerp(colWarmCream, frontness * 0.65);
+    const tipCol = colWarmCream.clone().lerp(colPureCream, frontness * 0.85);
+
+    bodyStrands.push({
+      pos,
+      dir,
+      length: 0.24 + frontness * 0.14 + hash01(i * 5.7) * 0.09,
+      thickness: 1.15 + hash01(i * 2.3) * 0.45,
+      rootColor: rootCol,
+      tipColor: tipCol,
+      phase: hash01(i * 11.1),
+      breeze: 1.15,
+      twist: hash01(i * 13.7) * Math.PI * 2
+    });
+  }
+
+  // 2) Plump Torso, Back, Sides, Belly & Rump: 5,200 strands
+  const torsoCount = 5200;
+  for (let i = 0; i < torsoCount; i++) {
+    const u = fibSpherePoint(i, torsoCount);
+    const pos = new THREE.Vector3(
+      u.x * 0.56,
+      u.y * 0.50 - 0.02,
+      u.z * 0.62 - 0.04
+    );
+
+    const dir = new THREE.Vector3(u.x, u.y * 0.65 - 0.24, u.z - 0.12).normalize();
+    const isBack = THREE.MathUtils.smoothstep(u.y, -0.2, 0.65) * THREE.MathUtils.smoothstep(-u.z, -0.3, 0.6);
+    const isBelly = THREE.MathUtils.smoothstep(-u.y, 0.1, 0.7);
+
+    const rootCol = colWarmCream.clone().lerp(colDeepApricot, isBack * 0.88);
+    const tipCol = colPureCream.clone().lerp(colGoldenApricot, isBack * 0.82).lerp(colPureCream, isBelly * 0.7);
+
+    bodyStrands.push({
+      pos,
+      dir,
+      length: 0.20 + hash01(i * 19.3) * 0.12,
+      thickness: 1.1 + hash01(i * 4.9) * 0.4,
+      rootColor: rootCol,
+      tipColor: tipCol,
+      phase: hash01(i * 17.7),
+      breeze: 1.0,
+      twist: hash01(i * 23.1) * Math.PI * 2
+    });
+  }
+
+  // 3) Planted Front Left Leg/Paw & Hind Paws: 2,200 strands
+  const legCount = 2200;
+  for (let i = 0; i < legCount; i++) {
+    const u = fibSpherePoint(i, legCount);
+    const groupIdx = i % 3;
+    let pos, dir, rootCol, tipCol, len;
+
+    if (groupIdx === 0) {
+      // Planted Front Left Leg & Fluffy Cream Paw
+      const t = hash01(i * 9.1);
+      pos = new THREE.Vector3(
+        -0.315 + u.x * 0.155,
+        -0.14 - t * 0.29 + u.y * 0.06,
+        0.44 + t * 0.08 + u.z * 0.155
+      );
+      dir = new THREE.Vector3(u.x, -0.35 + u.y * 0.4, u.z + 0.2).normalize();
+      rootCol = colSoftPeach.clone().lerp(colWarmCream, t);
+      tipCol = colPureCream;
+      len = 0.13 + (1 - t * 0.4) * 0.08;
+    } else {
+      // Left & Right Sitting Hind Haunches & Paws
+      const side = groupIdx === 1 ? -1 : 1;
+      const t = hash01(i * 6.7);
+      pos = new THREE.Vector3(
+        side * 0.41 + u.x * 0.18,
+        -0.16 - t * 0.25 + u.y * 0.08,
+        -0.12 + t * 0.26 + u.z * 0.18
+      );
+      dir = new THREE.Vector3(u.x + side * 0.25, -0.3 + u.y * 0.4, u.z + 0.15).normalize();
+      rootCol = colGoldenApricot.clone().lerp(colWarmCream, t * 0.85);
+      tipCol = colSoftPeach.clone().lerp(colPureCream, t * 0.9);
+      len = 0.14 + (1 - t * 0.35) * 0.09;
+    }
+
+    bodyStrands.push({
+      pos,
+      dir,
+      length: len,
+      thickness: 1.05,
+      rootColor: rootCol,
+      tipColor: tipCol,
+      phase: hash01(i * 31.3),
+      breeze: 0.75,
+      twist: hash01(i * 29.7) * Math.PI * 2
+    });
+  }
+}
+
+// --- B. GENERATE HEAD, CHEEKS, CROWN, EYEBROW PUFFS & VELVETY MUZZLE FUR (7,000 STRANDS) ---
+const headStrands = [];
+{
+  const headTarget = 7000;
+  let seed = 1;
+  const eyeLPos = new THREE.Vector3(-0.202, 0.075, 0.415);
+  const eyeRPos = new THREE.Vector3( 0.202, 0.075, 0.415);
+  const nosePos = new THREE.Vector3(0, -0.028, 0.598);
+  const mouthPos = new THREE.Vector3(0, -0.14, 0.53);
+
+  while (headStrands.length < headTarget) {
+    seed++;
+    const u = fibSpherePoint(seed % headTarget, headTarget);
+    const jitterTheta = (hash01(seed * 3.7) - 0.5) * 0.08;
+    const jitterPhi = (hash01(seed * 5.3) - 0.5) * 0.08;
+    const dirBase = new THREE.Vector3(u.x + jitterTheta, u.y + jitterPhi, u.z).normalize();
+
+    let pos = new THREE.Vector3(
+      dirBase.x * 0.47,
+      dirBase.y * 0.42,
+      dirBase.z * 0.44
+    );
+
+    // Extra cheek fluff & muzzle shaping
+    const cheekMask = Math.exp(-Math.pow(dirBase.y + 0.12, 2) * 8.0) * THREE.MathUtils.smoothstep(Math.abs(dirBase.x), 0.35, 0.95);
+    pos.x *= 1.0 + cheekMask * 0.24;
+    pos.z += cheekMask * 0.05;
+
+    // Short foxy muzzle projection on front lower face
+    const muzzleMask = THREE.MathUtils.smoothstep(dirBase.z, 0.55, 0.98) * THREE.MathUtils.smoothstep(-dirBase.y, -0.15, 0.55);
+    if (muzzleMask > 0.05 && Math.abs(dirBase.x) < 0.48) {
+      pos.x *= 1.0 - muzzleMask * 0.42;
+      pos.y = THREE.MathUtils.lerp(pos.y, -0.095 + dirBase.y * 0.16, muzzleMask * 0.75);
+      pos.z = THREE.MathUtils.lerp(pos.z, 0.39 + dirBase.z * 0.18, muzzleMask * 0.85);
+    }
+
+    // Strict facial feature clearance so eyes, nose, and happy tongue are 100% clear!
+    const dEyeL = pos.distanceTo(eyeLPos);
+    const dEyeR = pos.distanceTo(eyeRPos);
+    const dNose = pos.distanceTo(nosePos);
+    const dMouth = pos.distanceTo(mouthPos);
+
+    if (dEyeL < 0.118 || dEyeR < 0.118 || dNose < 0.092 || dMouth < 0.092) {
+      continue;
+    }
+
+    // Comb fur radially outward from the face center & away from eyes
+    const dir = dirBase.clone();
+    if (pos.z > 0.22) {
+      // Fan outward from bridge of nose (classic Pomeranian starburst face fur!)
+      const fromBridge = new THREE.Vector3(pos.x * 1.4, pos.y - 0.02, 0.18).normalize();
+      dir.lerp(fromBridge, 0.65).normalize();
+    } else {
+      dir.y -= 0.18;
+      dir.normalize();
+    }
+
+    // Length & coloring by facial zone
+    const nearEye = Math.min(dEyeL, dEyeR);
+    const eyeTrimScale = THREE.MathUtils.smoothstep(nearEye, 0.118, 0.21);
+    const isCrownOrBack = THREE.MathUtils.smoothstep(pos.y, -0.05, 0.28) * (1.0 - cheekMask * 0.7);
+    const isWhiteMask = Math.max(cheekMask, muzzleMask, THREE.MathUtils.smoothstep(-pos.y, 0.02, 0.28));
+
+    // Cute cream eyebrow spots right above the eyes!
+    const browSpotL = Math.exp(-pos.distanceToSquared(new THREE.Vector3(-0.16, 0.21, 0.37)) * 180.0);
+    const browSpotR = Math.exp(-pos.distanceToSquared(new THREE.Vector3( 0.16, 0.21, 0.37)) * 180.0);
+    const browFactor = Math.min(1.0, (browSpotL + browSpotR) * 1.4);
+
+    const rootCol = colDeepApricot.clone()
+      .lerp(colWarmCream, Math.max(isWhiteMask * 0.9, browFactor))
+      .lerp(colGoldenApricot, isCrownOrBack * 0.4);
+    const tipCol = colGoldenApricot.clone()
+      .lerp(colPureCream, Math.max(isWhiteMask * 0.95, browFactor));
+
+    let len = (0.16 + cheekMask * 0.13 + (1.0 - Math.max(0, pos.z)) * 0.07) * (0.32 + 0.68 * eyeTrimScale);
+    if (muzzleMask > 0.25) {
+      len = THREE.MathUtils.lerp(len, 0.042, muzzleMask * 0.92);
+    }
+
+    headStrands.push({
+      pos,
+      dir,
+      length: len + hash01(seed * 11.9) * 0.035,
+      thickness: muzzleMask > 0.3 ? 0.85 : 1.08,
+      rootColor: rootCol,
+      tipColor: tipCol,
+      phase: hash01(seed * 14.3),
+      breeze: muzzleMask > 0.3 ? 0.25 : 0.88,
+      twist: hash01(seed * 19.1) * Math.PI * 2
+    });
+  }
+}
+
+// --- C. GENERATE LEFT & RIGHT EARS FUR (1,150 STRANDS EACH = 2,300 STRANDS) ---
+function generateEarStrands(side) {
+  const strands = [];
+  const count = 1150;
+  let seed = side < 0 ? 100 : 5000;
+  while (strands.length < count) {
+    seed++;
+    const h = Math.pow(hash01(seed * 2.1), 0.75); // 0 base -> 1 tip
+    const ang = hash01(seed * 7.9) * Math.PI * 2;
+    const rAtH = (1.0 - h * 0.88) * 0.15;
+
+    const x = Math.cos(ang) * rAtH;
+    const z = Math.sin(ang) * rAtH * 0.58;
+    const y = h * 0.28 + 0.01;
+
+    // Leave pink inner ear hollow visible on front lower center
+    if (z > 0.018 && Math.abs(x) < 0.075 * (1.0 - h) && h > 0.12 && h < 0.82) {
+      continue;
+    }
+
+    const isTuft = h < 0.26 && z > 0.0;
+    const dir = new THREE.Vector3(
+      x * 2.5 + (isTuft ? -side * 0.35 : 0),
+      0.85 + h * 0.4,
+      z * 2.2
+    ).normalize();
+
+    const rootCol = isTuft ? colWarmCream : colDeepApricot.clone().lerp(colSableTip, h * 0.5);
+    const tipCol = isTuft ? colPureCream : colGoldenApricot.clone().lerp(colWarmOrange, h * 0.65);
+
+    strands.push({
+      pos: new THREE.Vector3(x, y, z),
+      dir,
+      length: isTuft ? 0.13 + hash01(seed * 4.3) * 0.05 : (0.075 + (1.0 - h) * 0.065),
+      thickness: 0.92,
+      rootColor: rootCol,
+      tipColor: tipCol,
+      phase: hash01(seed * 8.5),
+      breeze: 0.7,
+      twist: hash01(seed * 12.3) * Math.PI * 2
+    });
+  }
+  return strands;
+}
+
+// --- D. GENERATE RAISED RIGHT PAW FUR (1,200 STRANDS AROUND JELLY PAW PADS) ---
+const pawRStrands = [];
+{
+  const target = 1200;
+  let seed = 9000;
+  while (pawRStrands.length < target) {
+    seed++;
+    const u = fibSpherePoint(seed % target, target);
+    const isArm = seed % 3 === 0;
+    let pos, dir;
+
+    if (isArm) {
+      const t = hash01(seed * 3.3);
+      pos = new THREE.Vector3(
+        -0.02 + u.x * 0.13,
+        0.02 - (t - 0.5) * 0.16,
+        -0.08 + u.z * 0.13
+      );
+      dir = new THREE.Vector3(u.x, u.y * 0.5 - 0.2, u.z).normalize();
+    } else {
+      pos = new THREE.Vector3(
+        u.x * 0.175,
+        0.04 + u.y * 0.165,
+        0.04 + u.z * 0.135
+      );
+      // Exclude front palm area where the 5 translucent pink jelly paw beans sit!
+      if (pos.z > 0.115 && Math.hypot(pos.x, pos.y - 0.045) < 0.128) {
+        continue;
+      }
+      dir = new THREE.Vector3(u.x * 1.2, u.y * 1.1, u.z - 0.15).normalize();
+    }
+
+    pawRStrands.push({
+      pos,
+      dir,
+      length: 0.095 + hash01(seed * 6.1) * 0.045,
+      thickness: 0.98,
+      rootColor: colSoftPeach,
+      tipColor: colPureCream,
+      phase: hash01(seed * 15.7),
+      breeze: 0.65,
+      twist: hash01(seed * 21.9) * Math.PI * 2
+    });
+  }
+}
+
+// --- E. GENERATE FLUFFY CURLED TAIL PLUME FUR (2,500 EXTRA-LONG PLUME STRANDS) ---
+const tailStrands = [];
+{
+  const count = 2500;
+  const tangent = new THREE.Vector3();
+  for (let i = 0; i < count; i++) {
+    const t = Math.pow((i + 0.5) / count, 0.85);
+    const center = tailCurve.getPointAt(t);
+    tailCurve.getTangentAt(t, tangent);
+
+    const ang = i * 2.3999632;
+    const rad = 0.095 * (1.0 - t * 0.35);
+    const offset = new THREE.Vector3(
+      Math.cos(ang) * rad,
+      Math.sin(ang) * rad * 0.7,
+      Math.sin(ang) * rad * 0.7
+    );
+    const pos = center.clone().add(offset);
+
+    // Fountain plume fanning outward & cascading over the back
+    const radialOut = new THREE.Vector3(Math.cos(ang), Math.sin(ang) * 0.5 + 0.25, Math.sin(ang) * 0.6 + 0.2).normalize();
+    const dir = radialOut.lerp(tangent, 0.32).normalize();
+
+    const rootCol = colGoldenApricot.clone().lerp(colWarmCream, t * 0.75);
+    const tipCol = colWarmCream.clone().lerp(colPureCream, t * 0.9);
+
+    tailStrands.push({
+      pos,
+      dir,
+      length: 0.26 + Math.sin(t * Math.PI) * 0.14 + hash01(i * 8.3) * 0.08,
+      thickness: 1.22,
+      rootColor: rootCol,
+      tipColor: tipCol,
+      phase: hash01(i * 19.9),
+      breeze: 1.45,
+      twist: hash01(i * 7.1) * Math.PI * 2
+    });
+  }
+}
+
+// Create all InstancedMesh fur layers (Total: 12,600 + 7,000 + 2,300 + 1,200 + 2,500 = 25,600 3D fur strands!)
+createFurLayer(bodyGroup, bodyStrands);
+createFurLayer(headGroup, headStrands);
+createFurLayer(earLGroup, generateEarStrands(-1));
+createFurLayer(earRGroup, generateEarStrands(1));
+createFurLayer(pawRGroup, pawRStrands);
+createFurLayer(tailGroup, tailStrands);
+
+// ============================================================================
+// 4. INTERACTIVE MOUSE PETTING & JELLY WOBBLE PHYSICS
+// ============================================================================
+const raycaster = new THREE.Raycaster();
+const pointerNDC = new THREE.Vector2(-99, -99);
+const prevPointerNDC = new THREE.Vector2(-99, -99);
+let pointerActive = false;
+let petExcitement = 0.0; // Increases when user pets the puppy!
+
+// Jelly cushion spring-damper physics state
+const jellyState = {
+  squishY: 0,
+  velY: 0,
+  tiltX: 0,
+  velTiltX: 0,
+  tiltZ: 0,
+  velTiltZ: 0,
+  pokePos: new THREE.Vector3(0, 0, 0),
+  pokeAmp: 0,
+  pokePhase: 0
+};
+
+const hitPointWorld = new THREE.Vector3();
+const prevHitPointWorld = new THREE.Vector3();
+const strokeWorldDelta = new THREE.Vector3();
+let hasPrevHit = false;
+
+function handlePointerMove(e) {
+  const x = (e.clientX / window.innerWidth) * 2 - 1;
+  const y = -(e.clientY / window.innerHeight) * 2 + 1;
+  prevPointerNDC.copy(pointerNDC);
+  pointerNDC.set(x, y);
+  pointerActive = true;
+
+  raycaster.setFromCamera(pointerNDC, camera);
+
+  // 1) Check petting raycast on the puppy's fur colliders
+  const puppyHits = raycaster.intersectObjects(puppyColliders, false);
+  if (puppyHits.length > 0) {
+    hitPointWorld.copy(puppyHits[0].point);
+    if (hasPrevHit) {
+      strokeWorldDelta.subVectors(hitPointWorld, prevHitPointWorld). clampLength(0, 0.18);
+    } else {
+      strokeWorldDelta.set(0, 0, 0);
+    }
+    prevHitPointWorld.copy(hitPointWorld);
+    hasPrevHit = true;
+    petExcitement = Math.min(1.0, petExcitement + 0.08);
+    applyFurPettingImpulse(hitPointWorld, strokeWorldDelta);
+    return;
+  }
+  hasPrevHit = false;
+
+  // 2) Check hover/poke on the translucent jelly pudding cushion
+  const jellyHits = raycaster.intersectObject(jellyMesh, false);
+  if (jellyHits.length > 0) {
+    const pt = jellyHits[0].point;
+    jellyState.pokePos.copy(pt);
+    jellyState.pokeAmp = Math.min(0.16, jellyState.pokeAmp + 0.032);
+    jellyState.velY -= 0.14;
+    jellyState.velTiltX += pt.z * 0.22;
+    jellyState.velTiltZ -= pt.x * 0.22;
+  }
+}
+
+window.addEventListener('pointermove', handlePointerMove, { passive: true });
+window.addEventListener('pointerdown', (e) => {
+  handlePointerMove(e);
+  raycaster.setFromCamera(pointerNDC, camera);
+  const jellyHits = raycaster.intersectObject(jellyMesh, false);
+  if (jellyHits.length > 0) {
+    const pt = jellyHits[0].point;
+    jellyState.pokePos.copy(pt);
+    jellyState.pokeAmp = 0.22;
+    jellyState.pokePhase = 0;
+    jellyState.velY -= 0.65;
+    jellyState.velTiltX += pt.z * 0.85;
+    jellyState.velTiltZ -= pt.x * 0.85;
+  } else {
+    const puppyHits = raycaster.intersectObjects(puppyColliders, false);
+    if (puppyHits.length > 0) {
+      petExcitement = 1.0;
+      jellyState.velY -= 0.35;
+    }
+  }
+});
+
+// Apply physical parting and brushing bend to nearby 3D fur strands
+const localHit = new THREE.Vector3();
+const localStroke = new THREE.Vector3();
+const worldQuat = new THREE.Quaternion();
+const pushVec = new THREE.Vector3();
+const strandQuatInv = new THREE.Quaternion();
+
+function applyFurPettingImpulse(worldHit, worldDelta) {
+  const petRadius = 0.42;
+  const petRadiusSq = petRadius * petRadius;
+
+  for (const fg of interactiveFurGroups) {
+    fg.group.updateWorldMatrix(true, false);
+    localHit.copy(worldHit);
+    fg.group.worldToLocal(localHit);
+
+    fg.group.getWorldQuaternion(worldQuat).invert();
+    localStroke.copy(worldDelta).applyQuaternion(worldQuat);
+
+    const posArr = fg.localPositions;
+    const qInvArr = fg.localQuatInv;
+    const velArr = fg.petVel;
+    const count = fg.count;
+
+    for (let i = 0; i < count; i++) {
+      const i3 = i * 3;
+      const dx = posArr[i3]     - localHit.x;
+      const dy = posArr[i3 + 1] - localHit.y;
+      const dz = posArr[i3 + 2] - localHit.z;
+      const distSq = dx * dx + dy * dy + dz * dz;
+
+      if (distSq < petRadiusSq) {
+        const dist = Math.sqrt(distSq) + 0.0001;
+        const falloff = Math.pow(1.0 - dist / petRadius, 1.6);
+
+        // Part fur radially away from cursor + brush along mouse velocity
+        pushVec.set(
+          (dx / dist) * 0.45 + localStroke.x * 4.2,
+          (dy / dist) * 0.25 + localStroke.y * 4.2 - 0.18,
+          (dz / dist) * 0.45 + localStroke.z * 4.2
+        );
+
+        const i4 = i * 4;
+        strandQuatInv.set(qInvArr[i4], qInvArr[i4 + 1], qInvArr[i4 + 2], qInvArr[i4 + 3]);
+        pushVec.applyQuaternion(strandQuatInv);
+
+        velArr[i3]     += pushVec.x * falloff * 5.5;
+        velArr[i3 + 1] += pushVec.y * falloff * 5.5;
+        velArr[i3 + 2] += pushVec.z * falloff * 5.5;
+      }
+    }
+  }
+}
+
+// ============================================================================
+// 5. LIFELIKE IDLE ANIMATION & ELASTIC SIMULATION LOOP
+// ============================================================================
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.getElapsedTime();
+
+  furUniforms.uTime.value = t;
+  petExcitement = Math.max(0.0, petExcitement - dt * 0.35);
+
+  // 1) Continuous natural puppy breathing & happy bounce
+  const breathFreq = 2.6 + petExcitement * 1.8;
+  const breathWave = Math.sin(t * breathFreq);
+  furUniforms.uBreath.value = breathWave;
+
+  // Body gentle breathing expansion & posture sway
+  const happyBounce = Math.sin(t * 5.4) * 0.012 * petExcitement;
+  bodyGroup.scale.set(
+    1.0 + breathWave * 0.018,
+    1.0 - breathWave * 0.014,
+    1.0 + breathWave * 0.018
+  );
+
+  // 2) Playful Head Tilt, Nod & Happy Petting Reaction
+  const headTiltBase = Math.sin(t * 1.15) * 0.095 + Math.sin(t * 0.48) * 0.06;
+  const headTiltPet = Math.sin(t * 3.8) * 0.09 * petExcitement;
+  headGroup.rotation.z = headTiltBase + headTiltPet;
+  headGroup.rotation.y = Math.sin(t * 0.82) * 0.11;
+  headGroup.rotation.x = Math.cos(t * 1.35) * 0.045 - 0.03 * petExcitement;
+
+  // Happy panting tongue motion
+  tongueGroup.position.z = 0.52 + Math.sin(t * (breathFreq * 1.5)) * 0.012;
+  tongueGroup.rotation.x = Math.sin(t * (breathFreq * 1.5)) * 0.08;
+
+  // 3) Natural Eye Blinking + Happy Squint when petted
+  const blinkCycle = (t * 0.38) % 1.0;
+  let blinkScaleY = 1.0;
+  if (blinkCycle > 0.94) {
+    const bPhase = (blinkCycle - 0.94) / 0.06;
+    blinkScaleY = Math.max(0.08, Math.abs(Math.cos(bPhase * Math.PI)));
+  }
+  const happySquint = 1.0 - petExcitement * 0.26;
+  for (const eg of eyeGroups) {
+    eg.scale.y = blinkScaleY * happySquint;
+  }
+
+  // 4) Perky Ear Twitches
+  const twitchL = Math.pow(Math.max(0, Math.sin(t * 2.3 + 0.5)), 12.0) * 0.18;
+  const twitchR = Math.pow(Math.max(0, Math.sin(t * 1.9 + 2.4)), 14.0) * 0.18;
+  earLGroup.rotation.z = 0.32 + twitchL + petExcitement * 0.08;
+  earRGroup.rotation.z = -0.32 - twitchR - petExcitement * 0.08;
+
+  // 5) Happy Curled Tail Wagging (speeds up joyfully when petted!)
+  const wagSpeed = 4.8 + petExcitement * 6.5;
+  const wagAmp = 0.24 + petExcitement * 0.22;
+  tailGroup.rotation.z = Math.sin(t * wagSpeed) * wagAmp;
+  tailGroup.rotation.x = Math.cos(t * wagSpeed * 0.5) * 0.08;
+
+  // 6) Raised Front Paw gentle wave showing off the pink jelly paw pads
+  pawRGroup.position.y = 0.05 + Math.sin(t * 2.8) * 0.025 + petExcitement * 0.035;
+  pawRGroup.rotation.z = Math.sin(t * 2.8) * 0.075;
+  pawRGroup.rotation.x = Math.cos(t * 1.9) * 0.06;
+
+  // 7) Update Spring-Damper Recovery on Petted 3D Fur Strands
+  const stiffness = 28.0;
+  const damping = 6.5;
+  for (const fg of interactiveFurGroups) {
+    const bendArr = fg.petBend;
+    const velArr = fg.petVel;
+    const len = fg.count * 3;
+    let dirty = false;
+
+    for (let j = 0; j < len; j++) {
+      const b = bendArr[j];
+      const v = velArr[j];
+      if (Math.abs(b) > 0.0002 || Math.abs(v) > 0.0002) {
+        const force = -stiffness * b - damping * v;
+        velArr[j] = v + force * dt;
+        bendArr[j] = THREE.MathUtils.clamp(b + velArr[j] * dt, -0.58, 0.58);
+        dirty = true;
+      } else if (b !== 0 || v !== 0) {
+        bendArr[j] = 0;
+        velArr[j] = 0;
+        dirty = true;
+      }
+    }
+    if (dirty) {
+      fg.petAttr.needsUpdate = true;
+    }
+  }
+
+  // 8) Update Translucent Jelly Cushion Elastic Wobble & Breathing Sync
+  // Sync cushion squish with puppy's breathing & happy bounce
+  const targetSquish = -0.024 * breathWave - 0.035 * petExcitement;
+  const kJelly = 52.0;
+  const cJelly = 5.4;
+
+  const accY = -kJelly * (jellyState.squishY - targetSquish) - cJelly * jellyState.velY;
+  jellyState.velY += accY * dt;
+  jellyState.squishY += jellyState.velY * dt;
+
+  const accTX = -kJelly * jellyState.tiltX - cJelly * jellyState.velTiltX;
+  jellyState.velTiltX += accTX * dt;
+  jellyState.tiltX += jellyState.velTiltX * dt;
+
+  const accTZ = -kJelly * jellyState.tiltZ - cJelly * jellyState.velTiltZ;
+  jellyState.velTiltZ += accTZ * dt;
+  jellyState.tiltZ += jellyState.velTiltZ * dt;
+
+  jellyState.pokeAmp *= Math.exp(-dt * 2.8);
+  jellyState.pokePhase += dt * 16.0;
+
+  // Deform jelly cushion vertices elastically
+  const jPos = jellyGeo.attributes.position;
+  const restPos = jellyGeo.userData.restPos;
+  const vCount = jPos.count;
+
+  for (let i = 0; i < vCount; i++) {
+    const i3 = i * 3;
+    const rx = restPos[i3];
+    const ry = restPos[i3 + 1];
+    const rz = restPos[i3 + 2];
+
+    // Normalized height from base (0 at bottom -0.85, 1 at top +0.05)
+    const h = THREE.MathUtils.clamp((ry + 0.85) / 0.90, 0.0, 1.0);
+    const bulgeProfile = Math.sin(h * Math.PI);
+
+    // Volume-preserving squash & stretch + elastic shear wobble
+    const squash = jellyState.squishY + Math.sin(t * 3.2 + (rx * rx + rz * rz) * 1.8) * 0.008 * h;
+    const radialExpand = 1.0 - squash * 0.68 * bulgeProfile;
+
+    let nx = rx * radialExpand + jellyState.tiltZ * h * h * 0.25;
+    let ny = ry + squash * h;
+    let nz = rz * radialExpand + jellyState.tiltX * h * h * 0.25;
+
+    // Localized circular gelatin ripple from mouse hover / click
+    if (jellyState.pokeAmp > 0.001) {
+      const dx = rx - jellyState.pokePos.x;
+      const dz = rz - jellyState.pokePos.z;
+      const d = Math.hypot(dx, dz);
+      const ripple = Math.cos(d * 7.5 - jellyState.pokePhase) * Math.exp(-d * 1.8) * jellyState.pokeAmp * h;
+      ny += ripple;
+      nx += (dx / (d + 0.1)) * ripple * 0.35;
+      nz += (dz / (d + 0.1)) * ripple * 0.35;
+    }
+
+    jPos.setXYZ(i, nx, ny, nz);
+  }
+  jPos.needsUpdate = true;
+  jellyGeo.computeVertexNormals();
+
+  // Sync puppy vertical seat position with the top of the wobbling jelly cushion!
+  bodyGroup.position.y = 0.52 + jellyState.squishY * 0.85 + happyBounce;
+  bodyGroup.rotation.z = -jellyState.tiltZ * 0.18 + Math.sin(t * wagSpeed) * 0.015;
+  bodyGroup.rotation.x = jellyState.tiltX * 0.18;
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+animate();
+</script>
+</body>
+</html>

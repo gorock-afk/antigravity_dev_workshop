@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Ultra-Fluffy Baby Red Panda</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(circle at 50% 40%, #1e2620 0%, #0d120f 100%);
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    canvas#webgl {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      cursor: grab;
+    }
+    canvas#webgl:active {
+      cursor: grabbing;
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="webgl"></canvas>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // --- Renderer Setup ---
+    const canvas = document.getElementById('webgl');
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      powerPreference: 'high-performance'
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+
+    // --- Scene & Camera ---
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x101512, 0.09);
+
+    const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 40);
+    camera.position.set(0.65, 1.55, 3.25);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.minDistance = 1.4;
+    controls.maxDistance = 7.5;
+    controls.maxPolarAngle = Math.PI / 2 + 0.05;
+    controls.target.set(0, 0.95, 0);
+
+    // --- Studio & Forest Lighting ---
+    const hemiLight = new THREE.HemisphereLight(0xbad4c0, 0x181e18, 0.85);
+    scene.add(hemiLight);
+
+    // Warm Sun Key Light (Casts soft contact shadows)
+    const keyLight = new THREE.DirectionalLight(0xfff3de, 2.3);
+    keyLight.position.set(3.5, 5.5, 4.2);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.width = 2048;
+    keyLight.shadow.mapSize.height = 2048;
+    keyLight.shadow.camera.near = 0.5;
+    keyLight.shadow.camera.far = 16;
+    keyLight.shadow.camera.left = -2.5;
+    keyLight.shadow.camera.right = 2.5;
+    keyLight.shadow.camera.top = 2.5;
+    keyLight.shadow.camera.bottom = -1.5;
+    keyLight.shadow.bias = -0.0006;
+    keyLight.shadow.radius = 2.5;
+    scene.add(keyLight);
+
+    // Cool Forest Fill Light
+    const fillLight = new THREE.DirectionalLight(0x769ec4, 0.85);
+    fillLight.position.set(-4.0, 2.5, -1.0);
+    scene.add(fillLight);
+
+    // High Rim Backlight (Illuminates fur silhouette with glowing halo)
+    const rimLight = new THREE.DirectionalLight(0xffe6b8, 3.4);
+    rimLight.position.set(-1.8, 4.5, -4.2);
+    scene.add(rimLight);
+
+    // Subtle Green Moss Bounce Light
+    const mossBounce = new THREE.PointLight(0x68a550, 0.8, 4.0);
+    mossBounce.position.set(0, 0.3, 0.5);
+    scene.add(mossBounce);
+
+    // --- Interactive Mouse Physics Setup ---
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2(-999, -999);
+    const targetMouseWorld = new THREE.Vector3(0, -999, 0);
+    const currentMouseWorld = new THREE.Vector3(0, -999, 0);
+    let targetMouseStrength = 0.0;
+    let currentMouseStrength = 0.0;
+    let isMouseDown = false;
+
+    window.addEventListener('pointermove', (e) => {
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    });
+    window.addEventListener('pointerdown', () => { isMouseDown = true; });
+    window.addEventListener('pointerup', () => { isMouseDown = false; });
+
+    // List of underlying meshes used for raycasting
+    const bodyInteractiveMeshes = [];
+
+    // --- Shared Fur Material & Custom Bending Shaders ---
+    const furUniforms = {
+      uTime: { value: 0.0 },
+      uMouseWorld: { value: currentMouseWorld },
+      uMouseStrength: { value: 0.0 },
+      uMouseRadius: { value: 0.72 },
+      uRimColor: { value: new THREE.Color(1.0, 0.88, 0.72) }
+    };
+
+    const furMaterial = new THREE.MeshStandardMaterial({
+      roughness: 0.88,
+      metalness: 0.02,
+      side: THREE.DoubleSide
+    });
+
+    furMaterial.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = furUniforms.uTime;
+      shader.uniforms.uMouseWorld = furUniforms.uMouseWorld;
+      shader.uniforms.uMouseStrength = furUniforms.uMouseStrength;
+      shader.uniforms.uMouseRadius = furUniforms.uMouseRadius;
+      shader.uniforms.uRimColor = furUniforms.uRimColor;
+
+      shader.vertexShader = `
+        uniform vec3 uMouseWorld;
+        uniform float uMouseStrength;
+        uniform float uMouseRadius;
+        uniform float uTime;
+      ` + shader.vertexShader;
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <project_vertex>',
+        `
+        vec4 mvPosition = vec4( transformed, 1.0 );
+        #ifdef USE_INSTANCING
+          vec4 worldInstanceBase = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+          mvPosition = instanceMatrix * mvPosition;
+        #else
+          vec4 worldInstanceBase = modelMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+        #endif
+
+        vec4 worldVPos = modelMatrix * mvPosition;
+        float tipFactor = clamp(position.y / 0.22, 0.0, 1.0);
+
+        // Interactive mouse parting deflection
+        vec3 diff = worldInstanceBase.xyz - uMouseWorld;
+        float dist = length(diff);
+        if (dist < uMouseRadius && uMouseStrength > 0.001) {
+          float factor = (1.0 - dist / uMouseRadius);
+          factor = factor * factor * uMouseStrength * 0.24 * tipFactor;
+          vec3 pushDir = (dist > 0.001) ? normalize(diff) : vec3(0.0, 1.0, 0.0);
+          worldVPos.xyz += pushDir * factor;
+        }
+
+        // Natural living wind & breathing flutter
+        float windX = sin(uTime * 2.8 + worldInstanceBase.x * 4.5 + worldInstanceBase.y * 3.5) * 0.022 * tipFactor;
+        float windZ = cos(uTime * 2.5 + worldInstanceBase.z * 4.5 + worldInstanceBase.y * 3.5) * 0.022 * tipFactor;
+        worldVPos.x += windX;
+        worldVPos.z += windZ;
+
+        mvPosition = viewMatrix * worldVPos;
+        gl_Position = projectionMatrix * mvPosition;
+        `
+      );
+
+      shader.fragmentShader = `
+        uniform vec3 uRimColor;
+      ` + shader.fragmentShader;
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <dithering_fragment>',
+        `
+        #include <dithering_fragment>
+        // Fluffy glowing rim light on fur edges
+        vec3 rimV = normalize(vViewPosition);
+        vec3 rimN = normalize(vNormal);
+        float rimFactor = 1.0 - max(0.0, dot(rimN, rimV));
+        float rimGlow = pow(rimFactor, 3.2) * 0.42;
+        gl_FragColor.rgb += uRimColor * rimGlow;
+        `
+      );
+    };
+
+    // Low-poly tapered 3D fur strand geometry
+    const strandGeo = new THREE.ConeGeometry(0.015, 0.22, 3, 1);
+    strandGeo.translate(0, 0.11, 0); // Origin at follicle base
+
+    // Helper to generate InstancedMesh fur
+    function createFurInstancedMesh(count, sampleFn) {
+      const instMesh = new THREE.InstancedMesh(strandGeo, furMaterial, count);
+      instMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+      instMesh.castShadow = true;
+      instMesh.receiveShadow = false;
+
+      const dummy = new THREE.Object3D();
+      const up = new THREE.Vector3(0, 1, 0);
+
+      for (let i = 0; i < count; i++) {
+        const { position, normal, color, scale } = sampleFn(i, count);
+        dummy.position.copy(position);
+        dummy.quaternion.setFromUnitVectors(up, normal.clone().normalize());
+
+        // Natural organic tuft jitter
+        const jitter = new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(
+            (Math.random() - 0.5) * 0.26,
+            (Math.random() - 0.5) * 0.26,
+            (Math.random() - 0.5) * 0.26
+          )
+        );
+        dummy.quaternion.multiply(jitter);
+
+        const s = scale || (0.85 + Math.random() * 0.3);
+        dummy.scale.set(s, s, s);
+        dummy.updateMatrix();
+
+        instMesh.setMatrixAt(i, dummy.matrix);
+        instMesh.setColorAt(i, color);
+      }
+
+      instMesh.instanceMatrix.needsUpdate = true;
+      if (instMesh.instanceColor) instMesh.instanceColor.needsUpdate = true;
+      return instMesh;
+    }
+
+    // --- Procedural Textures for Log & Tree Rings ---
+    function createBarkTexture() {
+      const cv = document.createElement('canvas');
+      cv.width = 512;
+      cv.height = 512;
+      const ctx = cv.getContext('2d');
+      ctx.fillStyle = '#302016';
+      ctx.fillRect(0, 0, 512, 512);
+
+      for (let i = 0; i < 700; i++) {
+        const x = Math.random() * 512;
+        const y = Math.random() * 512;
+        const w = 3 + Math.random() * 9;
+        const h = 30 + Math.random() * 140;
+        const tone = 35 + Math.floor(Math.random() * 45);
+        ctx.fillStyle = `rgb(${tone + 18}, ${tone + 4}, ${tone - 12})`;
+        ctx.fillRect(x, y, w, h);
+      }
+      for (let i = 0; i < 180; i++) {
+        const x = Math.random() * 512;
+        const y = Math.random() * 512;
+        const r = 3 + Math.random() * 8;
+        ctx.fillStyle = `rgba(100, 138, 80, ${0.35 + Math.random() * 0.4})`;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const tex = new THREE.CanvasTexture(cv);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(4, 2);
+      return tex;
+    }
+
+    function createTreeRingTexture() {
+      const cv = document.createElement('canvas');
+      cv.width = 512;
+      cv.height = 512;
+      const ctx = cv.getContext('2d');
+      ctx.fillStyle = '#422c1f';
+      ctx.fillRect(0, 0, 512, 512);
+      const cx = 256, cy = 256;
+
+      for (let r = 8; r < 250; r += 4 + Math.random() * 3) {
+        ctx.strokeStyle = Math.random() < 0.5 ? '#2f1e14' : '#573a27';
+        ctx.lineWidth = 1.5 + Math.random() * 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      for (let i = 0; i < 8; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const len = 50 + Math.random() * 180;
+        ctx.strokeStyle = '#1e120a';
+        ctx.lineWidth = 2 + Math.random() * 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(ang) * len, cy + Math.sin(ang) * len);
+        ctx.stroke();
+      }
+      return new THREE.CanvasTexture(cv);
+    }
+
+    // --- Environment / Log Segment ---
+    const barkTex = createBarkTexture();
+    const ringTex = createTreeRingTexture();
+
+    const logGroup = new THREE.Group();
+    scene.add(logGroup);
+
+    const logGeo = new THREE.CylinderGeometry(0.52, 0.52, 3.6, 36);
+    const barkMat = new THREE.MeshStandardMaterial({
+      map: barkTex,
+      roughness: 0.88,
+      metalness: 0.05
+    });
+    const logMesh = new THREE.Mesh(logGeo, barkMat);
+    logMesh.rotation.z = Math.PI / 2;
+    logMesh.position.set(0, 0.25, 0);
+    logMesh.castShadow = true;
+    logMesh.receiveShadow = true;
+    logGroup.add(logMesh);
+
+    // End caps with tree rings
+    const endGeo = new THREE.CircleGeometry(0.52, 36);
+    const endMat = new THREE.MeshStandardMaterial({ map: ringTex, roughness: 0.8 });
+    const endL = new THREE.Mesh(endGeo, endMat);
+    endL.position.set(-1.8, 0.25, 0);
+    endL.rotation.y = -Math.PI / 2;
+    endL.receiveShadow = true;
+    logGroup.add(endL);
+
+    const endR = new THREE.Mesh(endGeo, endMat);
+    endR.position.set(1.8, 0.25, 0);
+    endR.rotation.y = Math.PI / 2;
+    endR.receiveShadow = true;
+    logGroup.add(endR);
+
+    // Velvety Moss Bed on Top of Log
+    const mossGeo = new THREE.CylinderGeometry(0.53, 0.53, 2.6, 32, 1, false, 0, Math.PI);
+    const mossMat = new THREE.MeshStandardMaterial({
+      color: 0x3f722a,
+      roughness: 0.95,
+      metalness: 0.0
+    });
+    const mossMesh = new THREE.Mesh(mossGeo, mossMat);
+    mossMesh.rotation.z = Math.PI / 2;
+    mossMesh.rotation.y = Math.PI / 2;
+    mossMesh.position.set(0, 0.25, 0);
+    mossMesh.receiveShadow = true;
+    logGroup.add(mossMesh);
+
+    // Cute Shelf Mushrooms on Log Side
+    const shroomMat = new THREE.MeshStandardMaterial({ color: 0xbaa482, roughness: 0.65 });
+    for (let s = 0; s < 4; s++) {
+      const shroom = new THREE.Mesh(new THREE.CylinderGeometry(0.12 - s * 0.02, 0.04, 0.025, 16), shroomMat);
+      shroom.position.set(-0.9 + s * 0.15, 0.45 - s * 0.08, 0.48);
+      shroom.rotation.x = 0.3;
+      shroom.rotation.z = 0.15;
+      shroom.castShadow = true;
+      logGroup.add(shroom);
+    }
+
+    // Contact Ground Plane
+    const groundGeo = new THREE.PlaneGeometry(16, 16);
+    const groundMat = new THREE.ShadowMaterial({ opacity: 0.48 });
+    const groundMesh = new THREE.Mesh(groundGeo, groundMat);
+    groundMesh.rotation.x = -Math.PI / 2;
+    groundMesh.position.y = -0.27;
+    groundMesh.receiveShadow = true;
+    scene.add(groundMesh);
+
+    // --- Red Panda Hierarchical Assembly ---
+    const pandaRoot = new THREE.Group();
+    scene.add(pandaRoot);
+
+    // 1. Torso Group
+    const torsoGroup = new THREE.Group();
+    torsoGroup.position.set(0, 0.82, -0.02);
+    pandaRoot.add(torsoGroup);
+
+    // Base body skin mesh (underlying shape)
+    const torsoBaseMat = new THREE.MeshStandardMaterial({
+      color: 0x1a1412,
+      roughness: 0.8
+    });
+    const torsoBaseMesh = new THREE.Mesh(new THREE.SphereGeometry(0.48, 24, 20), torsoBaseMat);
+    torsoBaseMesh.scale.set(0.95, 1.25, 0.92);
+    torsoBaseMesh.castShadow = true;
+    torsoGroup.add(torsoBaseMesh);
+    bodyInteractiveMeshes.push(torsoBaseMesh);
+
+    // Torso Fur (15,000 strands)
+    const torsoFurCount = 15000;
+    const torsoFurMesh = createFurInstancedMesh(torsoFurCount, (i, total) => {
+      const t = (i + 0.5) / total;
+      const y = -0.38 + t * 0.82;
+      const angle = t * 137.5 * (Math.PI / 180) * 12.0;
+
+      const normY = (y + 0.38) / 0.82;
+      const radius = 0.51 * (1.0 - normY * 0.32);
+
+      let sx = Math.cos(angle) * radius;
+      let sz = Math.sin(angle) * (radius * 0.95);
+      const cz = (1.0 - normY) * 0.08;
+      sz += cz;
+
+      const pos = new THREE.Vector3(sx, y, sz);
+      const norm = new THREE.Vector3(sx, y * 0.3, sz - cz).normalize();
+
+      const col = new THREE.Color();
+      let scale = 0.88 + Math.random() * 0.32;
+
+      // Authentic markings: Dark chocolate-black belly/chest underside, rich rust on back/flanks
+      if (sz > 0.04 && normY < 0.72) {
+        col.setRGB(0.11, 0.09, 0.08); // Dark chocolate black
+        if (Math.random() < 0.15) col.setRGB(0.16, 0.12, 0.10);
+      } else if (normY > 0.65 && sz > 0.12) {
+        col.setRGB(0.42, 0.18, 0.10); // Warm throat transition
+      } else {
+        col.setRGB(0.76, 0.27, 0.11); // Rich cinnamon rust-red
+        if (Math.random() < 0.35) col.setRGB(0.86, 0.38, 0.15); // Golden amber tip highlights
+      }
+
+      return { position: pos, normal: norm, color: col, scale: scale };
+    });
+    torsoGroup.add(torsoFurMesh);
+
+    // 2. Head Hierarchy
+    const headGroup = new THREE.Group();
+    headGroup.position.set(0, 1.48, 0.10);
+    pandaRoot.add(headGroup);
+
+    // Base head skull
+    const headBaseMat = new THREE.MeshStandardMaterial({ color: 0x823214, roughness: 0.8 });
+    const headBaseMesh = new THREE.Mesh(new THREE.SphereGeometry(0.44, 24, 20), headBaseMat);
+    headBaseMesh.scale.set(1.15, 1.0, 1.05);
+    headBaseMesh.castShadow = true;
+    headGroup.add(headBaseMesh);
+    bodyInteractiveMeshes.push(headBaseMesh);
+
+    // Muzzle & Snout Base
+    const muzzleBaseMat = new THREE.MeshStandardMaterial({ color: 0xf0ece4, roughness: 0.65 });
+    const muzzleMesh = new THREE.Mesh(new THREE.SphereGeometry(0.18, 20, 16), muzzleBaseMat);
+    muzzleMesh.position.set(0, -0.06, 0.36);
+    muzzleMesh.scale.set(1.05, 0.85, 1.25);
+    headGroup.add(muzzleMesh);
+    bodyInteractiveMeshes.push(muzzleMesh);
+
+    // Wet Black Nose
+    const noseMat = new THREE.MeshStandardMaterial({
+      color: 0x111111,
+      roughness: 0.12,
+      metalness: 0.1,
+      roughnessMap: null
+    });
+    const noseMesh = new THREE.Mesh(new THREE.SphereGeometry(0.062, 16, 14), noseMat);
+    noseMesh.position.set(0, 0.01, 0.54);
+    noseMesh.scale.set(1.25, 0.85, 0.95);
+    headGroup.add(noseMesh);
+
+    // Chewing Jaw Group
+    const jawGroup = new THREE.Group();
+    jawGroup.position.set(0, -0.12, 0.28);
+    headGroup.add(jawGroup);
+
+    const jawMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.06, 0.14, 16), muzzleBaseMat);
+    jawMesh.rotation.x = Math.PI / 2.8;
+    jawMesh.position.set(0, -0.02, 0.08);
+    jawGroup.add(jawMesh);
+
+    const tongueMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.045, 12, 12),
+      new THREE.MeshStandardMaterial({ color: 0xdd6677, roughness: 0.3 })
+    );
+    tongueMesh.position.set(0, 0.02, 0.08);
+    tongueMesh.scale.set(0.9, 0.4, 1.4);
+    jawGroup.add(tongueMesh);
+
+    // Glossy Eyes with Catchlights & Animated Eyelids
+    const eyeMat = new THREE.MeshStandardMaterial({
+      color: 0x110c08,
+      roughness: 0.04,
+      metalness: 0.1
+    });
+    const irisMat = new THREE.MeshStandardMaterial({
+      color: 0x4a2a16,
+      roughness: 0.2
+    });
+
+    const eyeLeftGroup = new THREE.Group();
+    eyeLeftGroup.position.set(-0.25, 0.08, 0.38);
+    headGroup.add(eyeLeftGroup);
+
+    const eyeRightGroup = new THREE.Group();
+    eyeRightGroup.position.set(0.25, 0.08, 0.38);
+    headGroup.add(eyeRightGroup);
+
+    [eyeLeftGroup, eyeRightGroup].forEach((eg, idx) => {
+      const eyeball = new THREE.Mesh(new THREE.SphereGeometry(0.08, 20, 16), eyeMat);
+      eg.add(eyeball);
+
+      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.065, 16, 14), irisMat);
+      iris.position.set(0, 0, 0.025);
+      iris.scale.set(1, 1, 0.5);
+      eg.add(iris);
+
+      // Sparkling double catchlights
+      const catchlight1 = new THREE.Mesh(
+        new THREE.SphereGeometry(0.022, 12, 12),
+        new THREE.MeshBasicMaterial({ color: 0xffffff })
+      );
+      catchlight1.position.set(0.025, 0.028, 0.065);
+      eg.add(catchlight1);
+
+      const catchlight2 = new THREE.Mesh(
+        new THREE.SphereGeometry(0.012, 10, 10),
+        new THREE.MeshBasicMaterial({ color: 0xffffff })
+      );
+      catchlight2.position.set(-0.02, -0.022, 0.065);
+      eg.add(catchlight2);
+
+      // Eyelid for blinking
+      const lidGeo = new THREE.SphereGeometry(0.084, 16, 14, 0, Math.PI * 2, 0, Math.PI / 2);
+      const lidMat = new THREE.MeshStandardMaterial({ color: 0x1a1412, roughness: 0.8 });
+      const eyelid = new THREE.Mesh(lidGeo, lidMat);
+      eyelid.rotation.x = -Math.PI / 2;
+      eyelid.scale.y = 0.001; // start open
+      eg.add(eyelid);
+      eg.userData.eyelid = eyelid;
+    });
+
+    // Twitching Ears
+    const leftEarGroup = new THREE.Group();
+    leftEarGroup.position.set(-0.38, 0.38, -0.05);
+    leftEarGroup.rotation.set(0.15, 0.2, -0.42);
+    headGroup.add(leftEarGroup);
+
+    const rightEarGroup = new THREE.Group();
+    rightEarGroup.position.set(0.38, 0.38, -0.05);
+    rightEarGroup.rotation.set(0.15, -0.2, 0.42);
+    headGroup.add(rightEarGroup);
+
+    const earOuterMat = new THREE.MeshStandardMaterial({ color: 0x16100c, roughness: 0.85 });
+    const earInnerMat = new THREE.MeshStandardMaterial({ color: 0xf5f2eb, roughness: 0.7 });
+
+    [leftEarGroup, rightEarGroup].forEach((eg) => {
+      const earBack = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.28, 16), earOuterMat);
+      earBack.scale.set(1.1, 1.0, 0.45);
+      earBack.position.y = 0.12;
+      eg.add(earBack);
+
+      const earFront = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.22, 16), earInnerMat);
+      earFront.scale.set(1.0, 1.0, 0.4);
+      earFront.position.set(0, 0.11, 0.03);
+      eg.add(earFront);
+    });
+
+    // Ear Fluff (2,000 strands per ear = 4,000 strands)
+    function createEarFur(parentGroup, isLeft) {
+      const earFur = createFurInstancedMesh(2000, (i, total) => {
+        const u = Math.random();
+        const v = Math.random();
+        const h = u * 0.25;
+        const w = (1.0 - u) * 0.14 * (v - 0.5) * 2;
+        const isBack = Math.random() < 0.35;
+
+        const pos = new THREE.Vector3(w, h, isBack ? -0.04 : 0.03);
+        const norm = new THREE.Vector3(w * 2, 0.3, isBack ? -1 : 1).normalize();
+
+        const col = new THREE.Color();
+        let scale = 0.85 + Math.random() * 0.35;
+
+        if (isBack) {
+          col.setRGB(0.12, 0.08, 0.06); // Dark chocolate black ear backs
+        } else {
+          col.setRGB(0.98, 0.98, 0.96); // Pure white inner ear tufts
+          scale *= 1.25;
+        }
+        return { position: pos, normal: norm, color: col, scale };
+      });
+      parentGroup.add(earFur);
+    }
+    createEarFur(leftEarGroup, true);
+    createEarFur(rightEarGroup, false);
+
+    // Head Fur (12,000 strands with authentic multi-zone facial markings)
+    const headFurCount = 12000;
+    const headFurMesh = createFurInstancedMesh(headFurCount, (i, total) => {
+      const phi = Math.acos(1 - 2 * (i + 0.5) / total);
+      const theta = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
+
+      let sx = Math.sin(phi) * Math.cos(theta);
+      let sy = Math.cos(phi);
+      let sz = Math.sin(phi) * Math.sin(theta);
+
+      let rx = 0.48, ry = 0.44, rz = 0.46;
+
+      // Chubby cheek bulging
+      if (sy < 0.12 && sz > -0.22) {
+        const cheekFactor = Math.exp(-Math.pow(sy + 0.06, 2) / 0.05);
+        rx += 0.22 * Math.abs(sx) * cheekFactor;
+        rz += 0.07 * cheekFactor;
+      }
+
+      // Snout projection
+      if (sy < 0.08 && sz > 0.22 && Math.abs(sx) < 0.3) {
+        rz += 0.14 * Math.cos(sx * Math.PI);
+      }
+
+      const pos = new THREE.Vector3(sx * rx, sy * ry + 0.01, sz * rz);
+      const norm = pos.clone().normalize();
+
+      const col = new THREE.Color(0.78, 0.28, 0.10);
+      let scale = 0.88 + Math.random() * 0.32;
+
+      // 1. Snout / Muzzle: Creamy White
+      if (sz > 0.36 && sy < 0.06 && Math.abs(sx) < 0.22) {
+        col.setRGB(0.96, 0.94, 0.90);
+      }
+      // 2. Characteristic Red-Brown Facial Tear Tracks under Eyes
+      else if (Math.abs(sx) > 0.19 && Math.abs(sx) < 0.35 && sy > -0.16 && sy < 0.11 && sz > 0.24) {
+        col.setRGB(0.48, 0.15, 0.06);
+      }
+      // 3. Ultra-Fluffy Bright White Cheeks
+      else if (Math.abs(sx) > 0.32 && sy > -0.22 && sy < 0.14 && sz > -0.18) {
+        col.setRGB(0.98, 0.97, 0.95);
+        scale *= 1.45; // Extra long fluffy cheek tufts!
+      }
+      // 4. White Eyebrow Patches
+      else if (Math.abs(sx) > 0.12 && Math.abs(sx) < 0.28 && sy > 0.18 && sy < 0.32 && sz > 0.32) {
+        col.setRGB(0.98, 0.97, 0.95);
+        scale *= 1.15;
+      }
+      // 5. Chin / Throat fluff
+      else if (sy < -0.22 && sz > 0.1) {
+        col.setRGB(0.92, 0.88, 0.82);
+      }
+      // 6. Crown & Forehead: Rich Cinnamon Rust-Red with amber highlights
+      else {
+        if (Math.random() < 0.32) col.setRGB(0.86, 0.38, 0.15);
+      }
+
+      return { position: pos, normal: norm, color: col, scale };
+    });
+    headGroup.add(headFurMesh);
+
+    // 3. Front Arms & Bamboo Stalk
+    const armsGroup = new THREE.Group();
+    pandaRoot.add(armsGroup);
+
+    const darkLimbMat = new THREE.MeshStandardMaterial({ color: 0x110d0b, roughness: 0.85 });
+
+    // Left Arm holding bamboo
+    const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.09, 0.48, 16), darkLimbMat);
+    armL.position.set(-0.28, 0.98, 0.26);
+    armL.rotation.set(0.6, 0.2, -0.45);
+    armsGroup.add(armL);
+
+    // Right Arm holding bamboo
+    const armR = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.09, 0.48, 16), darkLimbMat);
+    armR.position.set(0.28, 1.05, 0.26);
+    armR.rotation.set(0.7, -0.2, 0.45);
+    armsGroup.add(armR);
+
+    // Front Paws clutching bamboo
+    const pawL = new THREE.Mesh(new THREE.SphereGeometry(0.10, 16, 14), darkLimbMat);
+    pawL.position.set(-0.16, 0.94, 0.42);
+    armsGroup.add(pawL);
+
+    const pawR = new THREE.Mesh(new THREE.SphereGeometry(0.10, 16, 14), darkLimbMat);
+    pawR.position.set(0.16, 1.02, 0.42);
+    armsGroup.add(pawR);
+
+    // Hind legs resting on log
+    const legL = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 14), darkLimbMat);
+    legL.scale.set(1.1, 0.85, 1.25);
+    legL.position.set(-0.46, 0.52, -0.05);
+    pandaRoot.add(legL);
+
+    const legR = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 14), darkLimbMat);
+    legR.scale.set(1.1, 0.85, 1.25);
+    legR.position.set(0.46, 0.52, -0.05);
+    pandaRoot.add(legR);
+
+    // Limbs Fur (6,000 strands in dark chocolate-black)
+    const limbsFur = createFurInstancedMesh(6000, (i, total) => {
+      const isArm = i < 3000;
+      const isLeft = (i % 2 === 0);
+      let pos = new THREE.Vector3();
+      let norm = new THREE.Vector3();
+
+      if (isArm) {
+        const u = Math.random();
+        const ang = Math.random() * Math.PI * 2;
+        const rad = 0.11;
+        const side = isLeft ? -1 : 1;
+        pos.set(side * (0.24 + Math.cos(ang) * rad), 0.88 + u * 0.28, 0.24 + Math.sin(ang) * rad);
+        norm.set(Math.cos(ang), 0.2, Math.sin(ang)).normalize();
+      } else {
+        const phi = Math.random() * Math.PI;
+        const theta = Math.random() * Math.PI * 2;
+        const side = isLeft ? -1 : 1;
+        pos.set(
+          side * 0.46 + Math.sin(phi) * Math.cos(theta) * 0.22,
+          0.52 + Math.cos(phi) * 0.18,
+          -0.05 + Math.sin(phi) * Math.sin(theta) * 0.25
+        );
+        norm.set(Math.sin(phi) * Math.cos(theta), Math.cos(phi), Math.sin(phi) * Math.sin(theta)).normalize();
+      }
+
+      const col = new THREE.Color(0.10, 0.08, 0.07);
+      return { position: pos, normal: norm, color: col, scale: 0.85 + Math.random() * 0.3 };
+    });
+    pandaRoot.add(limbsFur);
+
+    // Fresh Green Bamboo Stalk & Leaves
+    const bambooGroup = new THREE.Group();
+    bambooGroup.position.set(0.04, 1.05, 0.42);
+    bambooGroup.rotation.set(-0.25, 0.15, -0.22);
+    pandaRoot.add(bambooGroup);
+
+    const bambooMat = new THREE.MeshStandardMaterial({
+      color: 0x5a9e32,
+      roughness: 0.35,
+      metalness: 0.06
+    });
+
+    const stalkMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.046, 1.9, 24), bambooMat);
+    stalkMesh.castShadow = true;
+    bambooGroup.add(stalkMesh);
+
+    // Bamboo internode rings
+    for (let r = -0.7; r <= 0.7; r += 0.38) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.046, 0.007, 12, 24), bambooMat);
+      ring.position.y = r;
+      ring.rotation.x = Math.PI / 2;
+      bambooGroup.add(ring);
+    }
+
+    // Bamboo Leaves
+    const leafMat = new THREE.MeshStandardMaterial({
+      color: 0x62a838,
+      roughness: 0.3,
+      side: THREE.DoubleSide
+    });
+
+    function createBambooLeaf(len, w) {
+      const geo = new THREE.PlaneGeometry(w, len, 3, 6);
+      const pos = geo.attributes.position;
+      for (let j = 0; j < pos.count; j++) {
+        const yVal = pos.getY(j);
+        const taper = 1.0 - Math.abs(yVal) / (len * 0.5);
+        pos.setX(j, pos.getX(j) * taper);
+        pos.setZ(j, Math.sin(taper * Math.PI) * 0.02);
+      }
+      geo.computeVertexNormals();
+      return new THREE.Mesh(geo, leafMat);
+    }
+
+    // Leaf being actively chewed in mouth
+    const chewedLeafPivot = new THREE.Group();
+    chewedLeafPivot.position.set(0.02, 0.48, 0.02);
+    bambooGroup.add(chewedLeafPivot);
+
+    const chewedLeaf = createBambooLeaf(0.48, 0.12);
+    chewedLeaf.position.set(0.0, 0.22, 0.02);
+    chewedLeaf.rotation.set(0.4, 0.6, 0.2);
+    chewedLeafPivot.add(chewedLeaf);
+
+    // Additional fresh leaves sprouting out
+    const leaf2 = createBambooLeaf(0.55, 0.14);
+    leaf2.position.set(0.08, 0.72, -0.04);
+    leaf2.rotation.set(-0.3, 1.1, -0.6);
+    bambooGroup.add(leaf2);
+
+    const leaf3 = createBambooLeaf(0.45, 0.11);
+    leaf3.position.set(-0.06, 0.62, 0.05);
+    leaf3.rotation.set(0.5, -0.8, 0.5);
+    bambooGroup.add(leaf3);
+
+    // 4. Giant Bushy Ringed Tail (14,000 strands in 6 alternating rings)
+    const tailGroup = new THREE.Group();
+    tailGroup.position.set(0.05, 0.45, -0.28);
+    pandaRoot.add(tailGroup);
+
+    // Spline curve defining the bushy tail's arc around the log
+    const tailCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0.0, 0.0, 0.0),
+      new THREE.Vector3(0.32, -0.08, -0.15),
+      new THREE.Vector3(0.72, -0.15, 0.05),
+      new THREE.Vector3(0.92, -0.16, 0.42),
+      new THREE.Vector3(0.82, -0.14, 0.78),
+      new THREE.Vector3(0.54, -0.12, 0.96)
+    ]);
+
+    const tailFurCount = 14000;
+    const tailFurMesh = createFurInstancedMesh(tailFurCount, (i, total) => {
+      const t = (i + 0.5) / total;
+      const pt = tailCurve.getPoint(t);
+      const tangent = tailCurve.getTangent(t);
+
+      const upRef = new THREE.Vector3(0, 1, 0);
+      let norm = new THREE.Vector3().crossVectors(tangent, upRef).normalize();
+      if (norm.lengthSq() < 0.001) norm.set(1, 0, 0);
+      const binorm = new THREE.Vector3().crossVectors(tangent, norm).normalize();
+
+      const ang = (i * 2.399963) % (Math.PI * 2);
+      const rx = Math.cos(ang);
+      const ry = Math.sin(ang);
+
+      // Tail core radius
+      const r = 0.16 * Math.sin(Math.pow(t, 0.6) * Math.PI * 0.95 + 0.14);
+
+      const pos = pt.clone()
+        .addScaledVector(norm, rx * r)
+        .addScaledVector(binorm, ry * r);
+
+      const outDir = new THREE.Vector3()
+        .addScaledVector(norm, rx)
+        .addScaledVector(binorm, ry)
+        .addScaledVector(tangent, 0.28)
+        .normalize();
+
+      // 6 Alternating Rings (Rust-Red vs Cream-White)
+      const ringVal = t * 12.0;
+      const isWhiteRing = (Math.floor(ringVal) % 2 === 1);
+
+      const col = new THREE.Color();
+      let scale = 1.38 + Math.random() * 0.48; // Ultra-bushy, extra long fur strands!
+
+      if (t > 0.94) {
+        col.setRGB(0.14, 0.10, 0.08); // Dark chocolate tail tip
+      } else if (isWhiteRing) {
+        col.setRGB(0.94, 0.90, 0.82); // Cream-white ring
+        if (Math.random() < 0.2) col.setRGB(0.98, 0.95, 0.88);
+      } else {
+        col.setRGB(0.76, 0.26, 0.10); // Cinnamon rust-red ring
+        if (Math.random() < 0.3) col.setRGB(0.86, 0.36, 0.14);
+      }
+
+      return { position: pos, normal: outDir, color: col, scale };
+    });
+    tailGroup.add(tailFurMesh);
+
+    // --- Window Resize Handling ---
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    });
+
+    // --- Animation & Physics Loop ---
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const elapsedTime = clock.getElapsedTime();
+
+      // 1. Raycaster Mouse Interactivity
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects(bodyInteractiveMeshes, true);
+      if (hits.length > 0) {
+        targetMouseWorld.copy(hits[0].point);
+        targetMouseStrength = isMouseDown ? 2.6 : 1.3;
+      } else {
+        targetMouseStrength = 0.0;
+      }
+
+      currentMouseWorld.lerp(targetMouseWorld, 0.22);
+      currentMouseStrength = THREE.MathUtils.lerp(currentMouseStrength, targetMouseStrength, 0.12);
+
+      furUniforms.uTime.value = elapsedTime;
+      furUniforms.uMouseWorld.value.copy(currentMouseWorld);
+      furUniforms.uMouseStrength.value = currentMouseStrength;
+
+      // 2. Cute Rapid Nibbling & Chewing Motion
+      const chewCycle = Math.sin(elapsedTime * 13.0);
+      const chewOpen = Math.max(0.0, chewCycle);
+      jawGroup.rotation.x = -0.05 + chewOpen * 0.14;
+
+      // Wiggling chewed leaf in sync with teeth
+      chewedLeafPivot.rotation.z = Math.sin(elapsedTime * 13.0) * 0.09;
+      chewedLeafPivot.rotation.x = Math.cos(elapsedTime * 13.0) * 0.06;
+
+      // Head rhythmic chewing bobbing
+      headGroup.position.y = 1.48 + Math.sin(elapsedTime * 13.0) * 0.009;
+
+      // 3. Bushy Ringed Tail Swaying Side-to-Side
+      const tailSway = Math.sin(elapsedTime * 1.6) * 0.24 + Math.sin(elapsedTime * 3.2) * 0.06;
+      tailGroup.rotation.y = tailSway;
+      tailGroup.rotation.z = Math.cos(elapsedTime * 1.6) * 0.08;
+
+      // 4. Natural Ear Twitches
+      const twitchTime = elapsedTime % 4.8;
+      let leftTwitch = 0;
+      let rightTwitch = 0;
+      if (twitchTime > 0.8 && twitchTime < 1.1) {
+        leftTwitch = Math.sin((twitchTime - 0.8) / 0.3 * Math.PI * 4) * 0.22;
+      }
+      if (twitchTime > 2.6 && twitchTime < 2.9) {
+        rightTwitch = Math.sin((twitchTime - 2.6) / 0.3 * Math.PI * 4) * 0.25;
+      }
+      leftEarGroup.rotation.z = -0.42 + leftTwitch;
+      rightEarGroup.rotation.z = 0.42 - rightTwitch;
+
+      // 5. Breathing Cycle
+      const breath = Math.sin(elapsedTime * 2.2);
+      torsoGroup.scale.set(1.0 + breath * 0.018, 1.0 + breath * 0.012, 1.0 + breath * 0.022);
+
+      // 6. Occasional Natural Eye Blinking
+      const blinkCycle = elapsedTime % 3.6;
+      if (blinkCycle > 3.42) {
+        const bt = (blinkCycle - 3.42) / 0.18;
+        const blinkAmount = Math.sin(bt * Math.PI);
+        eyeLeftGroup.userData.eyelid.scale.y = Math.max(0.001, blinkAmount);
+        rightEarGroup.parent.children.forEach(c => {
+          if (c.userData && c.userData.eyelid) c.userData.eyelid.scale.y = Math.max(0.001, blinkAmount);
+        });
+      } else {
+        eyeLeftGroup.userData.eyelid.scale.y = 0.001;
+        eyeRightGroup.userData.eyelid.scale.y = 0.001;
+      }
+
+      // 7. Subtle Curious Head Tilt towards View
+      const targetTiltY = (mouse.x * 0.12);
+      const targetTiltX = (-mouse.y * 0.08);
+      headGroup.rotation.y = THREE.MathUtils.lerp(headGroup.rotation.y, targetTiltY, 0.05);
+      headGroup.rotation.x = THREE.MathUtils.lerp(headGroup.rotation.x, targetTiltX, 0.05);
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
+</body>
+</html>

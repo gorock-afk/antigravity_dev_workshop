@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>10-Set × 4-Model 3D 생성 비교 벤치마크 (Carbon · Argon · 3.8 Flash · Claude Opus 5.5)</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --panel: #f9fafb;
+      --card: #f3f4f6;
+      --border: #e5e7eb;
+      --text: #111827;
+      --muted: #374151;
+      --sub: #6b7280;
+      --blue-bg: #e8f0fe;
+      --blue-txt: #174ea6;
+      --green-bg: #e6f4ea;
+      --green-txt: #0d652d;
+      --amber-bg: #fef7e0;
+      --amber-txt: #b06000;
+      --red-bg: #fce8e6;
+      --red-txt: #a50e0e;
+      --slate-bg: #e5e7eb;
+      --slate-txt: #111827;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+      display: flex;
+    }
+
+    /* Left Sidebar: 10 Sets Selector + 10-Set Aggregate Scorecard */
+    .sidebar {
+      width: 340px;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      flex-shrink: 0;
+    }
+    .sidebar-head {
+      padding: 14px 16px 12px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-head h1 {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.02em;
+      margin-bottom: 4px;
+    }
+    .sidebar-head p {
+      font-size: 11.5px;
+      color: var(--muted);
+      line-height: 1.38;
+    }
+    .agg-box {
+      padding: 10px 12px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+    }
+    .agg-title {
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--blue-txt);
+      background: var(--blue-bg);
+      padding: 4px 8px;
+      border-radius: 5px;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+    }
+    table.agg-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+    table.agg-table th, table.agg-table td {
+      padding: 4px 4px;
+      border-bottom: 1px solid var(--border);
+      text-align: right;
+    }
+    table.agg-table th:first-child, table.agg-table td:first-child {
+      text-align: left;
+    }
+    table.agg-table tr:last-child td {
+      border-bottom: none;
+    }
+    .set-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 10px 20px;
+    }
+    .set-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 11px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: all 0.12s ease;
+    }
+    .set-card:hover {
+      background: var(--card);
+    }
+    .set-card.active {
+      border-color: var(--blue-txt);
+      border-width: 2px;
+      background: #f4f8ff;
+    }
+    .set-card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 3px;
+    }
+    .set-name {
+      font-size: 12.5px;
+      font-weight: 800;
+      color: var(--text);
+    }
+    .set-sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 5px;
+      line-height: 1.3;
+    }
+    .set-mini-costs {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .mini-tag {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .mini-tag.c { background: var(--blue-bg); color: var(--blue-txt); }
+    .mini-tag.a { background: var(--green-bg); color: var(--green-txt); }
+    .mini-tag.f { background: var(--amber-bg); color: var(--amber-txt); }
+    .mini-tag.o { background: var(--slate-bg); color: var(--slate-txt); }
+
+    /* Right Main Area */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      min-width: 0;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 9px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+      gap: 10px;
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+    .cur-set-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+    .cur-set-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--text);
+    }
+    .cur-set-desc {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      font-size: 12px;
+      font-weight: 700;
+      padding: 5px 11px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .btn:hover {
+      background: var(--slate-bg);
+      color: var(--text);
+    }
+    .btn.active {
+      background: var(--blue-bg);
+      color: var(--blue-txt);
+      border-color: #93c5fd;
+    }
+
+    /* Collapsible Per-Set Table */
+    .summary-strip {
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      padding: 6px 16px;
+      flex-shrink: 0;
+      overflow-x: auto;
+    }
+    .summary-strip.hidden {
+      display: none;
+    }
+    table.bench-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11.5px;
+    }
+    table.bench-table th, table.bench-table td {
+      padding: 5px 8px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    table.bench-table th {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      background: var(--card);
+    }
+    table.bench-table tr:last-child td {
+      border-bottom: none;
+    }
+    .pill {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      font-weight: 700;
+    }
+    .pill.carbon { background: var(--blue-bg); color: var(--blue-txt); }
+    .pill.argon { background: var(--green-bg); color: var(--green-txt); }
+    .pill.flash { background: var(--amber-bg); color: var(--amber-txt); }
+    .pill.opus { background: var(--slate-bg); color: var(--slate-txt); }
+
+    /* 2x2 Stage Grid */
+    .stage-grid {
+      flex: 1;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      grid-template-rows: repeat(2, 1fr);
+      gap: 2px;
+      background: var(--border);
+      min-height: 0;
+    }
+    .stage-grid.single-mode {
+      grid-template-columns: 1fr;
+      grid-template-rows: 1fr;
+    }
+    .pane {
+      position: relative;
+      background: #0f172a;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+    }
+    .pane.hidden {
+      display: none;
+    }
+    .pane-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 10px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      gap: 6px;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    .pane-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .metric-chip {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      background: var(--card);
+      border: 1px solid var(--border);
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-variant-numeric: tabular-nums;
+    }
+    .metric-chip strong {
+      color: var(--text);
+      font-weight: 800;
+    }
+    .metric-chip.cost {
+      background: var(--blue-bg);
+      color: var(--blue-txt);
+      border-color: #bfdbfe;
+    }
+    .metric-chip.cost.flash-cost {
+      background: var(--green-bg);
+      color: var(--green-txt);
+      border-color: #a7f3d0;
+    }
+    .metric-chip.cost.opus-cost {
+      background: var(--red-bg);
+      color: var(--red-txt);
+      border-color: #fecaca;
+    }
+    .pane-actions {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .mini-btn {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .mini-btn:hover {
+      background: var(--blue-bg);
+      color: var(--blue-txt);
+    }
+    iframe.model-frame {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <h1>10-Set × 4-Model 3D 벤치마크</h1>
+      <p>동일 프롬프트 · 순수 3D (No HUD) · 총 40개 실측 토큰 & 예상 비용 비교</p>
+    </div>
+    <div class="agg-box">
+      <div class="agg-title">
+        <span>10개 세트 누적 합계 (총 40회 생성)</span>
+        <span>단가: 1M 토큰당</span>
+      </div>
+      <table class="agg-table">
+        <thead>
+          <tr>
+            <th>모델</th>
+            <th>총 토큰</th>
+            <th>10세트 총비용</th>
+            <th>총 코드</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="pill carbon">Carbon</span></td>
+            <td>846.5K</td>
+            <td><strong>$6.89</strong></td>
+            <td>23,111줄</td>
+          </tr>
+          <tr>
+            <td><span class="pill argon">Argon</span></td>
+            <td>515.7K</td>
+            <td><strong>$3.54</strong></td>
+            <td>17,357줄</td>
+          </tr>
+          <tr>
+            <td><span class="pill flash">3.8 Flash</span></td>
+            <td>550.5K</td>
+            <td style="color:#0d652d;font-weight:800;">$1.36 ★</td>
+            <td>9,498줄</td>
+          </tr>
+          <tr>
+            <td><span class="pill opus">Opus 5.5</span></td>
+            <td>1,092.1K</td>
+            <td style="color:#a50e0e;font-weight:800;">$21.84 ($65.51)</td>
+            <td>8,651줄</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="set-list" id="setList"></div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="cur-set-info">
+        <span class="cur-set-title" id="curSetTitle"></span>
+        <span class="cur-set-desc" id="curSetDesc"></span>
+      </div>
+      <div class="controls">
+        <button class="btn active" data-view="all">4분할 동시 비교 (2×2)</button>
+        <button class="btn" data-view="carbon">Carbon 단독</button>
+        <button class="btn" data-view="argon">Argon 단독</button>
+        <button class="btn" data-view="flash">3.8 Flash 단독</button>
+        <button class="btn" data-view="opus">Opus 5.5 단독</button>
+        <button class="btn" id="toggleTableBtn">세트 상세표 접기/펴기</button>
+      </div>
+    </header>
+
+    <section class="summary-strip" id="summaryStrip">
+      <table class="bench-table">
+        <thead>
+          <tr>
+            <th>모델 (고정 에이전트)</th>
+            <th>Input 토큰</th>
+            <th>Output 토큰 (Thinking+코드)</th>
+            <th>생성 총 토큰 (1-Shot)</th>
+            <th>단가 기준 (Input / Output, 1M당)</th>
+            <th>예상 비용 (1-Shot 생성)</th>
+            <th>Flash 대비 비용 배율</th>
+            <th>생성 코드 규모</th>
+            <th>생성 소요 시간</th>
+          </tr>
+        </thead>
+        <tbody id="benchTbody"></tbody>
+      </table>
+    </section>
+
+    <main class="stage-grid" id="stageGrid">
+      <!-- Carbon -->
+      <div class="pane" data-pane="carbon">
+        <div class="pane-header">
+          <div class="pane-left" id="hdr-carbon"></div>
+          <div class="pane-actions">
+            <button class="mini-btn" onclick="reloadPane('carbon')">새로고침</button>
+            <a class="mini-btn" id="open-carbon" href="#" target="_blank" rel="noopener">새 탭 ↗</a>
+          </div>
+        </div>
+        <iframe class="model-frame" id="frame-carbon" src="about:blank"></iframe>
+      </div>
+
+      <!-- Argon -->
+      <div class="pane" data-pane="argon">
+        <div class="pane-header">
+          <div class="pane-left" id="hdr-argon"></div>
+          <div class="pane-actions">
+            <button class="mini-btn" onclick="reloadPane('argon')">새로고침</button>
+            <a class="mini-btn" id="open-argon" href="#" target="_blank" rel="noopener">새 탭 ↗</a>
+          </div>
+        </div>
+        <iframe class="model-frame" id="frame-argon" src="about:blank"></iframe>
+      </div>
+
+      <!-- Flash -->
+      <div class="pane" data-pane="flash">
+        <div class="pane-header">
+          <div class="pane-left" id="hdr-flash"></div>
+          <div class="pane-actions">
+            <button class="mini-btn" onclick="reloadPane('flash')">새로고침</button>
+            <a class="mini-btn" id="open-flash" href="#" target="_blank" rel="noopener">새 탭 ↗</a>
+          </div>
+        </div>
+        <iframe class="model-frame" id="frame-flash" src="about:blank"></iframe>
+      </div>
+
+      <!-- Opus -->
+      <div class="pane" data-pane="opus">
+        <div class="pane-header">
+          <div class="pane-left" id="hdr-opus"></div>
+          <div class="pane-actions">
+            <button class="mini-btn" onclick="reloadPane('opus')">새로고침</button>
+            <a class="mini-btn" id="open-opus" href="#" target="_blank" rel="noopener">새 탭 ↗</a>
+          </div>
+        </div>
+        <iframe class="model-frame" id="frame-opus" src="about:blank"></iframe>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const SETS = [{"id": "set01", "num": 1, "title": "Set 01 · 포메라니안 & 젤리 쿠션", "desc": "반투명 젤리 푸딩 쿠션 위의 복슬복슬 포메라니안 강아지", "models": {"carbon": {"file": "furry_jelly_puppy_gemini4_carbon.html", "conv": "2bcb608f-bc95-47b0-993d-259e4f541562", "gen_in": 19159, "gen_out": 66826, "gen_tot": 85985, "tot_in": 22568, "tot_out": 67232, "cost": 0.707, "cost_std": 0.707, "bytes": 77888, "kb": 76.1, "lines": 2055, "sec": 816}, "argon": {"file": "furry_jelly_puppy_gemini4_argon.html", "conv": "adc2eb37-3135-4895-a0fe-4f6f935d5392", "gen_in": 24396, "gen_out": 27895, "gen_tot": 52291, "tot_in": 52369, "tot_out": 28035, "cost": 0.328, "cost_std": 0.328, "bytes": 51808, "kb": 50.6, "lines": 1521, "sec": 313}, "flash": {"file": "furry_jelly_puppy_gemini38_flash.html", "conv": "ed32e68a-4e38-4047-b1f8-b3591d208e44", "gen_in": 21000, "gen_out": 32319, "gen_tot": 53319, "tot_in": 58473, "tot_out": 32570, "cost": 0.137, "cost_std": 0.137, "bytes": 36286, "kb": 35.4, "lines": 1028, "sec": 110}, "opus": {"file": "furry_jelly_puppy_claude_opus55.html", "conv": "11378108-227b-420c-bb2f-8dc6ebdf0f1b", "gen_in": 27850, "gen_out": 90144, "gen_tot": 117994, "tot_in": 145904, "tot_out": 90479, "cost": 2.393, "cost_std": 7.179, "bytes": 36436, "kb": 35.6, "lines": 807, "sec": 830}}}, {"id": "set02", "num": 2, "title": "Set 02 · 커스터드 푸딩 젤리", "desc": "체리 토핑과 시럽이 흐르는 탱글탱글 반투명 커스터드 푸딩 젤리", "models": {"carbon": {"file": "set02_caramel_pudding_gemini4_carbon.html", "conv": "6c0bd65e-a49d-4109-b621-54ba1a339f7f", "gen_in": 21725, "gen_out": 57743, "gen_tot": 79468, "tot_in": 100891, "tot_out": 58237, "cost": 0.621, "cost_std": 0.621, "bytes": 71574, "kb": 69.9, "lines": 1969, "sec": 643}, "argon": {"file": "set02_caramel_pudding_gemini4_argon.html", "conv": "e239d018-1d1c-413c-b246-71fa5cb97670", "gen_in": 21717, "gen_out": 26128, "gen_tot": 47845, "tot_in": 48700, "tot_out": 26239, "cost": 0.305, "cost_std": 0.305, "bytes": 61311, "kb": 59.9, "lines": 1669, "sec": 289}, "flash": {"file": "set02_caramel_pudding_gemini38_flash.html", "conv": "5a18ee71-34c4-4be2-98b6-724a4541d4a7", "gen_in": 24724, "gen_out": 18901, "gen_tot": 43625, "tot_in": 46945, "tot_out": 19179, "cost": 0.089, "cost_std": 0.089, "bytes": 37627, "kb": 36.7, "lines": 1041, "sec": 66}, "opus": {"file": "set02_caramel_pudding_claude_opus55.html", "conv": "8d9eded2-6a34-4d7b-aa55-7b7e88a940ed", "gen_in": 27261, "gen_out": 58581, "gen_tot": 85842, "tot_in": 113163, "tot_out": 58901, "cost": 1.601, "cost_std": 4.802, "bytes": 27042, "kb": 26.4, "lines": 709, "sec": 560}}}, {"id": "set03", "num": 3, "title": "Set 03 · 조개 안은 아기 해달", "desc": "배 위에 조개를 얹고 물에 둥실 떠 있는 털 많은 아기 해달", "models": {"carbon": {"file": "set03_fluffy_sea_otter_gemini4_carbon.html", "conv": "6ec5985e-d01f-497c-ab91-9565755c288c", "gen_in": 24072, "gen_out": 75083, "gen_tot": 99155, "tot_in": 33688, "tot_out": 75471, "cost": 0.799, "cost_std": 0.799, "bytes": 108142, "kb": 105.6, "lines": 2790, "sec": 897}, "argon": {"file": "set03_fluffy_sea_otter_gemini4_argon.html", "conv": "3b53e452-2a93-489d-90d2-8f292cadaf71", "gen_in": 21732, "gen_out": 29540, "gen_tot": 51272, "tot_in": 52139, "tot_out": 29664, "cost": 0.339, "cost_std": 0.339, "bytes": 58319, "kb": 57.0, "lines": 1627, "sec": 332}, "flash": {"file": "set03_fluffy_sea_otter_gemini38_flash.html", "conv": "8837aba2-4c8a-421e-a062-73140eb34a86", "gen_in": 20661, "gen_out": 18948, "gen_tot": 39609, "tot_in": 42944, "tot_out": 19068, "cost": 0.087, "cost_std": 0.087, "bytes": 35453, "kb": 34.6, "lines": 948, "sec": 66}, "opus": {"file": "set03_fluffy_sea_otter_claude_opus55.html", "conv": "27fb036b-2872-40ef-a13b-06ec75b99aa5", "gen_in": 27264, "gen_out": 103847, "gen_tot": 131111, "tot_in": 158435, "tot_out": 104120, "cost": 2.732, "cost_std": 8.197, "bytes": 39478, "kb": 38.6, "lines": 860, "sec": 966}}}, {"id": "set04", "num": 4, "title": "Set 04 · 가시·배털 아기 고슴도치", "desc": "수만 가닥 가시와 복슬복슬 배털·젤리 발바닥 아기 고슴도치", "models": {"carbon": {"file": "set04_spiky_hedgehog_gemini4_carbon.html", "conv": "03bf21dd-5c2e-48b4-882c-d62d7a081f21", "gen_in": 17902, "gen_out": 68122, "gen_tot": 86024, "tot_in": 20557, "tot_out": 68409, "cost": 0.717, "cost_std": 0.717, "bytes": 84963, "kb": 83.0, "lines": 2505, "sec": 849}, "argon": {"file": "set04_spiky_hedgehog_gemini4_argon.html", "conv": "90070050-700d-492f-9c39-69cdca38f307", "gen_in": 17895, "gen_out": 34917, "gen_tot": 52812, "tot_in": 53706, "tot_out": 35122, "cost": 0.385, "cost_std": 0.385, "bytes": 65868, "kb": 64.3, "lines": 1931, "sec": 383}, "flash": {"file": "set04_spiky_hedgehog_gemini38_flash.html", "conv": "21b4ea72-76e5-4e2f-bea1-1a0823f99a4f", "gen_in": 24754, "gen_out": 28767, "gen_tot": 53521, "tot_in": 53815, "tot_out": 28925, "cost": 0.126, "cost_std": 0.126, "bytes": 26964, "kb": 26.3, "lines": 762, "sec": 90}, "opus": {"file": "set04_spiky_hedgehog_claude_opus55.html", "conv": "588fc357-2198-4932-9762-052d88296947", "gen_in": 27262, "gen_out": 83448, "gen_tot": 110710, "tot_in": 138032, "tot_out": 83691, "cost": 2.223, "cost_std": 6.668, "bytes": 35458, "kb": 34.6, "lines": 899, "sec": 763}}}, {"id": "set05", "num": 5, "title": "Set 05 · 심해 반투명 발광 해파리", "desc": "촉수가 물결치며 영롱하게 빛나는 심해 반투명 발광 해파리", "models": {"carbon": {"file": "set05_biolum_jellyfish_gemini4_carbon.html", "conv": "951c0707-1243-4666-a0f9-152de8df5ed8", "gen_in": 18386, "gen_out": 45783, "gen_tot": 64169, "tot_in": 65047, "tot_out": 45941, "cost": 0.495, "cost_std": 0.495, "bytes": 81491, "kb": 79.6, "lines": 2054, "sec": 574}, "argon": {"file": "set05_biolum_jellyfish_gemini4_argon.html", "conv": "a2eb354c-44ea-4989-92fb-9970c0d3266e", "gen_in": 24051, "gen_out": 23232, "gen_tot": 47283, "tot_in": 48138, "tot_out": 23354, "cost": 0.28, "cost_std": 0.28, "bytes": 51776, "kb": 50.6, "lines": 1440, "sec": 261}, "flash": {"file": "set05_biolum_jellyfish_gemini38_flash.html", "conv": "d6c5355d-4603-4648-8aea-4f054e908fa7", "gen_in": 24722, "gen_out": 27270, "gen_tot": 51992, "tot_in": 55479, "tot_out": 27556, "cost": 0.121, "cost_std": 0.121, "bytes": 31653, "kb": 30.9, "lines": 866, "sec": 89}, "opus": {"file": "set05_biolum_jellyfish_claude_opus55.html", "conv": "1d2446c7-b522-433f-b823-521a243e0f54", "gen_in": 27275, "gen_out": 81340, "gen_tot": 108615, "tot_in": 135950, "tot_out": 81651, "cost": 2.17, "cost_std": 6.51, "bytes": 44858, "kb": 43.8, "lines": 967, "sec": 725}}}, {"id": "set06", "num": 6, "title": "Set 06 · 대나무 아기 레서판다", "desc": "대나무 잎을 쥐고 줄무늬 꼬리를 흔드는 털 많은 아기 레서판다", "models": {"carbon": {"file": "set06_fluffy_red_panda_gemini4_carbon.html", "conv": "7317f2e2-279f-471a-865b-cec8ec35c1da", "gen_in": 24080, "gen_out": 68051, "gen_tot": 92131, "tot_in": 49654, "tot_out": 99917, "cost": 0.729, "cost_std": 0.729, "bytes": 95199, "kb": 93.0, "lines": 2603, "sec": 1434}, "argon": {"file": "set06_fluffy_red_panda_gemini4_argon.html", "conv": "a876a870-40c5-4b63-b340-0aab567c73ca", "gen_in": 17871, "gen_out": 46714, "gen_tot": 64585, "tot_in": 82557, "tot_out": 47027, "cost": 0.503, "cost_std": 0.503, "bytes": 70964, "kb": 69.3, "lines": 1908, "sec": 542}, "flash": {"file": "set06_fluffy_red_panda_gemini38_flash.html", "conv": "dbe1ca1a-56ff-44b6-8cee-0351bcb6fe50", "gen_in": 24722, "gen_out": 39017, "gen_tot": 63739, "tot_in": 66703, "tot_out": 39500, "cost": 0.165, "cost_std": 0.165, "bytes": 34282, "kb": 33.5, "lines": 949, "sec": 120}, "opus": {"file": "set06_fluffy_red_panda_claude_opus55.html", "conv": "b6d90760-6af4-4bc0-8294-bd6c01ef894a", "gen_in": 27256, "gen_out": 84352, "gen_tot": 111608, "tot_in": 139415, "tot_out": 84757, "cost": 2.245, "cost_std": 6.735, "bytes": 36060, "kb": 35.2, "lines": 664, "sec": 811}}}, {"id": "set07", "num": 7, "title": "Set 07 · 5색 하리보 젤리곰", "desc": "유리 받침대 위의 5색 반투명 하리보 젤리곰 & 탄성 스쿼시 물리", "models": {"carbon": {"file": "set07_gummy_bears_gemini4_carbon.html", "conv": "0f0d2227-3ed9-4efa-bd83-16eed1088f9f", "gen_in": 18397, "gen_out": 66454, "gen_tot": 84851, "tot_in": 21434, "tot_out": 66820, "cost": 0.701, "cost_std": 0.701, "bytes": 61617, "kb": 60.2, "lines": 1799, "sec": 723}, "argon": {"file": "set07_gummy_bears_gemini4_argon.html", "conv": "314be35c-31d8-4c9a-9e8f-d6461b1962cd", "gen_in": 24071, "gen_out": 27050, "gen_tot": 51121, "tot_in": 51197, "tot_out": 27171, "cost": 0.319, "cost_std": 0.319, "bytes": 49204, "kb": 48.1, "lines": 1380, "sec": 318}, "flash": {"file": "set07_gummy_bears_gemini38_flash.html", "conv": "fa1cee3a-733e-49e8-9efb-bd265cc36501", "gen_in": 24730, "gen_out": 39648, "gen_tot": 64378, "tot_in": 64640, "tot_out": 39804, "cost": 0.167, "cost_std": 0.167, "bytes": 30164, "kb": 29.5, "lines": 906, "sec": 115}, "opus": {"file": "set07_gummy_bears_claude_opus55.html", "conv": "2d94c9aa-9327-4595-9dd8-90a49089af8f", "gen_in": 27305, "gen_out": 76312, "gen_tot": 103617, "tot_in": 130982, "tot_out": 76578, "cost": 2.044, "cost_std": 6.133, "bytes": 34851, "kb": 34.0, "lines": 880, "sec": 700}}}, {"id": "set08", "num": 8, "title": "Set 08 · 구름 양털 아기 알파카", "desc": "보송보송한 양털이 구름처럼 피어난 하얀 아기 알파카", "models": {"carbon": {"file": "set08_woolly_alpaca_gemini4_carbon.html", "conv": "c8b86d69-fe79-45d5-8932-1e591a88437a", "gen_in": 18383, "gen_out": 74410, "gen_tot": 92793, "tot_in": 27326, "tot_out": 74952, "cost": 0.781, "cost_std": 0.781, "bytes": 92674, "kb": 90.5, "lines": 2553, "sec": 912}, "argon": {"file": "set08_woolly_alpaca_gemini4_argon.html", "conv": "5c8d52e2-03aa-4597-9f7a-c33dd991fb56", "gen_in": 17875, "gen_out": 35356, "gen_tot": 53231, "tot_in": 71190, "tot_out": 35589, "cost": 0.389, "cost_std": 0.389, "bytes": 65043, "kb": 63.5, "lines": 1930, "sec": 405}, "flash": {"file": "set08_woolly_alpaca_gemini38_flash.html", "conv": "910e599b-f70e-4881-b62f-a0408b846e92", "gen_in": 20665, "gen_out": 30831, "gen_tot": 51496, "tot_in": 54490, "tot_out": 31350, "cost": 0.131, "cost_std": 0.131, "bytes": 38471, "kb": 37.6, "lines": 1017, "sec": 96}, "opus": {"file": "set08_woolly_alpaca_claude_opus55.html", "conv": "0258ba2e-e395-48da-879a-e654746230d1", "gen_in": 27241, "gen_out": 106470, "gen_tot": 133711, "tot_in": 161012, "tot_out": 106712, "cost": 2.798, "cost_std": 8.394, "bytes": 45981, "kb": 44.9, "lines": 1214, "sec": 970}}}, {"id": "set09", "num": 9, "title": "Set 09 · 8촉수 반투명 유리문어", "desc": "빨판이 달린 8개 촉수가 유연하게 꿈틀거리는 반투명 유리문어", "models": {"carbon": {"file": "set09_glass_octopus_gemini4_carbon.html", "conv": "7f2eb3c1-ad73-471e-b839-347920f3cc49", "gen_in": 17868, "gen_out": 50651, "gen_tot": 68519, "tot_in": 69402, "tot_out": 51042, "cost": 0.542, "cost_std": 0.542, "bytes": 75712, "kb": 73.9, "lines": 2011, "sec": 602}, "argon": {"file": "set09_glass_octopus_gemini4_argon.html", "conv": "7fca06db-98ca-48b6-a4b7-28bf4139b044", "gen_in": 13972, "gen_out": 27399, "gen_tot": 41371, "tot_in": 44594, "tot_out": 27927, "cost": 0.302, "cost_std": 0.302, "bytes": 70438, "kb": 68.8, "lines": 1791, "sec": 303}, "flash": {"file": "set09_glass_octopus_gemini38_flash.html", "conv": "16294f08-1688-40b4-9a2c-ca3763429e6b", "gen_in": 24724, "gen_out": 33718, "gen_tot": 58442, "tot_in": 64280, "tot_out": 34453, "cost": 0.145, "cost_std": 0.145, "bytes": 34653, "kb": 33.8, "lines": 943, "sec": 108}, "opus": {"file": "set09_glass_octopus_claude_opus55.html", "conv": "46f22cae-747b-4794-a1de-459569cd8ff1", "gen_in": 27254, "gen_out": 59389, "gen_tot": 86643, "tot_in": 113957, "tot_out": 59756, "cost": 1.621, "cost_std": 4.863, "bytes": 33102, "kb": 32.3, "lines": 848, "sec": 554}}}, {"id": "set10", "num": 10, "title": "Set 10 · 유칼립투스 아기 코알라", "desc": "유칼립투스 나뭇가지를 꼭 껴안고 있는 털 많은 아기 코알라", "models": {"carbon": {"file": "set10_fluffy_koala_gemini4_carbon.html", "conv": "5c44199d-0c60-4ad4-9181-b10d4e154e3a", "gen_in": 16366, "gen_out": 77061, "gen_tot": 93427, "tot_in": 50949, "tot_out": 108077, "cost": 0.803, "cost_std": 0.803, "bytes": 98995, "kb": 96.7, "lines": 2772, "sec": 1659}, "argon": {"file": "set10_fluffy_koala_gemini4_argon.html", "conv": "b3a2228c-864b-460c-a90d-e9f3308d5739", "gen_in": 17870, "gen_out": 35970, "gen_tot": 53840, "tot_in": 54701, "tot_out": 36201, "cost": 0.395, "cost_std": 0.395, "bytes": 83886, "kb": 81.9, "lines": 2160, "sec": 395}, "flash": {"file": "set10_fluffy_koala_gemini38_flash.html", "conv": "02fa16b6-55e1-48f8-af66-a7697332030e", "gen_in": 24731, "gen_out": 45639, "gen_tot": 70370, "tot_in": 75948, "tot_out": 46385, "cost": 0.19, "cost_std": 0.19, "bytes": 33031, "kb": 32.3, "lines": 1038, "sec": 129}, "opus": {"file": "set10_fluffy_koala_claude_opus55.html", "conv": "c7a56de2-518b-4fd7-b089-0a62266c810b", "gen_in": 27249, "gen_out": 74972, "gen_tot": 102221, "tot_in": 129530, "tot_out": 75261, "cost": 2.011, "cost_std": 6.032, "bytes": 34874, "kb": 34.1, "lines": 803, "sec": 717}}}];
+    let currentSetIdx = 0;
+
+    const setListEl = document.getElementById('setList');
+    const curSetTitleEl = document.getElementById('curSetTitle');
+    const curSetDescEl = document.getElementById('curSetDesc');
+    const benchTbodyEl = document.getElementById('benchTbody');
+
+    function fmtNum(n) {
+      return n.toLocaleString('ko-KR');
+    }
+    function fmtTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return m > 0 ? `${m}분 ${s}초` : `${s}초`;
+    }
+
+    function renderSidebar() {
+      setListEl.innerHTML = '';
+      SETS.forEach((s, idx) => {
+        const c = s.models.carbon;
+        const a = s.models.argon;
+        const f = s.models.flash;
+        const o = s.models.opus;
+        const card = document.createElement('div');
+        card.className = 'set-card' + (idx === currentSetIdx ? ' active' : '');
+        card.innerHTML = `
+          <div class="set-card-top">
+            <span class="set-name">${s.title}</span>
+          </div>
+          <div class="set-sub">${s.desc}</div>
+          <div class="set-mini-costs">
+            <span class="mini-tag c">Carbon $${c.cost.toFixed(2)}</span>
+            <span class="mini-tag a">Argon $${a.cost.toFixed(2)}</span>
+            <span class="mini-tag f">Flash $${f.cost.toFixed(2)}</span>
+            <span class="mini-tag o">Opus $${o.cost.toFixed(2)}</span>
+          </div>
+        `;
+        card.addEventListener('click', () => selectSet(idx));
+        setListEl.appendChild(card);
+      });
+    }
+
+    function selectSet(idx) {
+      currentSetIdx = idx;
+      renderSidebar();
+      const s = SETS[idx];
+      curSetTitleEl.textContent = s.title;
+      curSetDescEl.textContent = s.desc;
+
+      const fCost = Math.max(0.001, s.models.flash.cost);
+      const rowsCfg = [
+        { key: 'carbon', label: 'Gemini 4 Carbon (High)', pill: 'carbon', rate: '$2.00 / $10.00', costChip: 'cost' },
+        { key: 'argon', label: 'Gemini 4 Argon (High)', pill: 'argon', rate: '$2.00 / $10.00', costChip: 'cost' },
+        { key: 'flash', label: 'Gemini 3.8 Flash (High)', pill: 'flash', rate: '$0.75 / $3.75', costChip: 'cost flash-cost' },
+        { key: 'opus', label: 'Claude Opus 5.5 (High)', pill: 'opus', rate: '$5/$25 (표준 $15/$75)', costChip: 'cost opus-cost' },
+      ];
+
+      benchTbodyEl.innerHTML = rowsCfg.map(rc => {
+        const m = s.models[rc.key];
+        const ratio = (m.cost / fCost).toFixed(1) + 'x';
+        const costStr = rc.key === 'opus'
+          ? `<strong>$${m.cost.toFixed(2)}</strong> (표준 $${m.cost_std.toFixed(2)})`
+          : `<strong>$${m.cost.toFixed(2)}</strong>`;
+        const ratioStr = rc.key === 'opus'
+          ? `<strong>${ratio} ~ ${((m.cost_std / fCost)).toFixed(1)}x</strong>`
+          : `<strong>${ratio}</strong>`;
+        return `
+          <tr>
+            <td><span class="pill ${rc.pill}">${rc.label}</span></td>
+            <td>${fmtNum(m.gen_in)}</td>
+            <td>${fmtNum(m.gen_out)}</td>
+            <td><strong>${fmtNum(m.gen_tot)}</strong></td>
+            <td>${rc.rate}</td>
+            <td>${costStr}</td>
+            <td>${ratioStr}</td>
+            <td>${fmtNum(m.lines)}줄 · ${m.kb} KB</td>
+            <td>${fmtTime(m.sec)}</td>
+          </tr>
+        `;
+      }).join('');
+
+      rowsCfg.forEach(rc => {
+        const m = s.models[rc.key];
+        const hdr = document.getElementById('hdr-' + rc.key);
+        const costLabel = rc.key === 'opus'
+          ? `$${m.cost.toFixed(2)} (표준 $${m.cost_std.toFixed(2)})`
+          : `$${m.cost.toFixed(2)}`;
+        hdr.innerHTML = `
+          <span class="pill ${rc.pill}">${rc.label}</span>
+          <span class="metric-chip">토큰: <strong>${fmtNum(m.gen_tot)}</strong> (In ${(m.gen_in/1000).toFixed(1)}K / Out ${(m.gen_out/1000).toFixed(1)}K)</span>
+          <span class="metric-chip ${rc.costChip}">비용: <strong>${costLabel}</strong></span>
+          <span class="metric-chip">코드: <strong>${fmtNum(m.lines)}줄 (${m.kb}KB)</strong> · ${fmtTime(m.sec)}</span>
+        `;
+        document.getElementById('frame-' + rc.key).src = m.file;
+        document.getElementById('open-' + rc.key).href = m.file;
+      });
+    }
+
+    function reloadPane(key) {
+      const s = SETS[currentSetIdx];
+      const f = document.getElementById('frame-' + key);
+      if (f && s) f.src = s.models[key].file + '?t=' + Date.now();
+    }
+
+    const viewBtns = document.querySelectorAll('[data-view]');
+    const panes = document.querySelectorAll('[data-pane]');
+    const stageGrid = document.getElementById('stageGrid');
+
+    viewBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        viewBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const v = btn.dataset.view;
+        if (v === 'all') {
+          stageGrid.classList.remove('single-mode');
+          panes.forEach(p => p.classList.remove('hidden'));
+        } else {
+          stageGrid.classList.add('single-mode');
+          panes.forEach(p => {
+            p.classList.toggle('hidden', p.dataset.pane !== v);
+          });
+        }
+      });
+    });
+
+    document.getElementById('toggleTableBtn').addEventListener('click', () => {
+      document.getElementById('summaryStrip').classList.toggle('hidden');
+    });
+
+    selectSet(0);
+  </script>
+</body>
+</html>

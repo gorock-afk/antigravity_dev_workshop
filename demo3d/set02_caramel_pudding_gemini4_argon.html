@@ -1,0 +1,1669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Caramel Custard Pudding</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background-color: #160e0a;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      cursor: pointer;
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    const canvas = document.getElementById('c');
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      powerPreference: 'high-performance'
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.18;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    const scene = new THREE.Scene();
+
+    // Warm patisserie background texture
+    function createStudioBackgroundTexture() {
+      const bgCanvas = document.createElement('canvas');
+      bgCanvas.width = 1024;
+      bgCanvas.height = 1024;
+      const ctx = bgCanvas.getContext('2d');
+      const grad = ctx.createRadialGradient(512, 440, 60, 512, 512, 680);
+      grad.addColorStop(0.0, '#442b1d');
+      grad.addColorStop(0.45, '#28170e');
+      grad.addColorStop(1.0, '#110906');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 1024, 1024);
+
+      // Subtle warm bokeh circles in background for refraction richness
+      const bokehSpecs = [
+        { x: 240, y: 260, r: 110, c: 'rgba(255, 200, 130, 0.08)' },
+        { x: 790, y: 220, r: 140, c: 'rgba(255, 175, 95, 0.07)' },
+        { x: 680, y: 380, r: 85, c: 'rgba(255, 225, 170, 0.06)' },
+        { x: 330, y: 410, r: 95, c: 'rgba(255, 160, 80, 0.06)' }
+      ];
+      for (const b of bokehSpecs) {
+        const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
+        g.addColorStop(0, b.c);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const tex = new THREE.CanvasTexture(bgCanvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    scene.background = createStudioBackgroundTexture();
+
+    // Procedural Studio HDRI Environment Map for crisp glossy specular reflections
+    function createStudioEnvironment(renderer) {
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      pmrem.compileEquirectangularShader();
+
+      const envScene = new THREE.Scene();
+      envScene.background = new THREE.Color(0x1f130c);
+
+      const stripGeo = new THREE.PlaneGeometry(1, 1);
+
+      // Key softbox
+      const keyPanel = new THREE.Mesh(
+        stripGeo,
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(8.5, 7.6, 6.2), side: THREE.DoubleSide })
+      );
+      keyPanel.scale.set(10, 14, 1);
+      keyPanel.position.set(11, 12, 10);
+      keyPanel.lookAt(0, 1, 0);
+      envScene.add(keyPanel);
+
+      // Overhead diffused dome ring
+      const topLight = new THREE.Mesh(
+        new THREE.CircleGeometry(7, 32),
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(6.0, 5.3, 4.4), side: THREE.DoubleSide })
+      );
+      topLight.position.set(0, 16, 0);
+      topLight.rotation.x = Math.PI / 2;
+      envScene.add(topLight);
+
+      // Rim warm golden window strip
+      const rimPanel = new THREE.Mesh(
+        stripGeo,
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(10.0, 6.5, 2.8), side: THREE.DoubleSide })
+      );
+      rimPanel.scale.set(16, 7, 1);
+      rimPanel.position.set(-10, 8, -12);
+      rimPanel.lookAt(0, 1.5, 0);
+      envScene.add(rimPanel);
+
+      // Fill cool-cream reflector
+      const fillPanel = new THREE.Mesh(
+        stripGeo,
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(3.2, 3.6, 4.2), side: THREE.DoubleSide })
+      );
+      fillPanel.scale.set(12, 10, 1);
+      fillPanel.position.set(-13, 6, 9);
+      fillPanel.lookAt(0, 1, 0);
+      envScene.add(fillPanel);
+
+      // Warm bounce floor
+      const floorDisk = new THREE.Mesh(
+        new THREE.CircleGeometry(18, 32),
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(0.9, 0.55, 0.3), side: THREE.DoubleSide })
+      );
+      floorDisk.position.set(0, -6, 0);
+      floorDisk.rotation.x = -Math.PI / 2;
+      envScene.add(floorDisk);
+
+      const envTex = pmrem.fromScene(envScene, 0.035).texture;
+      pmrem.dispose();
+      return envTex;
+    }
+
+    scene.environment = createStudioEnvironment(renderer);
+
+    const camera = new THREE.PerspectiveCamera(36, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0.0, 3.85, 7.6);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.055;
+    controls.target.set(0, 1.15, 0);
+    controls.minDistance = 4.0;
+    controls.maxDistance = 15.0;
+    controls.maxPolarAngle = Math.PI * 0.485;
+    controls.minPolarAngle = 0.15;
+
+    // Studio Three-Point Lighting + Internal Subsurface Glow
+    const ambientLight = new THREE.AmbientLight(0xffe9d2, 0.55);
+    scene.add(ambientLight);
+
+    // 1. Key Light
+    const keyLight = new THREE.DirectionalLight(0xfff5e4, 2.9);
+    keyLight.position.set(5.5, 8.8, 6.2);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.width = 2048;
+    keyLight.shadow.mapSize.height = 2048;
+    keyLight.shadow.camera.near = 1.0;
+    keyLight.shadow.camera.far = 22.0;
+    const d = 4.5;
+    keyLight.shadow.camera.left = -d;
+    keyLight.shadow.camera.right = d;
+    keyLight.shadow.camera.top = d;
+    keyLight.shadow.camera.bottom = -d;
+    keyLight.shadow.bias = -0.0005;
+    keyLight.shadow.normalBias = 0.02;
+    scene.add(keyLight);
+
+    // 2. Fill Light
+    const fillLight = new THREE.DirectionalLight(0xdce8ff, 1.15);
+    fillLight.position.set(-6.5, 5.2, 4.5);
+    scene.add(fillLight);
+
+    // 3. Back / Rim Light (Strong warm backlight for custard translucency & subsurface scattering)
+    const rimLight = new THREE.SpotLight(0xffb84d, 5.2, 25, Math.PI * 0.35, 0.6, 1.0);
+    rimLight.position.set(-1.8, 5.8, -6.8);
+    rimLight.target.position.set(0, 1.1, 0);
+    scene.add(rimLight);
+    scene.add(rimLight.target);
+
+    // Internal Caustic / Subsurface Glow Light inside the pudding
+    const internalGlowLight = new THREE.PointLight(0xff9914, 2.2, 4.8, 1.5);
+    internalGlowLight.position.set(0, 0.95, 0);
+    scene.add(internalGlowLight);
+
+    // Warm Wooden Patisserie Table Surface + Soft Contact Shadow
+    function createWoodTableTexture() {
+      const c = document.createElement('canvas');
+      c.width = 1024;
+      c.height = 1024;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#2b1810';
+      ctx.fillRect(0, 0, 1024, 1024);
+
+      for (let i = 0; i < 420; i++) {
+        const y = Math.random() * 1024;
+        const h = 1 + Math.random() * 4;
+        ctx.fillStyle = i % 2 === 0 ? 'rgba(62, 35, 22, 0.22)' : 'rgba(18, 9, 5, 0.22)';
+        ctx.fillRect(0, y, 1024, h);
+      }
+      const rad = ctx.createRadialGradient(512, 512, 120, 512, 512, 512);
+      rad.addColorStop(0, 'rgba(255, 195, 130, 0.08)');
+      rad.addColorStop(0.65, 'rgba(0, 0, 0, 0.15)');
+      rad.addColorStop(1, 'rgba(0, 0, 0, 0.72)');
+      ctx.fillStyle = rad;
+      ctx.fillRect(0, 0, 1024, 1024);
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    const tableGeo = new THREE.CircleGeometry(14, 64);
+    const tableMat = new THREE.MeshStandardMaterial({
+      map: createWoodTableTexture(),
+      roughness: 0.58,
+      metalness: 0.05
+    });
+    const tableMesh = new THREE.Mesh(tableGeo, tableMat);
+    tableMesh.rotation.x = -Math.PI / 2;
+    tableMesh.position.y = -0.06;
+    tableMesh.receiveShadow = true;
+    scene.add(tableMesh);
+
+    // Soft ambient contact shadow under the ceramic plate
+    function createContactShadowTexture() {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 512;
+      const ctx = c.getContext('2d');
+      const g = ctx.createRadialGradient(256, 256, 40, 256, 256, 250);
+      g.addColorStop(0.0, 'rgba(8, 3, 1, 0.85)');
+      g.addColorStop(0.55, 'rgba(12, 5, 2, 0.55)');
+      g.addColorStop(0.82, 'rgba(15, 6, 2, 0.12)');
+      g.addColorStop(1.0, 'rgba(0, 0, 0, 0.0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 512, 512);
+      return new THREE.CanvasTexture(c);
+    }
+
+    const plateShadowMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(7.8, 7.8),
+      new THREE.MeshBasicMaterial({
+        map: createContactShadowTexture(),
+        transparent: true,
+        depthWrite: false
+      })
+    );
+    plateShadowMesh.rotation.x = -Math.PI / 2;
+    plateShadowMesh.position.y = -0.055;
+    scene.add(plateShadowMesh);
+
+    // ============================================================================
+    // 1. GLOSSY WHITE CERAMIC PLATE WITH RAISED RIM
+    // ============================================================================
+    function createCeramicPlate() {
+      const plateGroup = new THREE.Group();
+
+      // Lathe profile for classic dessert plate with raised rim & foot ring
+      const rawPts = [
+        new THREE.Vector2(0.0, 0.06),
+        new THREE.Vector2(1.4, 0.06),
+        new THREE.Vector2(1.95, 0.068),
+        new THREE.Vector2(2.22, 0.095),
+        new THREE.Vector2(2.55, 0.185),
+        new THREE.Vector2(2.92, 0.305),
+        new THREE.Vector2(3.24, 0.375),
+        new THREE.Vector2(3.38, 0.39),
+        new THREE.Vector2(3.43, 0.365),
+        new THREE.Vector2(3.38, 0.31),
+        new THREE.Vector2(2.95, 0.19),
+        new THREE.Vector2(2.35, 0.04),
+        new THREE.Vector2(2.12, -0.05),
+        new THREE.Vector2(2.02, -0.05),
+        new THREE.Vector2(1.95, 0.0),
+        new THREE.Vector2(0.0, 0.0)
+      ];
+
+      const spline = new THREE.SplineCurve(rawPts);
+      const lathePts = spline.getPoints(90);
+      const plateGeo = new THREE.LatheGeometry(lathePts, 128);
+      plateGeo.computeVertexNormals();
+
+      const plateMat = new THREE.MeshPhysicalMaterial({
+        color: 0xfbf9f5,
+        roughness: 0.06,
+        metalness: 0.01,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.04,
+        reflectivity: 0.95,
+        ior: 1.52
+      });
+
+      const plateMesh = new THREE.Mesh(plateGeo, plateMat);
+      plateMesh.castShadow = true;
+      plateMesh.receiveShadow = true;
+      plateGroup.add(plateMesh);
+
+      // Subtle warm gold trim line along the raised rim lip
+      const goldTrimGeo = new THREE.TorusGeometry(3.33, 0.018, 16, 128);
+      goldTrimGeo.rotateX(Math.PI / 2);
+      const goldTrimMat = new THREE.MeshStandardMaterial({
+        color: 0xd9b14a,
+        metalness: 0.88,
+        roughness: 0.18
+      });
+      const goldTrim = new THREE.Mesh(goldTrimGeo, goldTrimMat);
+      goldTrim.position.y = 0.382;
+      plateGroup.add(goldTrim);
+
+      // Inner delicate gold pin-stripe around the plate well
+      const innerGoldGeo = new THREE.TorusGeometry(2.16, 0.01, 12, 128);
+      innerGoldGeo.rotateX(Math.PI / 2);
+      const innerGold = new THREE.Mesh(innerGoldGeo, goldTrimMat);
+      innerGold.position.y = 0.088;
+      plateGroup.add(innerGold);
+
+      return plateGroup;
+    }
+
+    scene.add(createCeramicPlate());
+
+    // ============================================================================
+    // 2. POOL OF TRANSLUCENT CARAMEL SYRUP ON THE PLATE + CAUSTIC GLOW
+    // ============================================================================
+    function createCausticGlowTexture() {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 512;
+      const ctx = c.getContext('2d');
+      const g = ctx.createRadialGradient(256, 256, 20, 256, 256, 245);
+      g.addColorStop(0.0, 'rgba(255, 175, 35, 0.72)');
+      g.addColorStop(0.45, 'rgba(235, 115, 10, 0.48)');
+      g.addColorStop(0.75, 'rgba(140, 40, 0, 0.25)');
+      g.addColorStop(1.0, 'rgba(80, 15, 0, 0.0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 512, 512);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    const causticMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(4.1, 4.1),
+      new THREE.MeshBasicMaterial({
+        map: createCausticGlowTexture(),
+        transparent: true,
+        blending: THREE.MultiplyBlending,
+        depthWrite: false
+      })
+    );
+    causticMesh.rotation.x = -Math.PI / 2;
+    causticMesh.position.y = 0.063;
+    scene.add(causticMesh);
+
+    // Bright additive golden caustic ring inside the pudding base footprint
+    function createAdditiveCausticTexture() {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 512;
+      const ctx = c.getContext('2d');
+      const g = ctx.createRadialGradient(256, 256, 10, 256, 256, 220);
+      g.addColorStop(0.0, 'rgba(255, 205, 70, 0.55)');
+      g.addColorStop(0.5, 'rgba(255, 145, 20, 0.35)');
+      g.addColorStop(0.8, 'rgba(190, 65, 5, 0.12)');
+      g.addColorStop(1.0, 'rgba(0, 0, 0, 0.0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 512, 512);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    const innerCausticGlow = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.3, 3.3),
+      new THREE.MeshBasicMaterial({
+        map: createAdditiveCausticTexture(),
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      })
+    );
+    innerCausticGlow.rotation.x = -Math.PI / 2;
+    innerCausticGlow.position.y = 0.066;
+    scene.add(innerCausticGlow);
+
+    // 3D Geometry for the Caramel Syrup Pool on the plate
+    function createSyrupPoolMesh() {
+      const radialSegs = 128;
+      const ringSegs = 36;
+      const geo = new THREE.BufferGeometry();
+      const positions = [];
+      const normals = [];
+      const uvs = [];
+      const indices = [];
+
+      function poolOuterRadius(theta) {
+        return (
+          1.96 +
+          0.065 * Math.sin(5 * theta + 0.4) +
+          0.045 * Math.cos(7 * theta - 0.8) +
+          0.028 * Math.sin(12 * theta + 1.1)
+        );
+      }
+
+      for (let j = 0; j <= ringSegs; j++) {
+        const v = j / ringSegs; // 0 = center, 1 = outer edge
+        for (let i = 0; i <= radialSegs; i++) {
+          const u = i / radialSegs;
+          const theta = u * Math.PI * 2;
+          const rMax = poolOuterRadius(theta);
+          const r = v * rMax;
+
+          // Surface tension meniscus profile at the outer rim of the syrup pool
+          let y = 0.062;
+          if (v < 0.9) {
+            y = 0.098 - 0.008 * (v / 0.9);
+          } else {
+            const edgeT = (v - 0.9) / 0.1;
+            // Smooth rounded meniscus drop to plate surface
+            y = 0.062 + 0.028 * Math.cos(edgeT * Math.PI * 0.5);
+          }
+
+          positions.push(r * Math.cos(theta), y, r * Math.sin(theta));
+          normals.push(0, 1, 0);
+          uvs.push(u, v);
+        }
+      }
+
+      for (let j = 0; j < ringSegs; j++) {
+        for (let i = 0; i < radialSegs; i++) {
+          const a = j * (radialSegs + 1) + i;
+          const b = a + 1;
+          const c = a + (radialSegs + 1);
+          const d = c + 1;
+          indices.push(a, c, b);
+          indices.push(b, c, d);
+        }
+      }
+
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+
+      const syrupMat = new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color(0x5a1601),
+        emissive: new THREE.Color(0x280800),
+        emissiveIntensity: 0.15,
+        transmission: 0.78,
+        thickness: 0.35,
+        attenuationColor: new THREE.Color(0xc84400),
+        attenuationDistance: 0.28,
+        ior: 1.49,
+        roughness: 0.025,
+        metalness: 0.0,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.015,
+        specularIntensity: 1.0
+      });
+
+      const mesh = new THREE.Mesh(geo, syrupMat);
+      mesh.receiveShadow = true;
+      return mesh;
+    }
+
+    const syrupPoolMesh = createSyrupPoolMesh();
+    scene.add(syrupPoolMesh);
+
+    // ============================================================================
+    // 3. CLASSIC SCALLOPED FRUSTUM CUSTARD PUDDING + CARAMEL CAP & 7 DRIPS
+    // ============================================================================
+    const PUDDING_BASE_Y = 0.075;
+    const PUDDING_HEIGHT = 1.68;
+    const PUDDING_TOP_Y = PUDDING_BASE_Y + PUDDING_HEIGHT;
+    const R_BOTTOM = 1.42;
+    const R_TOP = 0.96;
+    const NUM_FLUTES = 12;
+
+    // Parametric radius function for the scalloped frustum pudding body
+    function getPuddingRadius(theta, t) {
+      // t in [0, 1] from base to top plateau
+      const clampedT = Math.max(0, Math.min(1, t));
+
+      // Frustum taper with a plump gravity-settled belly curve
+      const baseLerp = R_BOTTOM + (R_TOP - R_BOTTOM) * Math.pow(clampedT, 0.92);
+      const bellyBulge = Math.sin(clampedT * Math.PI) * 0.078 * (1.0 - 0.35 * clampedT);
+
+      // Soft rounded shoulder near the top and slight foot curve at the bottom
+      let shoulderFactor = 1.0;
+      if (clampedT > 0.89) {
+        const st = (clampedT - 0.89) / 0.11;
+        shoulderFactor = 1.0 - 0.065 * st * st;
+      }
+
+      // 12 classic scalloped flutes around the perimeter
+      // Smoothly fade out flutes at the top rim and slightly at the very base
+      const fluteEnvelope =
+        Math.sin(Math.min(1, clampedT / 0.08) * (Math.PI / 2)) *
+        Math.cos(Math.max(0, (clampedT - 0.82) / 0.18) * (Math.PI / 2));
+
+      // Rounded ridges + smooth concave channels
+      const wave1 = Math.cos(NUM_FLUTES * theta);
+      const wave2 = Math.cos(2 * NUM_FLUTES * theta);
+      const scallopOffset = (0.044 * wave1 - 0.009 * wave2) * fluteEnvelope;
+
+      return (baseLerp + bellyBulge) * shoulderFactor + scallopOffset;
+    }
+
+    // Define 7 thick caramel syrup drips aligned with the fluted valleys
+    // Valleys of cos(12 * theta) occur at theta = (2k + 1) * PI / 12
+    const DRIP_CONFIGS = [
+      { fluteIdx: 0, reachT: 0.0, width: 0.17, thickness: 0.040, bulbSize: 0.022, poolLobe: true },
+      { fluteIdx: 2, reachT: 0.22, width: 0.15, thickness: 0.038, bulbSize: 0.044, poolLobe: false },
+      { fluteIdx: 4, reachT: 0.0, width: 0.18, thickness: 0.042, bulbSize: 0.024, poolLobe: true },
+      { fluteIdx: 5, reachT: 0.34, width: 0.14, thickness: 0.035, bulbSize: 0.042, poolLobe: false },
+      { fluteIdx: 7, reachT: 0.0, width: 0.165, thickness: 0.041, bulbSize: 0.022, poolLobe: true },
+      { fluteIdx: 9, reachT: 0.16, width: 0.155, thickness: 0.039, bulbSize: 0.046, poolLobe: false },
+      { fluteIdx: 10, reachT: 0.0, width: 0.175, thickness: 0.042, bulbSize: 0.025, poolLobe: true }
+    ].map((d, idx) => {
+      const centerTheta = ((2 * d.fluteIdx + 1) * Math.PI) / NUM_FLUTES + (idx % 2 === 0 ? 0.02 : -0.02);
+      return { ...d, centerTheta };
+    });
+
+    function angleDiff(a, b) {
+      let diff = (a - b) % (Math.PI * 2);
+      if (diff < -Math.PI) diff += Math.PI * 2;
+      if (diff > Math.PI) diff -= Math.PI * 2;
+      return diff;
+    }
+
+    // Compute how far the caramel sauce extends down and how thick it is at (theta, t)
+    function getCaramelSauceThickness(theta, t) {
+      // Base caramel cap hemline around the upper shoulder (t ~ 0.80..0.85)
+      const capWave =
+        0.815 +
+        0.022 * Math.sin(NUM_FLUTES * theta) +
+        0.014 * Math.cos(5 * theta + 0.7) +
+        0.011 * Math.sin(3 * theta - 0.4);
+
+      let thickness = 0.0;
+
+      // 1. Main caramel cap on top & upper shoulder
+      if (t >= capWave) {
+        const distFromEdge = (t - capWave) / (1.0 - capWave + 1e-5);
+        // Plump meniscus bead right at the lower edge of the caramel cap
+        const meniscus = Math.sin(Math.min(1.0, distFromEdge * 3.2) * Math.PI) * 0.014;
+        const baseCapThick = 0.026 * Math.pow(Math.min(1.0, distFromEdge * 4.5), 0.55) + meniscus;
+        thickness = Math.max(thickness, baseCapThick);
+      }
+
+      // 2. 7 Thick Caramel Syrup Drips flowing down the fluted sides
+      for (const drip of DRIP_CONFIGS) {
+        // Gentle organic meander as the syrup flows down
+        const meander = 0.022 * Math.sin(t * Math.PI * 2.5 + drip.fluteIdx);
+        const dTheta = Math.abs(angleDiff(theta, drip.centerTheta + meander));
+
+        // Width narrows slightly in the middle stream and widens at the top & bottom bulb/foot
+        const streamPinch = 1.0 - 0.25 * Math.sin(Math.max(0, Math.min(1, (t - drip.reachT) / (0.85 - drip.reachT))) * Math.PI);
+        const halfWidth = drip.width * (0.65 + 0.35 * streamPinch);
+
+        if (dTheta < halfWidth && t >= drip.reachT) {
+          const radialFactor = Math.cos((dTheta / halfWidth) * (Math.PI * 0.5));
+          const crossProfile = Math.pow(Math.max(0, radialFactor), 0.75);
+
+          // Vertical profile along the drip
+          let vertProfile = 1.0;
+          let bulbExtra = 0.0;
+
+          if (drip.reachT > 0.02) {
+            // Hanging droplet that stops mid-wall with a plump bulbous tear-drop head
+            const distFromTip = t - drip.reachT;
+            if (distFromTip < 0.06) {
+              vertProfile = Math.pow(distFromTip / 0.06, 0.45);
+            }
+            // Bulbous droplet head near tip
+            const bulbCenter = drip.reachT + 0.055;
+            const bulbDist = (t - bulbCenter) / 0.075;
+            if (Math.abs(bulbDist) < 1.0) {
+              bulbExtra = drip.bulbSize * Math.cos(bulbDist * Math.PI * 0.5) * Math.pow(radialFactor, 0.6);
+            }
+          } else {
+            // Stream that flows all the way into the syrup pool on the plate
+            // Flared foot where it merges into the pool + secondary mid-stream bead
+            const footFlare = Math.max(0, 1.0 - t / 0.14);
+            bulbExtra =
+              drip.bulbSize * footFlare * Math.pow(radialFactor, 0.5) +
+              0.014 * Math.exp(-Math.pow((t - 0.38) / 0.09, 2)) * radialFactor;
+          }
+
+          const dripThick = (drip.thickness * vertProfile + bulbExtra) * crossProfile;
+          thickness = Math.max(thickness, dripThick);
+        }
+      }
+
+      return thickness;
+    }
+
+    // Build Deformable Pudding Body Geometry
+    function buildPuddingGeometry() {
+      const radialSegs = 160;
+      const heightSegs = 76;
+      const topRings = 24;
+      const bottomRings = 8;
+
+      const positions = [];
+      const uvs = [];
+      const indices = [];
+
+      // Ring helper: stores rings of (radialSegs + 1) vertices
+      const rings = [];
+
+      // 1. Bottom cap rings
+      for (let rIdx = 0; rIdx < bottomRings; rIdx++) {
+        const frac = rIdx / bottomRings;
+        const ring = [];
+        for (let i = 0; i <= radialSegs; i++) {
+          const u = i / radialSegs;
+          const theta = u * Math.PI * 2;
+          const rad = getPuddingRadius(theta, 0) * frac;
+          ring.push({ x: rad * Math.cos(theta), y: PUDDING_BASE_Y, z: rad * Math.sin(theta), u, v: 0 });
+        }
+        rings.push(ring);
+      }
+
+      // 2. Fluted side wall rings
+      for (let j = 0; j <= heightSegs; j++) {
+        const t = j / heightSegs;
+        const ring = [];
+        // Slight vertical rounding at the top rim
+        let y = PUDDING_BASE_Y + t * PUDDING_HEIGHT;
+        if (t > 0.92) {
+          const st = (t - 0.92) / 0.08;
+          y = PUDDING_BASE_Y + (0.92 + 0.08 * Math.sin(st * Math.PI * 0.5)) * PUDDING_HEIGHT;
+        }
+        for (let i = 0; i <= radialSegs; i++) {
+          const u = i / radialSegs;
+          const theta = u * Math.PI * 2;
+          const rad = getPuddingRadius(theta, t);
+          ring.push({ x: rad * Math.cos(theta), y, z: rad * Math.sin(theta), u, v: t });
+        }
+        rings.push(ring);
+      }
+
+      // 3. Top plateau rings (with subtle pillow dome + center dimple under cream)
+      for (let rIdx = 1; rIdx <= topRings; rIdx++) {
+        const frac = 1.0 - rIdx / topRings; // 1 -> 0
+        const ring = [];
+        const dome = Math.sin(frac * Math.PI) * 0.025;
+        const y = PUDDING_TOP_Y + dome;
+        for (let i = 0; i <= radialSegs; i++) {
+          const u = i / radialSegs;
+          const theta = u * Math.PI * 2;
+          const rad = getPuddingRadius(theta, 1.0) * frac;
+          ring.push({ x: rad * Math.cos(theta), y, z: rad * Math.sin(theta), u, v: 1.0 });
+        }
+        rings.push(ring);
+      }
+
+      // Flatten rings into buffers
+      const stride = radialSegs + 1;
+      for (let r = 0; r < rings.length; r++) {
+        const ring = rings[r];
+        for (let i = 0; i <= radialSegs; i++) {
+          const pt = ring[i];
+          positions.push(pt.x, pt.y, pt.z);
+          uvs.push(pt.u, pt.v);
+        }
+      }
+
+      for (let r = 0; r < rings.length - 1; r++) {
+        for (let i = 0; i < radialSegs; i++) {
+          const a = r * stride + i;
+          const b = a + 1;
+          const c = (r + 1) * stride + i;
+          const d = c + 1;
+          indices.push(a, b, c);
+          indices.push(b, d, c);
+        }
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+      geo.userData.basePositions = new Float32Array(positions);
+      return geo;
+    }
+
+    // Build Caramel Sauce Cap + 7 Thick Flowing Drips Geometry (hugging the pudding)
+    function buildCaramelCapAndDripsGeometry() {
+      const radialSegs = 200;
+      const sideSegs = 84;
+      const topRings = 24;
+
+      const positions = [];
+      const uvs = [];
+      const indices = [];
+      const rings = [];
+
+      // Side rings from base (t = 0) up to top rim (t = 1)
+      for (let j = 0; j <= sideSegs; j++) {
+        const t = j / sideSegs;
+        const ring = [];
+        let baseY = PUDDING_BASE_Y + t * PUDDING_HEIGHT;
+        if (t > 0.92) {
+          const st = (t - 0.92) / 0.08;
+          baseY = PUDDING_BASE_Y + (0.92 + 0.08 * Math.sin(st * Math.PI * 0.5)) * PUDDING_HEIGHT;
+        }
+
+        for (let i = 0; i <= radialSegs; i++) {
+          const u = i / radialSegs;
+          const theta = u * Math.PI * 2;
+          const baseRad = getPuddingRadius(theta, t);
+          const sauceThick = getCaramelSauceThickness(theta, t);
+
+          // Where sauceThick > 0, push outward along normal; where 0, tuck slightly inside pudding surface so it's hidden cleanly
+          const offset = sauceThick > 0.0005 ? sauceThick : -0.018;
+          const rad = baseRad + offset;
+          const yLift = sauceThick > 0.0005 && t > 0.88 ? sauceThick * 0.65 : 0;
+
+          ring.push({
+            x: rad * Math.cos(theta),
+            y: baseY + yLift,
+            z: rad * Math.sin(theta),
+            u,
+            v: t
+          });
+        }
+        rings.push(ring);
+      }
+
+      // Top plateau rings of the caramel cap
+      for (let rIdx = 1; rIdx <= topRings; rIdx++) {
+        const frac = 1.0 - rIdx / topRings;
+        const ring = [];
+        const dome = Math.sin(frac * Math.PI) * 0.028;
+        const topThick = 0.032 + 0.008 * Math.cos(frac * Math.PI * 0.5);
+        const y = PUDDING_TOP_Y + dome + topThick;
+
+        for (let i = 0; i <= radialSegs; i++) {
+          const u = i / radialSegs;
+          const theta = u * Math.PI * 2;
+          const rad = (getPuddingRadius(theta, 1.0) + 0.026) * frac;
+          ring.push({ x: rad * Math.cos(theta), y, z: rad * Math.sin(theta), u, v: 1.0 });
+        }
+        rings.push(ring);
+      }
+
+      const stride = radialSegs + 1;
+      for (let r = 0; r < rings.length; r++) {
+        const ring = rings[r];
+        for (let i = 0; i <= radialSegs; i++) {
+          const pt = ring[i];
+          positions.push(pt.x, pt.y, pt.z);
+          uvs.push(pt.u, pt.v);
+        }
+      }
+
+      // Only emit triangles where at least one vertex has caramel thickness above threshold (or is on the top plateau)
+      for (let r = 0; r < rings.length - 1; r++) {
+        const t0 = r < sideSegs ? r / sideSegs : 1.0;
+        const t1 = r + 1 < sideSegs ? (r + 1) / sideSegs : 1.0;
+        for (let i = 0; i < radialSegs; i++) {
+          const theta0 = (i / radialSegs) * Math.PI * 2;
+          const theta1 = ((i + 1) / radialSegs) * Math.PI * 2;
+
+          const hasSauce =
+            r >= sideSegs ||
+            getCaramelSauceThickness(theta0, t0) > 0.0002 ||
+            getCaramelSauceThickness(theta1, t0) > 0.0002 ||
+            getCaramelSauceThickness(theta0, t1) > 0.0002 ||
+            getCaramelSauceThickness(theta1, t1) > 0.0002;
+
+          if (hasSauce) {
+            const a = r * stride + i;
+            const b = a + 1;
+            const c = (r + 1) * stride + i;
+            const d = c + 1;
+            indices.push(a, b, c);
+            indices.push(b, d, c);
+          }
+        }
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+      geo.userData.basePositions = new Float32Array(positions);
+      return geo;
+    }
+
+    // Subtle procedural vanilla-bean micro-speckle roughness/bump texture for custard realism
+    function createCustardMicroTexture() {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 512;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff3c4';
+      ctx.fillRect(0, 0, 512, 512);
+
+      // Tiny dark vanilla bean specks
+      for (let i = 0; i < 380; i++) {
+        const x = Math.random() * 512;
+        const y = Math.random() * 512;
+        const r = 0.6 + Math.random() * 1.1;
+        ctx.fillStyle = Math.random() > 0.5 ? 'rgba(95, 45, 10, 0.35)' : 'rgba(140, 75, 20, 0.25)';
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(3, 2);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    const puddingGeo = buildPuddingGeometry();
+    const puddingMat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(0xffcf3e),
+      map: createCustardMicroTexture(),
+      emissive: new THREE.Color(0xd46a00),
+      emissiveIntensity: 0.17,
+      transmission: 0.78,
+      thickness: 2.3,
+      attenuationColor: new THREE.Color(0xff7700),
+      attenuationDistance: 1.35,
+      ior: 1.44,
+      roughness: 0.048,
+      metalness: 0.0,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.025,
+      specularIntensity: 1.0,
+      sheen: 0.25,
+      sheenColor: new THREE.Color(0xffe89c),
+      sheenRoughness: 0.3
+    });
+
+    const puddingMesh = new THREE.Mesh(puddingGeo, puddingMat);
+    puddingMesh.castShadow = true;
+    puddingMesh.receiveShadow = true;
+    scene.add(puddingMesh);
+
+    // Internal warm glowing custard core (enhances subsurface scattering & internal caustics)
+    const coreGeo = new THREE.CylinderGeometry(0.55, 0.88, 1.25, 32, 16);
+    coreGeo.translate(0, PUDDING_BASE_Y + 0.72, 0);
+    coreGeo.userData.basePositions = new Float32Array(coreGeo.attributes.position.array);
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: 0xffaa1d,
+      transparent: true,
+      opacity: 0.22,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+    scene.add(coreMesh);
+
+    // Caramel Cap & Drips Mesh
+    const caramelGeo = buildCaramelCapAndDripsGeometry();
+    const caramelMat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(0x3f0d00),
+      emissive: new THREE.Color(0x280600),
+      emissiveIntensity: 0.14,
+      transmission: 0.68,
+      thickness: 0.45,
+      attenuationColor: new THREE.Color(0xa82e00),
+      attenuationDistance: 0.26,
+      ior: 1.51,
+      roughness: 0.02,
+      metalness: 0.0,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.012,
+      specularIntensity: 1.0
+    });
+
+    const caramelMesh = new THREE.Mesh(caramelGeo, caramelMat);
+    caramelMesh.castShadow = true;
+    caramelMesh.receiveShadow = true;
+    scene.add(caramelMesh);
+
+    // Small satellite caramel droplets on the fluted pudding wall below hanging drips
+    function buildSatelliteDropletsGeometry() {
+      const dropSpecs = [
+        { fluteIdx: 2, t: 0.11, rSize: 0.042 },
+        { fluteIdx: 5, t: 0.21, rSize: 0.046 },
+        { fluteIdx: 5, t: 0.10, rSize: 0.031 },
+        { fluteIdx: 9, t: 0.07, rSize: 0.036 }
+      ];
+
+      const positions = [];
+      const indices = [];
+      let vOffset = 0;
+
+      const baseSphere = new THREE.SphereGeometry(1, 20, 16);
+      const spPos = baseSphere.attributes.position;
+      const spIdx = baseSphere.index;
+
+      for (const spec of dropSpecs) {
+        const theta = ((2 * spec.fluteIdx + 1) * Math.PI) / NUM_FLUTES;
+        const yCenter = PUDDING_BASE_Y + spec.t * PUDDING_HEIGHT;
+        const rSurface = getPuddingRadius(theta, spec.t);
+        const nx = Math.cos(theta);
+        const nz = Math.sin(theta);
+
+        for (let i = 0; i < spPos.count; i++) {
+          const sx = spPos.getX(i) * spec.rSize * 0.85;
+          const sy = spPos.getY(i) * spec.rSize * 1.25;
+          const sz = spPos.getZ(i) * spec.rSize * 0.65;
+
+          // Orient along surface normal
+          const tx = -nz;
+          const tz = nx;
+          const wx = (rSurface + sz * 0.5) * nx + sx * tx;
+          const wy = yCenter + sy;
+          const wz = (rSurface + sz * 0.5) * nz + sx * tz;
+          positions.push(wx, wy, wz);
+        }
+
+        for (let i = 0; i < spIdx.count; i++) {
+          indices.push(spIdx.getX(i) + vOffset);
+        }
+        vOffset += spPos.count;
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+      geo.userData.basePositions = new Float32Array(positions);
+      return geo;
+    }
+
+    const dropletsGeo = buildSatelliteDropletsGeometry();
+    const dropletsMesh = new THREE.Mesh(dropletsGeo, caramelMat);
+    scene.add(dropletsMesh);
+
+    // ============================================================================
+    // 4. SWIRLED FLUTED ROSETTE OF WHITE WHIPPED CREAM
+    // ============================================================================
+    function buildWhippedCreamRosetteGeometry() {
+      // Parametric piped star-nozzle spiral rosette
+      const uSteps = 220; // along spiral path
+      const vSteps = 64;  // around star cross-section
+      const numStarFlutes = 8;
+
+      const positions = [];
+      const uvs = [];
+      const indices = [];
+
+      // Spiral path from outer base ring up into a central piped peak
+      function getSpinePoint(u) {
+        const turns = 2.35;
+        const angle = u * turns * Math.PI * 2.0;
+        // Radius spirals inward smoothly
+        const r = 0.44 * Math.pow(1.0 - u, 0.82) * (1.0 + 0.06 * Math.sin(u * Math.PI));
+        // Height rises from top of caramel cap up to a central tip
+        const y = PUDDING_TOP_Y + 0.08 + 0.46 * Math.pow(u, 0.88);
+        return new THREE.Vector3(r * Math.cos(angle), y, r * Math.sin(angle));
+      }
+
+      for (let i = 0; i <= uSteps; i++) {
+        const u = i / uSteps;
+        const p = getSpinePoint(u);
+        const pNext = getSpinePoint(Math.min(1.0, u + 0.004));
+        const pPrev = getSpinePoint(Math.max(0.0, u - 0.004));
+
+        const tangent = new THREE.Vector3().subVectors(pNext, pPrev).normalize();
+        const upVec = new THREE.Vector3(0, 1, 0);
+        let normal = new THREE.Vector3().crossVectors(tangent, upVec);
+        if (normal.lengthSq() < 0.001) {
+          normal.set(1, 0, 0);
+        } else {
+          normal.normalize();
+        }
+        const binormal = new THREE.Vector3().crossVectors(tangent, normal).normalize();
+
+        // Tube radius envelope: plump in the body, tapering at start and curling to a fine peak at u=1
+        const startTaper = Math.min(1.0, u / 0.07);
+        const endTaper = Math.pow(1.0 - u, 0.58);
+        const baseTubeR = 0.21 * startTaper * endTaper;
+
+        // Twist the star ridges along the spiral for dynamic piped rosette flutes
+        const twistAngle = u * Math.PI * 3.6;
+
+        for (let j = 0; j <= vSteps; j++) {
+          const v = j / vSteps;
+          const phi = v * Math.PI * 2.0;
+
+          // Sharp star-tip nozzle profile (deep rounded valleys, crisp fluted ridges)
+          const starWave = Math.cos(numStarFlutes * (phi + twistAngle));
+          const sharpRidge = Math.sign(starWave) * Math.pow(Math.abs(starWave), 0.55);
+          const rCross = baseTubeR * (1.0 + 0.30 * sharpRidge);
+
+          const localX = rCross * Math.cos(phi);
+          const localY = rCross * Math.sin(phi);
+
+          const vx = p.x + normal.x * localX + binormal.x * localY;
+          let vy = p.y + normal.y * localX + binormal.y * localY;
+          const vz = p.z + normal.z * localX + binormal.z * localY;
+
+          // Clamp bottom of the outer rosette ring neatly onto the caramel cap surface
+          const minY = PUDDING_TOP_Y + 0.025;
+          if (vy < minY) vy = minY;
+
+          positions.push(vx, vy, vz);
+          uvs.push(u, v);
+        }
+      }
+
+      const stride = vSteps + 1;
+      for (let i = 0; i < uSteps; i++) {
+        for (let j = 0; j < vSteps; j++) {
+          const a = i * stride + j;
+          const b = a + 1;
+          const c = (i + 1) * stride + j;
+          const d = c + 1;
+          indices.push(a, c, b);
+          indices.push(b, c, d);
+        }
+      }
+
+      // Add a central fluted cushion plug so the hollow center under the cherry is completely sealed
+      const cushionSegs = 64;
+      const cushionRings = 16;
+      const baseIndexOffset = positions.length / 3;
+
+      for (let r = 0; r <= cushionRings; r++) {
+        const frac = r / cushionRings;
+        const rad = 0.42 * frac;
+        for (let s = 0; s <= cushionSegs; s++) {
+          const theta = (s / cushionSegs) * Math.PI * 2;
+          const flute = 1.0 + 0.14 * Math.cos(12 * theta) * Math.sin(frac * Math.PI);
+          const cr = rad * flute;
+          const cy =
+            PUDDING_TOP_Y +
+            0.03 +
+            0.28 * Math.cos(frac * Math.PI * 0.5) +
+            0.025 * Math.cos(12 * theta) * frac;
+          positions.push(cr * Math.cos(theta), cy, cr * Math.sin(theta));
+          uvs.push(frac, s / cushionSegs);
+        }
+      }
+
+      const cStride = cushionSegs + 1;
+      for (let r = 0; r < cushionRings; r++) {
+        for (let s = 0; s < cushionSegs; s++) {
+          const a = baseIndexOffset + r * cStride + s;
+          const b = a + 1;
+          const c = a + cStride;
+          const d = c + 1;
+          indices.push(a, c, b);
+          indices.push(b, c, d);
+        }
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+      geo.userData.basePositions = new Float32Array(positions);
+      return geo;
+    }
+
+    const creamGeo = buildWhippedCreamRosetteGeometry();
+    const creamMat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(0xfffdf7),
+      emissive: new THREE.Color(0xffeacc),
+      emissiveIntensity: 0.06,
+      roughness: 0.28,
+      metalness: 0.0,
+      transmission: 0.14,
+      thickness: 0.65,
+      attenuationColor: new THREE.Color(0xffdfa8),
+      attenuationDistance: 0.7,
+      ior: 1.42,
+      sheen: 0.65,
+      sheenColor: new THREE.Color(0xffffff),
+      sheenRoughness: 0.35,
+      clearcoat: 0.22,
+      clearcoatRoughness: 0.22
+    });
+
+    const creamMesh = new THREE.Mesh(creamGeo, creamMat);
+    creamMesh.castShadow = true;
+    creamMesh.receiveShadow = true;
+    scene.add(creamMesh);
+
+    // ============================================================================
+    // 5. GLOSSY RUBY-RED MARASCHINO CHERRY WITH CURVED GREEN STEM
+    // ============================================================================
+    const cherryGroup = new THREE.Group();
+    const CHERRY_REST_POS = new THREE.Vector3(0.03, PUDDING_TOP_Y + 0.56, 0.02);
+    const CHERRY_REST_ROT = new THREE.Euler(0.14, 0.35, -0.18);
+    cherryGroup.position.copy(CHERRY_REST_POS);
+    cherryGroup.rotation.copy(CHERRY_REST_ROT);
+    scene.add(cherryGroup);
+
+    function createMaraschinoCherry() {
+      // Custom heart/cordate cherry profile with dimple at the top where stem inserts
+      const lathePts = [];
+      const steps = 64;
+      const cherryRadius = 0.295;
+
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps; // 0 = bottom pole, 1 = top dimple center
+        const phi = t * Math.PI; // 0 to PI
+
+        // Cordate cherry shaping
+        let r = Math.sin(phi) * cherryRadius;
+        let y = -Math.cos(phi) * cherryRadius * 0.92;
+
+        // Slightly fuller upper cheeks
+        r *= 1.0 + 0.12 * Math.sin(phi) * Math.max(0, Math.sin(phi - 0.6));
+
+        // Characteristic top dimple cavity near phi -> PI
+        if (t > 0.82) {
+          const dt = (t - 0.82) / 0.18;
+          y -= 0.075 * Math.sin(dt * Math.PI * 0.5);
+        }
+
+        // Slight bottom plumpness
+        if (t < 0.15) {
+          const bt = (0.15 - t) / 0.15;
+          y += 0.015 * bt * bt;
+        }
+
+        lathePts.push(new THREE.Vector2(Math.max(0, r), y));
+      }
+
+      const cherryGeo = new THREE.LatheGeometry(lathePts, 72);
+
+      // Subtle bilateral crease along one side of the cherry (authentic stone-fruit suture line)
+      const posAttr = cherryGeo.attributes.position;
+      for (let i = 0; i < posAttr.count; i++) {
+        let x = posAttr.getX(i);
+        let y = posAttr.getY(i);
+        let z = posAttr.getZ(i);
+        const angle = Math.atan2(z, x);
+        const suture = Math.exp(-Math.pow(angle / 0.35, 2)) * 0.018;
+        const r = Math.hypot(x, z);
+        if (r > 0.02) {
+          const scale = (r - suture * (r / cherryRadius)) / r;
+          x *= scale;
+          z *= scale;
+        }
+        posAttr.setXYZ(i, x, y, z);
+      }
+      cherryGeo.computeVertexNormals();
+
+      const cherryMat = new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color(0xc20018),
+        emissive: new THREE.Color(0x420005),
+        emissiveIntensity: 0.18,
+        transmission: 0.64,
+        thickness: 0.85,
+        attenuationColor: new THREE.Color(0xff0a28),
+        attenuationDistance: 0.48,
+        ior: 1.49,
+        roughness: 0.018,
+        metalness: 0.0,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.01,
+        specularIntensity: 1.0
+      });
+
+      const cherryMesh = new THREE.Mesh(cherryGeo, cherryMat);
+      cherryMesh.castShadow = true;
+      cherryMesh.receiveShadow = true;
+      cherryGroup.add(cherryMesh);
+
+      // Glistening syrup dewdrops on the cherry surface
+      const dewGeo = new THREE.SphereGeometry(0.022, 16, 12);
+      dewGeo.scale(1.0, 0.65, 1.0);
+      const dewSpecs = [
+        { theta: 0.7, phi: 1.25 },
+        { theta: 2.3, phi: 1.65 },
+        { theta: -1.1, phi: 1.45 }
+      ];
+      for (const d of dewSpecs) {
+        const dew = new THREE.Mesh(dewGeo, cherryMat);
+        const r = cherryRadius * 0.98;
+        dew.position.set(
+          r * Math.sin(d.phi) * Math.cos(d.theta),
+          -r * 0.92 * Math.cos(d.phi),
+          r * Math.sin(d.phi) * Math.sin(d.theta)
+        );
+        dew.lookAt(0, 0, 0);
+        cherryGroup.add(dew);
+      }
+
+      // Curved Green Stem
+      const stemCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0.0, 0.19, 0.0),
+        new THREE.Vector3(0.04, 0.42, 0.02),
+        new THREE.Vector3(0.16, 0.72, 0.06),
+        new THREE.Vector3(0.36, 0.98, 0.12),
+        new THREE.Vector3(0.62, 1.14, 0.18)
+      ]);
+
+      const stemGeo = new THREE.TubeGeometry(stemCurve, 48, 0.021, 16, false);
+      // Taper stem thickness slightly in the middle and flare at both ends
+      const sPos = stemGeo.attributes.position;
+      const sUv = stemGeo.attributes.uv;
+      for (let i = 0; i < sPos.count; i++) {
+        const u = sUv.getX(i);
+        const center = stemCurve.getPointAt(u);
+        const scale = 0.82 + 0.45 * Math.pow(u - 0.45, 2) * 2.2;
+        sPos.setXYZ(
+          i,
+          center.x + (sPos.getX(i) - center.x) * scale,
+          center.y + (sPos.getY(i) - center.y) * scale,
+          center.z + (sPos.getZ(i) - center.z) * scale
+        );
+      }
+      stemGeo.computeVertexNormals();
+
+      const stemMat = new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color(0x4c8c2b),
+        emissive: new THREE.Color(0x162e08),
+        emissiveIntensity: 0.12,
+        roughness: 0.34,
+        metalness: 0.0,
+        clearcoat: 0.45,
+        clearcoatRoughness: 0.25,
+        sheen: 0.3,
+        sheenColor: new THREE.Color(0x9ee065)
+      });
+
+      const stemMesh = new THREE.Mesh(stemGeo, stemMat);
+      stemMesh.castShadow = true;
+      cherryGroup.add(stemMesh);
+
+      // Botanical stem receptacle ring in the cherry dimple
+      const torusBase = new THREE.Mesh(
+        new THREE.TorusGeometry(0.028, 0.012, 12, 24),
+        stemMat
+      );
+      torusBase.rotation.x = Math.PI / 2;
+      torusBase.position.set(0, 0.20, 0);
+      cherryGroup.add(torusBase);
+
+      // Flared brownish-green pedicel tip at the end of the stem
+      const tipPt = stemCurve.getPointAt(1.0);
+      const tipTan = stemCurve.getTangentAt(1.0);
+      const tipKnob = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.036, 0.022, 0.045, 16),
+        new THREE.MeshStandardMaterial({
+          color: 0x5c6e26,
+          roughness: 0.55
+        })
+      );
+      tipKnob.position.copy(tipPt);
+      tipKnob.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tipTan);
+      cherryGroup.add(tipKnob);
+    }
+
+    createMaraschinoCherry();
+
+    // ============================================================================
+    // 6. SPRING-DAMPER ELASTIC JELLY WOBBLE & INTERACTIVE MOUSE PHYSICS
+    // ============================================================================
+    const physics = {
+      // Primary horizontal shear oscillator (X, Z)
+      shearX: 0.0,
+      shearZ: 0.0,
+      velX: 0.0,
+      velZ: 0.0,
+      // Secondary higher-frequency ripple shear mode
+      mode2X: 0.0,
+      mode2Z: 0.0,
+      vel2X: 0.0,
+      vel2Z: 0.0,
+      // Vertical squash-and-stretch oscillator
+      squash: 0.0,
+      velSquash: 0.0,
+      // Torsional twist oscillator around Y axis
+      twist: 0.0,
+      velTwist: 0.0,
+      // Cherry whip-lash secondary spring
+      cherryLagX: 0.0,
+      cherryLagZ: 0.0,
+      cherryVelX: 0.0,
+      cherryVelZ: 0.0,
+      // Localized surface ripple waves spawned by mouse hover/click
+      waves: []
+    };
+
+    // Give an initial welcoming wobble so the pudding jiggles right as the scene loads
+    physics.velX = 1.65;
+    physics.velZ = 0.95;
+    physics.velSquash = -1.45;
+    physics.vel2X = -2.1;
+
+    function addLocalizedWave(hitPoint, strength) {
+      physics.waves.push({
+        x: hitPoint.x,
+        y: hitPoint.y,
+        z: hitPoint.z,
+        strength,
+        age: 0.0
+      });
+      if (physics.waves.length > 10) {
+        physics.waves.shift();
+      }
+    }
+
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    const prevPointer = new THREE.Vector2();
+    let hasPrevPointer = false;
+    let lastHoverWaveTime = 0;
+
+    const interactiveTargets = [puddingMesh, caramelMesh, creamMesh, cherryGroup];
+
+    function handlePointerMove(event) {
+      const rect = canvas.getBoundingClientRect();
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      let dx = 0;
+      let dy = 0;
+      if (hasPrevPointer) {
+        dx = pointer.x - prevPointer.x;
+        dy = pointer.y - prevPointer.y;
+      }
+      prevPointer.copy(pointer);
+      hasPrevPointer = true;
+
+      const pointerSpeed = Math.hypot(dx, dy);
+      if (pointerSpeed < 0.0005) return;
+
+      raycaster.setFromCamera(pointer, camera);
+      const intersects = raycaster.intersectObjects(interactiveTargets, true);
+
+      if (intersects.length > 0) {
+        const hit = intersects[0];
+        const p = hit.point;
+        const heightFactor = Math.max(0.25, Math.min(1.4, (p.y - PUDDING_BASE_Y) / PUDDING_HEIGHT));
+
+        // Project screen-space mouse delta onto camera right / forward axes
+        const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+        camRight.y = 0;
+        camRight.normalize();
+        const camUpHoriz = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        camUpHoriz.y = 0;
+        camUpHoriz.normalize();
+
+        const impulseX = (camRight.x * dx + camUpHoriz.x * dy) * 28.0 * heightFactor;
+        const impulseZ = (camRight.z * dx + camUpHoriz.z * dy) * 28.0 * heightFactor;
+
+        physics.velX += THREE.MathUtils.clamp(impulseX, -3.5, 3.5);
+        physics.velZ += THREE.MathUtils.clamp(impulseZ, -3.5, 3.5);
+        physics.vel2X += THREE.MathUtils.clamp(impulseX * 1.6, -5.0, 5.0);
+        physics.vel2Z += THREE.MathUtils.clamp(impulseZ * 1.6, -5.0, 5.0);
+        physics.velSquash += THREE.MathUtils.clamp((dy - Math.abs(dx) * 0.4) * 18.0, -2.5, 2.5);
+
+        // Torque around center
+        const torque = (p.x * impulseZ - p.z * impulseX) * 0.85;
+        physics.velTwist += THREE.MathUtils.clamp(torque, -3.0, 3.0);
+
+        const now = performance.now() * 0.001;
+        if (now - lastHoverWaveTime > 0.045) {
+          addLocalizedWave(p, Math.min(0.11, 0.035 + pointerSpeed * 1.4));
+          lastHoverWaveTime = now;
+        }
+      }
+    }
+
+    function handlePointerDown(event) {
+      const rect = canvas.getBoundingClientRect();
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(pointer, camera);
+      const intersects = raycaster.intersectObjects(interactiveTargets, true);
+
+      if (intersects.length > 0) {
+        const hit = intersects[0];
+        const p = hit.point;
+
+        // Strong elastic poke: downward squash + radial outward shear kick + localized jiggle wave
+        const dirX = p.x;
+        const dirZ = p.z;
+        const len = Math.hypot(dirX, dirZ) || 1.0;
+
+        physics.velSquash -= 3.6;
+        physics.velX += (dirX / len) * 2.8 + (Math.random() - 0.5) * 1.2;
+        physics.velZ += (dirZ / len) * 2.8 + (Math.random() - 0.5) * 1.2;
+        physics.vel2X -= (dirX / len) * 4.2;
+        physics.vel2Z -= (dirZ / len) * 4.2;
+        physics.velTwist += (Math.random() - 0.5) * 3.2;
+
+        addLocalizedWave(p, 0.16);
+      }
+    }
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerdown', handlePointerDown);
+
+    // Unified Jelly Vertex Deformation Function
+    function evaluateJellyDeformation(bx, by, bz, time, outVec) {
+      const relY = Math.max(0, by - PUDDING_BASE_Y);
+      const h = relY / PUDDING_HEIGHT; // 0 at plate base, 1 at pudding top, >1 on cream/cherry
+      const hClamped = Math.min(1.35, h);
+
+      // Continuous subtle ambient micro-wobble so the jelly always feels alive and trembling
+      const ambientX =
+        0.016 * Math.sin(time * 4.8) +
+        0.008 * Math.cos(time * 8.3 + 0.7);
+      const ambientZ =
+        0.015 * Math.cos(time * 4.4 + 0.5) +
+        0.007 * Math.sin(time * 7.9);
+      const ambientSquash =
+        0.014 * Math.sin(time * 6.2 + 0.3) +
+        0.006 * Math.cos(time * 11.4);
+
+      const totalShearX = physics.shearX + ambientX;
+      const totalShearZ = physics.shearZ + ambientZ;
+      const totalSquash = THREE.MathUtils.clamp(physics.squash + ambientSquash, -0.32, 0.32);
+
+      // Primary shear mode shape (cantilever jelly bend)
+      const mode1Profile = Math.pow(hClamped, 1.45) * (1.25 - 0.25 * Math.min(1.0, hClamped));
+      // Secondary S-wave harmonic ripple along height
+      const mode2Profile = Math.sin(Math.min(1.15, hClamped) * Math.PI * 1.65) * Math.min(1.0, hClamped * 1.8);
+
+      // Volume-preserving vertical squash-and-stretch + radial belly bulge
+      const verticalScale = 1.0 + totalSquash;
+      const newRelY = relY * verticalScale;
+
+      // Belly expands most in the middle-to-upper body when squashed down
+      const bellyEnvelope = Math.sin(Math.min(1.0, hClamped) * Math.PI * 0.88);
+      const radialScale = 1.0 / Math.sqrt(Math.max(0.55, 1.0 + totalSquash * 1.35 * bellyEnvelope));
+
+      // Apply twist around Y axis
+      const twistAngle = (physics.twist + 0.012 * Math.sin(time * 5.1)) * Math.pow(Math.min(1.2, hClamped), 1.3);
+      const cosT = Math.cos(twistAngle);
+      const sinT = Math.sin(twistAngle);
+      const tx = (bx * cosT - bz * sinT) * radialScale;
+      const tz = (bx * sinT + bz * cosT) * radialScale;
+
+      // Horizontal shear displacement
+      let dx = totalShearX * mode1Profile + physics.mode2X * mode2Profile;
+      let dz = totalShearZ * mode1Profile + physics.mode2Z * mode2Profile;
+
+      // Shear-induced tilt coupling (when sheared toward +X, the +X side dips slightly and -X rises)
+      const tiltY = -(tx * totalShearX + tz * totalShearZ) * 0.24 * Math.min(1.0, hClamped);
+
+      // Traveling surface jiggle ripples from mouse hover/click hit points
+      let rippleX = 0;
+      let rippleY = 0;
+      let rippleZ = 0;
+      const rLen = Math.hypot(bx, bz) || 1e-4;
+      const nx = bx / rLen;
+      const nz = bz / rLen;
+      const wallFactor = Math.sin(Math.min(1.0, hClamped) * Math.PI * 0.92);
+
+      for (let w = 0; w < physics.waves.length; w++) {
+        const wave = physics.waves[w];
+        const dist = Math.hypot(bx - wave.x, by - wave.y, bz - wave.z);
+        const phase = dist * 9.5 - wave.age * 26.0;
+        const decay = Math.exp(-dist * 1.85 - wave.age * 3.8);
+        const disp = wave.strength * Math.cos(phase) * decay * wallFactor;
+        rippleX += nx * disp;
+        rippleZ += nz * disp;
+        rippleY += disp * 0.38 * Math.sin(phase);
+      }
+
+      outVec.set(
+        tx + dx + rippleX,
+        PUDDING_BASE_Y + newRelY + tiltY + rippleY,
+        tz + dz + rippleZ
+      );
+    }
+
+    const tempVec = new THREE.Vector3();
+    const topCenterDeformed = new THREE.Vector3();
+    const topRightDeformed = new THREE.Vector3();
+    const topFrontDeformed = new THREE.Vector3();
+
+    function deformMeshGeometry(geo, time, recomputeNormals = true) {
+      const posAttr = geo.attributes.position;
+      const base = geo.userData.basePositions;
+      const arr = posAttr.array;
+
+      for (let i = 0; i < posAttr.count; i++) {
+        const idx = i * 3;
+        evaluateJellyDeformation(base[idx], base[idx + 1], base[idx + 2], time, tempVec);
+        arr[idx] = tempVec.x;
+        arr[idx + 1] = tempVec.y;
+        arr[idx + 2] = tempVec.z;
+      }
+      posAttr.needsUpdate = true;
+      if (recomputeNormals) {
+        geo.computeVertexNormals();
+      }
+    }
+
+    // Step spring-damper physics system
+    function stepJellyPhysics(dt, time) {
+      const clampedDt = Math.min(dt, 0.033);
+
+      // Periodic subtle table vibration pulse if completely still for a while
+      if (
+        Math.abs(physics.velX) < 0.02 &&
+        Math.abs(physics.velZ) < 0.02 &&
+        Math.abs(physics.velSquash) < 0.02 &&
+        Math.sin(time * 1.7) > 0.992
+      ) {
+        physics.velX += (Math.random() - 0.5) * 0.35;
+        physics.velZ += (Math.random() - 0.5) * 0.35;
+        physics.velSquash -= 0.25;
+      }
+
+      // 1. Primary Horizontal Shear Spring (f ~ 4.2 Hz, underdamped elastic gelatin)
+      const kShear = 215.0;
+      const cShear = 3.6;
+      const accX = -kShear * physics.shearX - cShear * physics.velX;
+      const accZ = -kShear * physics.shearZ - cShear * physics.velZ;
+      physics.velX += accX * clampedDt;
+      physics.velZ += accZ * clampedDt;
+      physics.shearX += physics.velX * clampedDt;
+      physics.shearZ += physics.velZ * clampedDt;
+
+      // 2. Secondary Harmonic Overtone (f ~ 7.8 Hz)
+      const kMode2 = 580.0;
+      const cMode2 = 5.4;
+      physics.vel2X += (-kMode2 * physics.mode2X - cMode2 * physics.vel2X) * clampedDt;
+      physics.vel2Z += (-kMode2 * physics.mode2Z - cMode2 * physics.vel2Z) * clampedDt;
+      physics.mode2X += physics.vel2X * clampedDt;
+      physics.mode2Z += physics.vel2Z * clampedDt;
+
+      // 3. Vertical Squash & Stretch Spring (f ~ 5.2 Hz)
+      const kSquash = 310.0;
+      const cSquash = 4.2;
+      physics.velSquash += (-kSquash * physics.squash - cSquash * physics.velSquash) * clampedDt;
+      physics.squash += physics.velSquash * clampedDt;
+
+      // 4. Torsional Twist Spring
+      const kTwist = 260.0;
+      const cTwist = 4.0;
+      physics.velTwist += (-kTwist * physics.twist - cTwist * physics.velTwist) * clampedDt;
+      physics.twist += physics.velTwist * clampedDt;
+
+      // 5. Secondary Whip-lash Spring for the Maraschino Cherry on top of the cream
+      const targetLagX = physics.shearX * 0.45 + physics.mode2X * 0.35;
+      const targetLagZ = physics.shearZ * 0.45 + physics.mode2Z * 0.35;
+      const kCherry = 165.0;
+      const cCherry = 3.2;
+      physics.cherryVelX += (-kCherry * (physics.cherryLagX - targetLagX) - cCherry * physics.cherryVelX) * clampedDt;
+      physics.cherryVelZ += (-kCherry * (physics.cherryLagZ - targetLagZ) - cCherry * physics.cherryVelZ) * clampedDt;
+      physics.cherryLagX += physics.cherryVelX * clampedDt;
+      physics.cherryLagZ += physics.cherryVelZ * clampedDt;
+
+      // 6. Update active localized surface waves
+      for (let i = physics.waves.length - 1; i >= 0; i--) {
+        physics.waves[i].age += clampedDt;
+        if (physics.waves[i].age > 1.8) {
+          physics.waves.splice(i, 1);
+        }
+      }
+    }
+
+    // Resize handler
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Animation Loop
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const dt = clock.getDelta();
+      const elapsed = clock.getElapsedTime();
+
+      stepJellyPhysics(dt, elapsed);
+
+      // Deform pudding body, caramel sauce cap & drips, satellite droplets, internal core, and whipped cream rosette
+      deformMeshGeometry(puddingGeo, elapsed, true);
+      deformMeshGeometry(caramelGeo, elapsed, true);
+      deformMeshGeometry(dropletsGeo, elapsed, false);
+      deformMeshGeometry(coreGeo, elapsed, false);
+      deformMeshGeometry(creamGeo, elapsed, true);
+
+      // Update Cherry position and whip-lash tilt on top of the whipped cream rosette
+      evaluateJellyDeformation(
+        CHERRY_REST_POS.x,
+        CHERRY_REST_POS.y,
+        CHERRY_REST_POS.z,
+        elapsed,
+        topCenterDeformed
+      );
+      evaluateJellyDeformation(
+        CHERRY_REST_POS.x + 0.25,
+        CHERRY_REST_POS.y,
+        CHERRY_REST_POS.z,
+        elapsed,
+        topRightDeformed
+      );
+      evaluateJellyDeformation(
+        CHERRY_REST_POS.x,
+        CHERRY_REST_POS.y,
+        CHERRY_REST_POS.z + 0.25,
+        elapsed,
+        topFrontDeformed
+      );
+
+      cherryGroup.position.set(
+        topCenterDeformed.x + physics.cherryLagX * 0.28,
+        topCenterDeformed.y,
+        topCenterDeformed.z + physics.cherryLagZ * 0.28
+      );
+
+      const slopeX = (topRightDeformed.y - topCenterDeformed.y) / 0.25;
+      const slopeZ = (topFrontDeformed.y - topCenterDeformed.y) / 0.25;
+
+      cherryGroup.rotation.set(
+        CHERRY_REST_ROT.x + slopeZ * 1.15 + physics.cherryLagZ * 0.85,
+        CHERRY_REST_ROT.y + physics.twist * 1.1,
+        CHERRY_REST_ROT.z - slopeX * 1.15 - physics.cherryLagX * 0.85
+      );
+
+      // Subtle dynamic caustic shimmer on the plate as the pudding wobbles
+      innerCausticGlow.position.x = physics.shearX * 0.22;
+      innerCausticGlow.position.z = physics.shearZ * 0.22;
+      const causticScale = 1.0 - physics.squash * 0.25;
+      innerCausticGlow.scale.set(causticScale, causticScale, 1.0);
+      internalGlowLight.position.set(physics.shearX * 0.35, 0.95 + physics.squash * 0.25, physics.shearZ * 0.35);
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
+</body>
+</html>

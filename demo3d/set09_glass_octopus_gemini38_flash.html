@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Translucent Glass Octopus (Vitreledonella richardi)</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background-color: #020611;
+    }
+    #webgl {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: grab;
+    }
+    #webgl:active {
+      cursor: grabbing;
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="webgl"></canvas>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // --- RENDERER & SCENE SETUP ---
+    const canvas = document.getElementById('webgl');
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      powerPreference: 'high-performance',
+      alpha: false
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.35;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x020611);
+    scene.fog = new THREE.FogExp2(0x020716, 0.038);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 0.8, 7.8);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.minDistance = 3.2;
+    controls.maxDistance = 16.0;
+    controls.target.set(0, 0.3, 0);
+
+    // --- PROCEDURAL AQUATIC ENVIRONMENT MAP ---
+    function createAquaticEnvMap() {
+      const cvs = document.createElement('canvas');
+      cvs.width = 1024;
+      cvs.height = 512;
+      const ctx = cvs.getContext('2d');
+
+      const grad = ctx.createLinearGradient(0, 0, 0, 512);
+      grad.addColorStop(0.0, '#0c4a6e'); // sunlit caustic turquoise
+      grad.addColorStop(0.2, '#072e4a'); // twilight zone
+      grad.addColorStop(0.5, '#031525'); // deep abyss
+      grad.addColorStop(0.85, '#020712'); // hadal void
+      grad.addColorStop(1.0, '#010307');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 1024, 512);
+
+      // Shimmering caustic ripples
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.28)';
+      for (let i = 0; i < 70; i++) {
+        const x = Math.random() * 1024;
+        const y = Math.random() * 160;
+        const rx = 25 + Math.random() * 65;
+        const ry = 10 + Math.random() * 25;
+        ctx.beginPath();
+        ctx.ellipse(x, y, rx, ry, Math.PI * 0.1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Deep bioluminescent glow spots
+      ctx.fillStyle = 'rgba(110, 231, 183, 0.12)';
+      for (let i = 0; i < 40; i++) {
+        const x = Math.random() * 1024;
+        const y = 140 + Math.random() * 220;
+        const r = 30 + Math.random() * 70;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const tex = new THREE.CanvasTexture(cvs);
+      tex.mapping = THREE.EquirectangularReflectionMapping;
+      return tex;
+    }
+    const envTexture = createAquaticEnvMap();
+    scene.environment = envTexture;
+
+    // --- THREE-POINT AQUATIC LIGHTING ---
+    const keyLight = new THREE.DirectionalLight(0x7dd3fc, 2.6);
+    keyLight.position.set(4, 9, 5);
+    scene.add(keyLight);
+
+    const rimLight = new THREE.DirectionalLight(0x818cf8, 2.0);
+    rimLight.position.set(-5, -6, -4);
+    scene.add(rimLight);
+
+    const underGlow = new THREE.DirectionalLight(0x0ea5e9, 1.4);
+    underGlow.position.set(0, -8, 2);
+    scene.add(underGlow);
+
+    const ambientLight = new THREE.AmbientLight(0x061e38, 1.0);
+    scene.add(ambientLight);
+
+    // --- MAIN CREATURE ROOT GROUP ---
+    const octopusRoot = new THREE.Group();
+    scene.add(octopusRoot);
+
+    // --- 1. MANTLE (TRANSLUCENT GELATINOUS HEAD) ---
+    const mantleProfile = [
+      [0.0, 2.45],
+      [0.28, 2.40],
+      [0.60, 2.25],
+      [0.92, 1.95],
+      [1.15, 1.55],
+      [1.22, 1.15],
+      [1.16, 0.75],
+      [0.98, 0.40],
+      [0.80, 0.10],
+      [0.64, -0.15],
+      [0.48, -0.38]
+    ];
+    const mantlePoints = mantleProfile.map(p => new THREE.Vector2(p[0], p[1]));
+    const mantleGeo = new THREE.LatheGeometry(mantlePoints, 48);
+
+    const mantleMat = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      transmission: 0.96,
+      opacity: 1.0,
+      transparent: true,
+      roughness: 0.08,
+      ior: 1.34,
+      thickness: 1.6,
+      attenuationColor: new THREE.Color(0x60d5fa),
+      attenuationDistance: 1.7,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.04,
+      specularIntensity: 1.25,
+      side: THREE.FrontSide
+    });
+    const mantleMesh = new THREE.Mesh(mantleGeo, mantleMat);
+    octopusRoot.add(mantleMesh);
+
+    // Inner iridescent mantle membrane
+    const innerMantleMat = new THREE.MeshPhysicalMaterial({
+      color: 0x93c5fd,
+      transmission: 0.88,
+      opacity: 0.35,
+      transparent: true,
+      roughness: 0.25,
+      ior: 1.32,
+      side: THREE.BackSide,
+      depthWrite: false
+    });
+    const innerMantleMesh = new THREE.Mesh(mantleGeo.clone().scale(0.96, 0.98, 0.96), innerMantleMat);
+    octopusRoot.add(innerMantleMesh);
+
+    // Function to calculate mantle radius at height Y for chromatophore placement
+    function getMantleRadiusAtY(y) {
+      for (let i = 0; i < mantleProfile.length - 1; i++) {
+        const y0 = mantleProfile[i][1];
+        const y1 = mantleProfile[i + 1][1];
+        if (y <= y0 && y >= y1) {
+          const t = (y0 - y) / (y0 - y1);
+          return mantleProfile[i][0] + t * (mantleProfile[i + 1][0] - mantleProfile[i][0]);
+        }
+      }
+      return 0.5;
+    }
+
+    // --- 2. CHROMATOPHORE SPECKLES ON MANTLE ---
+    const chromCount = 480;
+    const chromPositions = new Float32Array(chromCount * 3);
+    const chromColors = new Float32Array(chromCount * 3);
+    const chromSizes = new Float32Array(chromCount);
+    const chromPalette = [
+      new THREE.Color(0xf59e0b), // amber
+      new THREE.Color(0xef4444), // ruby-rose
+      new THREE.Color(0xd946ef), // violet
+      new THREE.Color(0xfbbf24), // radiant gold
+      new THREE.Color(0x38bdf8)  // cyan
+    ];
+
+    for (let i = 0; i < chromCount; i++) {
+      const y = -0.3 + Math.random() * 2.65;
+      const r = getMantleRadiusAtY(y) * 1.015;
+      const theta = Math.random() * Math.PI * 2;
+      chromPositions[i * 3 + 0] = Math.cos(theta) * r;
+      chromPositions[i * 3 + 1] = y;
+      chromPositions[i * 3 + 2] = Math.sin(theta) * r;
+
+      const col = chromPalette[Math.floor(Math.random() * chromPalette.length)];
+      chromColors[i * 3 + 0] = col.r;
+      chromColors[i * 3 + 1] = col.g;
+      chromColors[i * 3 + 2] = col.b;
+      chromSizes[i] = 2.5 + Math.random() * 3.5;
+    }
+
+    const chromGeo = new THREE.BufferGeometry();
+    chromGeo.setAttribute('position', new THREE.BufferAttribute(chromPositions, 3));
+    chromGeo.setAttribute('color', new THREE.BufferAttribute(chromColors, 3));
+
+    function createCircleTexture() {
+      const cvs = document.createElement('canvas');
+      cvs.width = 32;
+      cvs.height = 32;
+      const ctx = cvs.getContext('2d');
+      const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 15);
+      grad.addColorStop(0, 'rgba(255,255,255,1)');
+      grad.addColorStop(0.4, 'rgba(255,255,255,0.85)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 32, 32);
+      return new THREE.CanvasTexture(cvs);
+    }
+    const circleTexture = createCircleTexture();
+
+    const chromMat = new THREE.PointsMaterial({
+      size: 0.05,
+      vertexColors: true,
+      map: circleTexture,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const chromPoints = new THREE.Points(chromGeo, chromMat);
+    octopusRoot.add(chromPoints);
+
+    // --- 3. INTERNAL GLOWING VISCERAL NUCLEUS & ORGANS ---
+    const visceraGroup = new THREE.Group();
+    octopusRoot.add(visceraGroup);
+
+    // Central compact cigar/spindle digestive gland
+    const glandGeo = new THREE.CylinderGeometry(0.18, 0.25, 0.95, 24, 4);
+    const glandMat = new THREE.MeshPhysicalMaterial({
+      color: 0xd97706,
+      emissive: 0xb45309,
+      emissiveIntensity: 0.95,
+      roughness: 0.25,
+      metalness: 0.1,
+      clearcoat: 0.8
+    });
+    const glandMesh = new THREE.Mesh(glandGeo, glandMat);
+    glandMesh.position.y = 1.25;
+
+    const glandCapTop = new THREE.Mesh(new THREE.SphereGeometry(0.18, 24, 12), glandMat);
+    glandCapTop.position.y = 1.72;
+    const glandCapBot = new THREE.Mesh(new THREE.SphereGeometry(0.25, 24, 12), glandMat);
+    glandCapBot.position.y = 0.78;
+    visceraGroup.add(glandMesh, glandCapTop, glandCapBot);
+
+    // Golden internal visceral light source
+    const coreLight = new THREE.PointLight(0xf59e0b, 3.8, 6.5, 1.3);
+    coreLight.position.y = 1.25;
+    visceraGroup.add(coreLight);
+
+    // Brain & circum-esophageal nerve ring
+    const ringGeo = new THREE.TorusGeometry(0.32, 0.045, 16, 32);
+    const nerveMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      emissive: 0x0284c7,
+      emissiveIntensity: 1.6,
+      roughness: 0.2
+    });
+    const nerveRing = new THREE.Mesh(ringGeo, nerveMat);
+    nerveRing.rotation.x = Math.PI / 2;
+    nerveRing.position.y = 0.05;
+    visceraGroup.add(nerveRing);
+
+    // Secondary cyan neural point light
+    const brainLight = new THREE.PointLight(0x38bdf8, 2.0, 4.0, 1.4);
+    brainLight.position.y = 0.05;
+    visceraGroup.add(brainLight);
+
+    // 8 Delicate radiating neural fibers to each tentacle
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const strandCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0, 0.05, 0),
+        new THREE.Vector3(Math.cos(angle) * 0.35, -0.15, Math.sin(angle) * 0.35),
+        new THREE.Vector3(Math.cos(angle) * 0.58, -0.38, Math.sin(angle) * 0.58)
+      ]);
+      const strandGeo = new THREE.TubeGeometry(strandCurve, 12, 0.016, 6, false);
+      const strandMesh = new THREE.Mesh(strandGeo, nerveMat);
+      visceraGroup.add(strandMesh);
+    }
+
+    // --- 4. TWO PROMINENT TUBULAR DEEP-SEA EYES ---
+    const eyeGroup = new THREE.Group();
+    visceraGroup.add(eyeGroup);
+
+    for (let side of [-1, 1]) {
+      const eyeSub = new THREE.Group();
+      eyeSub.position.set(side * 0.38, 0.38, 0.22);
+
+      // Deep cylindrical housing
+      const eyeCylGeo = new THREE.CylinderGeometry(0.12, 0.09, 0.36, 20);
+      const eyeCylMat = new THREE.MeshStandardMaterial({
+        color: 0x0f172a,
+        roughness: 0.25,
+        metalness: 0.85
+      });
+      const eyeCyl = new THREE.Mesh(eyeCylGeo, eyeCylMat);
+      eyeCyl.rotation.z = side * 0.18;
+      eyeCyl.rotation.x = 0.14;
+
+      // Iridescent upward-directed lens
+      const lensGeo = new THREE.SphereGeometry(0.122, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.55);
+      const lensMat = new THREE.MeshPhysicalMaterial({
+        color: 0x06b6d4,
+        emissive: 0x0891b2,
+        emissiveIntensity: 0.75,
+        transmission: 0.75,
+        roughness: 0.05,
+        ior: 1.48,
+        clearcoat: 1.0
+      });
+      const lens = new THREE.Mesh(lensGeo, lensMat);
+      lens.position.y = 0.18;
+      eyeCyl.add(lens);
+
+      // Nerve connection to eye
+      const eyeNerveCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(side * 0.24, 0.08, 0.1),
+        new THREE.Vector3(side * 0.32, 0.22, 0.16),
+        new THREE.Vector3(side * 0.38, 0.32, 0.22)
+      ]);
+      const eyeNerveGeo = new THREE.TubeGeometry(eyeNerveCurve, 12, 0.02, 6, false);
+      const eyeNerve = new THREE.Mesh(eyeNerveGeo, nerveMat);
+
+      eyeSub.add(eyeCyl, eyeNerve);
+      eyeGroup.add(eyeSub);
+    }
+
+    // --- 5. VENTRAL SIPHON / FUNNEL ---
+    const siphonPoints = [
+      new THREE.Vector2(0.19, 0.0),
+      new THREE.Vector2(0.17, -0.2),
+      new THREE.Vector2(0.13, -0.45),
+      new THREE.Vector2(0.09, -0.62)
+    ];
+    const siphonGeo = new THREE.LatheGeometry(siphonPoints, 24);
+    const siphonMat = mantleMat.clone();
+    siphonMat.transmission = 0.92;
+    siphonMat.attenuationDistance = 1.3;
+    const siphonMesh = new THREE.Mesh(siphonGeo, siphonMat);
+    siphonMesh.position.set(0, -0.05, 0.52);
+    siphonMesh.rotation.x = 0.48; // angled forward and downward
+    octopusRoot.add(siphonMesh);
+
+    // Jet bubble particles expelled on impulse
+    const jetBubbleCount = 80;
+    const jetBubblePos = new Float32Array(jetBubbleCount * 3);
+    const jetBubbleVels = [];
+    for (let i = 0; i < jetBubbleCount; i++) {
+      jetBubblePos[i * 3 + 0] = 0;
+      jetBubblePos[i * 3 + 1] = -100; // inactive below scene
+      jetBubblePos[i * 3 + 2] = 0;
+      jetBubbleVels.push(new THREE.Vector3());
+    }
+    const jetBubbleGeo = new THREE.BufferGeometry();
+    jetBubbleGeo.setAttribute('position', new THREE.BufferAttribute(jetBubblePos, 3));
+    const jetBubbleMat = new THREE.PointsMaterial({
+      size: 0.09,
+      color: 0x67e8f9,
+      map: circleTexture,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const jetBubblePoints = new THREE.Points(jetBubbleGeo, jetBubbleMat);
+    scene.add(jetBubblePoints);
+
+    // --- 6. EIGHT TENTACLES WITH KINEMATICS & SUCTION CUPS ---
+    const NUM_ARMS = 8;
+    const SPINE_SEGS = 28;
+    const RING_RES = 12;
+    const ARM_BASE_RADIUS = 0.65;
+    const ARM_LENGTH = 4.8;
+
+    // Tentacle material: soft translucent watery flesh with cyan-indigo sheen
+    const tentacleMat = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      transmission: 0.94,
+      opacity: 1.0,
+      transparent: true,
+      roughness: 0.12,
+      ior: 1.35,
+      thickness: 0.9,
+      attenuationColor: new THREE.Color(0x70d6ff),
+      attenuationDistance: 1.4,
+      clearcoat: 0.95,
+      clearcoatRoughness: 0.08,
+      specularIntensity: 1.15,
+      side: THREE.FrontSide
+    });
+
+    const arms = [];
+    const armGeometries = [];
+
+    // Precalculate tentacle cylinder index buffer (shared topology)
+    const tentacleIndices = [];
+    for (let s = 0; s < SPINE_SEGS - 1; s++) {
+      for (let m = 0; m < RING_RES; m++) {
+        const nextM = (m + 1) % RING_RES;
+        const i00 = s * RING_RES + m;
+        const i01 = s * RING_RES + nextM;
+        const i10 = (s + 1) * RING_RES + m;
+        const i11 = (s + 1) * RING_RES + nextM;
+        tentacleIndices.push(i00, i10, i01);
+        tentacleIndices.push(i01, i10, i11);
+      }
+    }
+
+    for (let a = 0; a < NUM_ARMS; a++) {
+      const geo = new THREE.BufferGeometry();
+      const posArray = new Float32Array(SPINE_SEGS * RING_RES * 3);
+      const normArray = new Float32Array(SPINE_SEGS * RING_RES * 3);
+      geo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(normArray, 3));
+      geo.setIndex(tentacleIndices);
+
+      const mesh = new THREE.Mesh(geo, tentacleMat);
+      octopusRoot.add(mesh);
+
+      armGeometries.push(geo);
+
+      // Spine state storage
+      const spinePoints = [];
+      const tangents = [];
+      const normals = [];
+      const binormals = [];
+      for (let s = 0; s < SPINE_SEGS; s++) {
+        spinePoints.push(new THREE.Vector3());
+        tangents.push(new THREE.Vector3());
+        normals.push(new THREE.Vector3());
+        binormals.push(new THREE.Vector3());
+      }
+
+      arms.push({
+        index: a,
+        angle: (a / NUM_ARMS) * Math.PI * 2,
+        phase: a * 1.618033, // golden-ratio phase spacing for organic movement
+        spinePoints,
+        tangents,
+        normals,
+        binormals,
+        mesh,
+        geo
+      });
+    }
+
+    // --- 7. DISTINCT 3D CUP-SHAPED SUCTION CUPS (빨판) ---
+    // Anatomical suction cup: stalk, thick outer rim, deep hollow internal suction pit
+    const cupLathePoints = [
+      new THREE.Vector2(0.0, -0.05),
+      new THREE.Vector2(0.04, -0.045),
+      new THREE.Vector2(0.08, -0.02),
+      new THREE.Vector2(0.11, 0.03),
+      new THREE.Vector2(0.12, 0.06), // outer rim crest
+      new THREE.Vector2(0.10, 0.07), // rounded rim top
+      new THREE.Vector2(0.07, 0.05), // inner bevel
+      new THREE.Vector2(0.03, 0.00), // cavity wall
+      new THREE.Vector2(0.00, -0.015) // center pit bottom
+    ];
+    const cupGeo = new THREE.LatheGeometry(cupLathePoints, 14);
+
+    const cupMat = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      roughness: 0.16,
+      transmission: 0.42,
+      thickness: 0.4,
+      ior: 1.42,
+      sheen: 1.0,
+      sheenColor: new THREE.Color(0xffa5c4), // delicate pearlescent pink sheen
+      clearcoat: 0.8,
+      clearcoatRoughness: 0.1,
+      specularIntensity: 1.0
+    });
+
+    // 2 staggered rows from segment 2 to 24 (23 segments * 2 rows = 46 cups per tentacle)
+    const CUPS_PER_ARM = 23 * 2;
+    const TOTAL_CUPS = NUM_ARMS * CUPS_PER_ARM; // 368 suction cups
+    const suctionMesh = new THREE.InstancedMesh(cupGeo, cupMat, TOTAL_CUPS);
+    suctionMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    octopusRoot.add(suctionMesh);
+
+    // --- 8. TRANSLUCENT INTERBRACHIAL WEB (UMBRELLA) ---
+    const WEB_SEGS_RADIAL = 8;
+    const WEB_SEGS_CROSS = 6;
+    const webMeshes = [];
+
+    const webIndices = [];
+    for (let r = 0; r < WEB_SEGS_RADIAL - 1; r++) {
+      for (let c = 0; c < WEB_SEGS_CROSS - 1; c++) {
+        const i00 = r * WEB_SEGS_CROSS + c;
+        const i01 = r * WEB_SEGS_CROSS + (c + 1);
+        const i10 = (r + 1) * WEB_SEGS_CROSS + c;
+        const i11 = (r + 1) * WEB_SEGS_CROSS + (c + 1);
+        webIndices.push(i00, i10, i01);
+        webIndices.push(i01, i10, i11);
+      }
+    }
+
+    const webMat = new THREE.MeshPhysicalMaterial({
+      color: 0x90e0ef,
+      transmission: 0.94,
+      roughness: 0.18,
+      ior: 1.34,
+      transparent: true,
+      opacity: 0.72,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+
+    for (let a = 0; a < NUM_ARMS; a++) {
+      const wGeo = new THREE.BufferGeometry();
+      const wPos = new Float32Array(WEB_SEGS_RADIAL * WEB_SEGS_CROSS * 3);
+      wGeo.setAttribute('position', new THREE.BufferAttribute(wPos, 3));
+      wGeo.setIndex(webIndices);
+
+      const wMesh = new THREE.Mesh(wGeo, webMat);
+      octopusRoot.add(wMesh);
+      webMeshes.push({ geo: wGeo, armA: a, armB: (a + 1) % NUM_ARMS });
+    }
+
+    // --- 9. DRIFTING MARINE SNOW & BIOLUMINESCENT PLANKTON ---
+    const planktonCount = 1200;
+    const planktonPos = new Float32Array(planktonCount * 3);
+    for (let i = 0; i < planktonCount; i++) {
+      planktonPos[i * 3 + 0] = (Math.random() - 0.5) * 28;
+      planktonPos[i * 3 + 1] = (Math.random() - 0.5) * 28;
+      planktonPos[i * 3 + 2] = (Math.random() - 0.5) * 28;
+    }
+    const planktonGeo = new THREE.BufferGeometry();
+    planktonGeo.setAttribute('position', new THREE.BufferAttribute(planktonPos, 3));
+    const planktonMat = new THREE.PointsMaterial({
+      size: 0.12,
+      color: 0xa5f3fc,
+      map: circleTexture,
+      transparent: true,
+      opacity: 0.7,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const planktonPoints = new THREE.Points(planktonGeo, planktonMat);
+    scene.add(planktonPoints);
+
+    // --- INTERACTION & MOUSE PHYSICS STATE ---
+    const raycaster = new THREE.Raycaster();
+    const mouseNorm = new THREE.Vector2(-999, -999);
+    const mousePlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+    const mouseWorld = new THREE.Vector3(0, 0, 0);
+    const mouseVelocity = new THREE.Vector2(0, 0);
+    let lastMousePos = new THREE.Vector2(0, 0);
+
+    let jetEnergy = 0.0;
+    let jetCooldown = 0;
+
+    function onPointerMove(e) {
+      const rect = canvas.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      mouseNorm.set(x, y);
+
+      mouseVelocity.set(x - lastMousePos.x, y - lastMousePos.y);
+      lastMousePos.set(x, y);
+
+      raycaster.setFromCamera(mouseNorm, camera);
+      raycaster.ray.intersectPlane(mousePlane, mouseWorld);
+    }
+
+    function triggerEscapeJet() {
+      jetEnergy = 1.0;
+      jetCooldown = 30;
+
+      // Spawn burst of propulsion bubbles from siphon
+      const posAttr = jetBubbleGeo.attributes.position;
+      const siphonTip = new THREE.Vector3(0, -0.6, 0.55).applyMatrix4(octopusRoot.matrixWorld);
+      for (let i = 0; i < jetBubbleCount; i++) {
+        posAttr.setXYZ(i, siphonTip.x + (Math.random() - 0.5) * 0.15, siphonTip.y + (Math.random() - 0.5) * 0.15, siphonTip.z + (Math.random() - 0.5) * 0.15);
+        jetBubbleVels[i].set(
+          (Math.random() - 0.5) * 0.08,
+          -0.12 - Math.random() * 0.14,
+          0.12 + Math.random() * 0.12
+        );
+      }
+      posAttr.needsUpdate = true;
+    }
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerdown', (e) => {
+      // Trigger jet on click or tap
+      triggerEscapeJet();
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Matrix helper for suction cups
+    const dummyMatrix = new THREE.Matrix4();
+    const cupX = new THREE.Vector3();
+    const cupY = new THREE.Vector3();
+    const cupZ = new THREE.Vector3();
+    const pCup = new THREE.Vector3();
+    const dCup = new THREE.Vector3();
+
+    // --- ANIMATION & KINEMATICS LOOP ---
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const delta = Math.min(clock.getDelta(), 0.05);
+      const time = clock.getElapsedTime();
+
+      controls.update();
+
+      // Decay jet energy smoothly
+      if (jetEnergy > 0.001) {
+        jetEnergy *= 0.94;
+      } else {
+        jetEnergy = 0.0;
+      }
+      if (jetCooldown > 0) jetCooldown--;
+
+      // Gentle mid-water hover heave & subtle rotation
+      const hoverY = Math.sin(time * 1.1) * 0.18 + Math.sin(time * 0.6) * 0.08 + (jetEnergy * 0.7);
+      const hoverRoll = Math.sin(time * 0.5) * 0.04;
+      const hoverPitch = Math.cos(time * 0.4) * 0.05 + (jetEnergy * -0.15);
+      octopusRoot.position.set(0, hoverY, 0);
+      octopusRoot.rotation.set(hoverPitch, Math.sin(time * 0.25) * 0.1, hoverRoll);
+
+      // Mantle respiratory pumping rhythm + escape jet contraction
+      const breathPulse = Math.sin(time * 2.2) * 0.045;
+      const jetContractRadial = 1.0 - jetEnergy * 0.32;
+      const jetElongateY = 1.0 + jetEnergy * 0.38;
+
+      mantleMesh.scale.set(
+        (1.0 + breathPulse) * jetContractRadial,
+        (1.0 - breathPulse * 0.6) * jetElongateY,
+        (1.0 + breathPulse) * jetContractRadial
+      );
+      innerMantleMesh.scale.copy(mantleMesh.scale).multiplyScalar(0.97);
+
+      // Core light respiration glow
+      coreLight.intensity = 3.6 + Math.sin(time * 2.2) * 0.9 + jetEnergy * 2.5;
+
+      // Update chromatophore twinkle
+      const chromColorAttr = chromGeo.attributes.color;
+      for (let i = 0; i < chromCount; i++) {
+        const pulse = 0.65 + 0.35 * Math.sin(time * 3.0 + i * 0.2);
+        chromColorAttr.setXYZ(
+          i,
+          chromColors[i * 3 + 0] * pulse,
+          chromColors[i * 3 + 1] * pulse,
+          chromColors[i * 3 + 2] * pulse
+        );
+      }
+      chromColorAttr.needsUpdate = true;
+
+      // Update Siphon jet bubbles
+      const bubblePosAttr = jetBubbleGeo.attributes.position;
+      for (let i = 0; i < jetBubbleCount; i++) {
+        const cy = bubblePosAttr.getY(i);
+        if (cy > -50) {
+          bubblePosAttr.setXYZ(
+            i,
+            bubblePosAttr.getX(i) + jetBubbleVels[i].x,
+            bubblePosAttr.getY(i) + jetBubbleVels[i].y,
+            bubblePosAttr.getZ(i) + jetBubbleVels[i].z
+          );
+          jetBubbleVels[i].multiplyScalar(0.96);
+          // Rise slowly after losing velocity
+          jetBubbleVels[i].y += 0.003;
+        }
+      }
+      bubblePosAttr.needsUpdate = true;
+
+      // --- KINEMATICS UPDATE FOR ALL 8 TENTACLES & SUCTION CUPS ---
+      let cupInstanceIndex = 0;
+
+      for (let a = 0; a < NUM_ARMS; a++) {
+        const arm = arms[a];
+        const baseAngle = arm.angle;
+        const phase = arm.phase;
+
+        const basePos = new THREE.Vector3(
+          Math.cos(baseAngle) * ARM_BASE_RADIUS,
+          -0.38,
+          Math.sin(baseAngle) * ARM_BASE_RADIUS
+        );
+
+        // 1. Generate 3D spine curve points via multi-harmonic travelling sine & helix waves
+        for (let s = 0; s < SPINE_SEGS; s++) {
+          const u = s / (SPINE_SEGS - 1); // 0 at base, 1 at tip
+          const arcLen = u * ARM_LENGTH;
+
+          // Wave components
+          // Harmonic 1: Primary graceful ocean propulsion wave
+          const wave1 = Math.sin(time * 1.5 - u * 4.2 + phase) * 0.45 * Math.pow(u, 1.1);
+          // Harmonic 2: In-out radial undulation (flaring and curling inward)
+          const wave2 = Math.cos(time * 1.2 - u * 3.4 + phase * 1.2) * 0.55 * Math.pow(u, 1.2);
+          // Harmonic 3: Lateral swirling (helical twist)
+          const wave3 = Math.sin(time * 1.8 - u * 3.8 + phase * 0.8) * 0.35 * Math.pow(u, 1.3);
+
+          // Deep-sea tip spiral curling (at u > 0.55)
+          let tipSpiralX = 0;
+          let tipSpiralZ = 0;
+          if (u > 0.55) {
+            const curlProg = (u - 0.55) / 0.45;
+            const curlAngle = curlProg * 3.2 * Math.sin(time * 0.9 + phase);
+            tipSpiralX = Math.cos(curlAngle) * (curlProg * 0.45);
+            tipSpiralZ = Math.sin(curlAngle) * (curlProg * 0.45);
+          }
+
+          // Compute nominal position
+          // Base outward vector
+          const outDir = new THREE.Vector2(Math.cos(baseAngle), Math.sin(baseAngle));
+          const tanDir = new THREE.Vector2(-Math.sin(baseAngle), Math.cos(baseAngle));
+
+          // Radial expansion + waves
+          const radDist = ARM_BASE_RADIUS + u * 1.4 + wave2 + tipSpiralX;
+          const tanDist = wave3 + tipSpiralZ;
+          const yPos = -0.38 - arcLen * 0.85 + wave1;
+
+          const px = outDir.x * radDist + tanDir.x * tanDist;
+          const py = yPos;
+          const pz = outDir.y * radDist + tanDir.y * tanDist;
+
+          arm.spinePoints[s].set(px, py, pz);
+
+          // Reactive mouse cursor deflection & curious tactile reaching
+          const worldPoint = arm.spinePoints[s].clone().applyMatrix4(octopusRoot.matrixWorld);
+          const distToMouse = worldPoint.distanceTo(mouseWorld);
+          if (distToMouse < 4.2 && mouseNorm.x > -2) {
+            const influence = Math.pow(1.0 - distToMouse / 4.2, 2.0) * Math.pow(u, 0.8);
+            // Direction to mouse
+            const toMouse = new THREE.Vector3().subVectors(mouseWorld, worldPoint);
+            // Inquisitive bend toward mouse + wave reactivity
+            arm.spinePoints[s].x += toMouse.x * influence * 0.45;
+            arm.spinePoints[s].y += toMouse.y * influence * 0.45;
+            arm.spinePoints[s].z += toMouse.z * influence * 0.45;
+          }
+
+          // Jet escape streamlining (arms fold backwards into tight hydrodynamic cone)
+          if (jetEnergy > 0.01) {
+            const coneFactor = 1.0 - jetEnergy * 0.75 * Math.pow(u, 0.7);
+            arm.spinePoints[s].x *= coneFactor;
+            arm.spinePoints[s].z *= coneFactor;
+            arm.spinePoints[s].y -= jetEnergy * 1.2 * u;
+          }
+        }
+
+        // 2. Parallel Transport (Bishop Frames) along spine to prevent twisting singularities
+        for (let s = 0; s < SPINE_SEGS; s++) {
+          if (s === 0) {
+            arm.tangents[s].subVectors(arm.spinePoints[1], arm.spinePoints[0]).normalize();
+            // Oral normal points inwards towards central mouth and slightly downward
+            const toCenter = new THREE.Vector3(-Math.cos(baseAngle), -0.5, -Math.sin(baseAngle)).normalize();
+            arm.normals[s].copy(toCenter).addScaledVector(arm.tangents[s], -toCenter.dot(arm.tangents[s])).normalize();
+            arm.binormals[s].crossVectors(arm.tangents[s], arm.normals[s]).normalize();
+          } else {
+            if (s < SPINE_SEGS - 1) {
+              arm.tangents[s].subVectors(arm.spinePoints[s + 1], arm.spinePoints[s - 1]).normalize();
+            } else {
+              arm.tangents[s].subVectors(arm.spinePoints[s], arm.spinePoints[s - 1]).normalize();
+            }
+
+            // Transport frame from s-1 to s
+            const crossVec = new THREE.Vector3().crossVectors(arm.tangents[s - 1], arm.tangents[s]);
+            const dotProd = arm.tangents[s - 1].dot(arm.tangents[s]);
+            if (crossVec.lengthSq() > 1e-6) {
+              const rotAxis = crossVec.clone().normalize();
+              const rotAngle = Math.acos(THREE.MathUtils.clamp(dotProd, -1, 1));
+              arm.normals[s].copy(arm.normals[s - 1]).applyAxisAngle(rotAxis, rotAngle);
+            } else {
+              arm.normals[s].copy(arm.normals[s - 1]);
+            }
+            arm.binormals[s].crossVectors(arm.tangents[s], arm.normals[s]).normalize();
+          }
+        }
+
+        // 3. Update continuous cylinder mesh for the tentacle
+        const posAttr = arm.geo.attributes.position;
+        const normAttr = arm.geo.attributes.normal;
+
+        for (let s = 0; s < SPINE_SEGS; s++) {
+          const u = s / (SPINE_SEGS - 1);
+          // Smooth tapering thickness from 0.22 at base down to 0.032 at tip
+          const radius = 0.22 * Math.pow(1.0 - 0.85 * u, 1.15);
+
+          for (let m = 0; m < RING_RES; m++) {
+            const theta = (m / RING_RES) * Math.PI * 2;
+            const cosT = Math.cos(theta);
+            const sinT = Math.sin(theta);
+
+            // Radial surface offset
+            const surfX = cosT * arm.normals[s].x + sinT * arm.binormals[s].x;
+            const surfY = cosT * arm.normals[s].y + sinT * arm.binormals[s].y;
+            const surfZ = cosT * arm.normals[s].z + sinT * arm.binormals[s].z;
+
+            const vx = arm.spinePoints[s].x + radius * surfX;
+            const vy = arm.spinePoints[s].y + radius * surfY;
+            const vz = arm.spinePoints[s].z + radius * surfZ;
+
+            const vertIdx = (s * RING_RES + m) * 3;
+            posAttr.array[vertIdx] = vx;
+            posAttr.array[vertIdx + 1] = vy;
+            posAttr.array[vertIdx + 2] = vz;
+
+            normAttr.array[vertIdx] = surfX;
+            normAttr.array[vertIdx + 1] = surfY;
+            normAttr.array[vertIdx + 2] = surfZ;
+          }
+        }
+        posAttr.needsUpdate = true;
+        normAttr.needsUpdate = true;
+
+        // 4. Update Suction Cups along the underside in 2 staggered rows (빨판)
+        for (let s = 2; s <= 24; s++) {
+          const u = s / (SPINE_SEGS - 1);
+          const r_s = 0.22 * Math.pow(1.0 - 0.85 * u, 1.15);
+          const cupScale = r_s * 0.95;
+
+          // Two rows: row 0 (left offset), row 1 (right offset) with staggered tangent shift
+          for (let row = 0; row < 2; row++) {
+            const sideSign = row === 0 ? -1 : 1;
+            const angleOffset = sideSign * 0.44; // angular offset around cylinder oral surface
+            const staggerOffset = sideSign * 0.025; // staggered longitudinal shift
+
+            // Oral direction is along arm.normals[s]
+            dCup.set(
+              Math.cos(angleOffset) * arm.normals[s].x + Math.sin(angleOffset) * arm.binormals[s].x,
+              Math.cos(angleOffset) * arm.normals[s].y + Math.sin(angleOffset) * arm.binormals[s].y,
+              Math.cos(angleOffset) * arm.normals[s].z + Math.sin(angleOffset) * arm.binormals[s].z
+            ).normalize();
+
+            pCup.copy(arm.spinePoints[s])
+              .addScaledVector(arm.tangents[s], staggerOffset)
+              .addScaledVector(dCup, r_s * 0.96);
+
+            // Cup coordinate frame: +Y along outward dCup, +Z along tangent
+            cupY.copy(dCup).normalize();
+            cupZ.copy(arm.tangents[s]).normalize();
+            cupX.crossVectors(cupY, cupZ).normalize();
+            cupZ.crossVectors(cupX, cupY).normalize();
+
+            dummyMatrix.makeBasis(cupX, cupY, cupZ);
+            dummyMatrix.setPosition(pCup);
+            dummyMatrix.scale(new THREE.Vector3(cupScale, cupScale, cupScale));
+
+            suctionMesh.setMatrixAt(cupInstanceIndex++, dummyMatrix);
+          }
+        }
+      }
+
+      suctionMesh.instanceMatrix.needsUpdate = true;
+
+      // 5. Update Interbrachial Web (Umbrella) connecting adjacent tentacles
+      for (let a = 0; a < NUM_ARMS; a++) {
+        const web = webMeshes[a];
+        const arm1 = arms[web.armA];
+        const arm2 = arms[web.armB];
+        const wPosAttr = web.geo.attributes.position;
+
+        for (let r = 0; r < WEB_SEGS_RADIAL; r++) {
+          const s = r; // correspond to first 8 spine segments
+          const ptA = arm1.spinePoints[s];
+          const ptB = arm2.spinePoints[s];
+
+          for (let c = 0; c < WEB_SEGS_CROSS; c++) {
+            const v = c / (WEB_SEGS_CROSS - 1); // 0 at arm1, 1 at arm2
+            const catenarySag = 4.0 * v * (1.0 - v); // parabolic sag in the web center
+
+            // Interpolate position between arms
+            const wx = THREE.MathUtils.lerp(ptA.x, ptB.x, v);
+            const wy = THREE.MathUtils.lerp(ptA.y, ptB.y, v) - catenarySag * (0.08 * (r + 1)) + Math.sin(time * 2.0 - r * 0.7 + a) * 0.025 * catenarySag;
+            const wz = THREE.MathUtils.lerp(ptA.z, ptB.z, v);
+
+            const vertIdx = (r * WEB_SEGS_CROSS + c) * 3;
+            wPosAttr.array[vertIdx] = wx;
+            wPosAttr.array[vertIdx + 1] = wy;
+            wPosAttr.array[vertIdx + 2] = wz;
+          }
+        }
+        wPosAttr.needsUpdate = true;
+        web.geo.computeVertexNormals();
+      }
+
+      // 6. Slowly drift marine snow particles
+      const planktonPosAttr = planktonGeo.attributes.position;
+      for (let i = 0; i < planktonCount; i++) {
+        let py = planktonPosAttr.getY(i) - 0.009;
+        if (py < -14.0) py = 14.0;
+        planktonPosAttr.setY(i, py);
+        planktonPosAttr.setX(i, planktonPosAttr.getX(i) + Math.sin(time * 0.8 + i) * 0.003);
+      }
+      planktonPosAttr.needsUpdate = true;
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
+</body>
+</html>

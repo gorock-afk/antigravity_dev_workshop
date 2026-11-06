@@ -1,0 +1,2019 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>기계식 시계태엽 부엉이 오토마타 3D (Chrono-Strigiforme Automata)</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    body, html {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background-color: #0c0e14;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+      color: #e6dfd5;
+    }
+    #webgl-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 1;
+      display: block;
+    }
+    /* Glassmorphism Common Styles */
+    .hud-panel {
+      position: absolute;
+      z-index: 10;
+      background: rgba(16, 20, 28, 0.78);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(212, 175, 55, 0.28);
+      box-shadow: 0 10px 35px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 235, 180, 0.12);
+      border-radius: 12px;
+      padding: 16px 20px;
+      pointer-events: auto;
+    }
+
+    /* Top Left Telemetry HUD */
+    #telemetry-hud {
+      top: 20px;
+      left: 20px;
+      width: 320px;
+    }
+    .hud-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      border-bottom: 1px solid rgba(212, 175, 55, 0.2);
+      padding-bottom: 8px;
+    }
+    .hud-title {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      color: #f5d77f;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .hud-badge {
+      font-size: 10px;
+      padding: 2px 7px;
+      background: rgba(0, 210, 255, 0.15);
+      border: 1px solid rgba(0, 210, 255, 0.4);
+      color: #4ce3ff;
+      border-radius: 10px;
+      font-family: monospace;
+    }
+    .telemetry-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 14px;
+    }
+    .telem-item {
+      display: flex;
+      flex-direction: column;
+    }
+    .telem-label {
+      font-size: 11px;
+      color: #9ea8b6;
+      margin-bottom: 2px;
+    }
+    .telem-value {
+      font-family: "SF Mono", Monaco, Consolas, monospace;
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff6e0;
+      font-variant-numeric: tabular-nums;
+    }
+    .telem-value.cyan { color: #38e1ff; text-shadow: 0 0 8px rgba(56, 225, 255, 0.35); }
+    .telem-value.amber { color: #ffb834; text-shadow: 0 0 8px rgba(255, 184, 52, 0.35); }
+    .telem-value.green { color: #51f296; text-shadow: 0 0 8px rgba(81, 242, 150, 0.35); }
+
+    .spring-bar-container {
+      margin-top: 12px;
+      padding-top: 8px;
+      border-top: 1px dashed rgba(212, 175, 55, 0.18);
+    }
+    .spring-bar-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #a4b0c0;
+      margin-bottom: 4px;
+    }
+    .progress-bar-bg {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      width: 82%;
+      background: linear-gradient(90deg, #d4af37, #ff9e2c, #00d2ff);
+      border-radius: 3px;
+      transition: width 0.3s ease;
+    }
+
+    /* Right Interactive Controls Panel */
+    #controls-hud {
+      top: 20px;
+      right: 20px;
+      width: 320px;
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+    }
+    #controls-hud::-webkit-scrollbar {
+      width: 4px;
+    }
+    #controls-hud::-webkit-scrollbar-thumb {
+      background: rgba(212, 175, 55, 0.3);
+      border-radius: 4px;
+    }
+    .section-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #f1cf75;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .mode-buttons-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .btn-mode {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(212, 175, 55, 0.2);
+      color: #d1d9e2;
+      padding: 9px 6px;
+      border-radius: 8px;
+      font-size: 11.5px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.2, 0.8, 0.3, 1);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      text-align: center;
+    }
+    .btn-mode span.sub {
+      font-size: 9.5px;
+      color: #8b96a5;
+    }
+    .btn-mode:hover {
+      background: rgba(212, 175, 55, 0.12);
+      border-color: rgba(212, 175, 55, 0.45);
+      color: #fff;
+    }
+    .btn-mode.active {
+      background: linear-gradient(135deg, rgba(212, 175, 55, 0.25), rgba(255, 145, 0, 0.18));
+      border-color: #f7ca55;
+      color: #ffe89e;
+      box-shadow: 0 0 14px rgba(247, 202, 85, 0.3);
+    }
+    .btn-mode.active span.sub {
+      color: #f3d489;
+    }
+
+    /* Slider Group */
+    .slider-group {
+      margin-bottom: 14px;
+    }
+    .slider-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #adb9c8;
+      margin-bottom: 6px;
+    }
+    .slider-val {
+      font-family: monospace;
+      font-weight: bold;
+      color: #f7ca55;
+    }
+    .custom-slider {
+      width: 100%;
+      -webkit-appearance: none;
+      height: 5px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.12);
+      outline: none;
+      cursor: pointer;
+    }
+    .custom-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #f1cf75;
+      border: 2px solid #1a202c;
+      box-shadow: 0 0 8px rgba(241, 207, 117, 0.6);
+      cursor: pointer;
+      transition: transform 0.1s ease;
+    }
+    .custom-slider::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+
+    /* Camera Preset Buttons */
+    .camera-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+    .btn-cam {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #cdd6e0;
+      padding: 7px 4px;
+      border-radius: 6px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+    }
+    .btn-cam:hover {
+      background: rgba(212, 175, 55, 0.15);
+      border-color: rgba(212, 175, 55, 0.4);
+      color: #fff;
+    }
+
+    /* Action Toggle Row */
+    .toggle-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .btn-toggle {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(212, 175, 55, 0.2);
+      color: #c2cbd7;
+      padding: 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+    .btn-toggle:hover {
+      background: rgba(255, 255, 255, 0.09);
+      color: #fff;
+    }
+    .btn-toggle.active {
+      background: rgba(0, 210, 255, 0.2);
+      border-color: #00d2ff;
+      color: #55e6ff;
+      box-shadow: 0 0 10px rgba(0, 210, 255, 0.3);
+    }
+
+    /* Bottom Brand Note */
+    #bottom-info {
+      position: absolute;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px;
+      color: rgba(212, 175, 55, 0.5);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      z-index: 5;
+      pointer-events: none;
+      text-shadow: 0 2px 6px rgba(0,0,0,0.8);
+    }
+  </style>
+
+  <!-- Import Map for Three.js and Addons -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="webgl-canvas"></canvas>
+
+  <!-- Telemetry HUD (Left Top) -->
+  <div id="telemetry-hud" class="hud-panel">
+    <div class="hud-title-row">
+      <div class="hud-title">
+        <span>⚙️ CHRONO-STRIGIFORME</span>
+      </div>
+      <div class="hud-badge">MK-VIII</div>
+    </div>
+    <div class="telemetry-grid">
+      <div class="telem-item">
+        <span class="telem-label">기어 회전수</span>
+        <span class="telem-value amber" id="val-rpm">120 RPM</span>
+      </div>
+      <div class="telem-item">
+        <span class="telem-label">날개 박동 주기</span>
+        <span class="telem-value cyan" id="val-flap-hz">1.25 Hz</span>
+      </div>
+      <div class="telem-item">
+        <span class="telem-label">조리개 개방률</span>
+        <span class="telem-value green" id="val-aperture">68 %</span>
+      </div>
+      <div class="telem-item">
+        <span class="telem-label">총 부품 / 파츠</span>
+        <span class="telem-value" id="val-mesh-count">482 파츠</span>
+      </div>
+      <div class="telem-item">
+        <span class="telem-label">렌더링 속도</span>
+        <span class="telem-value" id="val-fps">60 FPS</span>
+      </div>
+      <div class="telem-item">
+        <span class="telem-label">주 스프링 토크</span>
+        <span class="telem-value amber" id="val-torque">41.8 N·m</span>
+      </div>
+    </div>
+    <div class="spring-bar-container">
+      <div class="spring-bar-label">
+        <span>태엽 축적 에너지 (Mainspring Reserve)</span>
+        <span id="val-spring-pct">84%</span>
+      </div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="bar-spring"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Interactive Control Panel (Right Top) -->
+  <div id="controls-hud" class="hud-panel">
+    <div class="section-title">동작 모드 프리셋 (Presets)</div>
+    <div class="mode-buttons-grid">
+      <button class="btn-mode active" id="btn-mode-flight" data-mode="flight">
+        <strong>활공 날개짓</strong>
+        <span class="sub">Flight Flap</span>
+      </button>
+      <button class="btn-mode" id="btn-mode-scan" data-mode="scan">
+        <strong>경계 탐색</strong>
+        <span class="sub">Alert Scan</span>
+      </button>
+      <button class="btn-mode" id="btn-mode-overdrive" data-mode="overdrive">
+        <strong>태엽 고속 가동</strong>
+        <span class="sub">Overdrive</span>
+      </button>
+      <button class="btn-mode" id="btn-mode-idle" data-mode="idle">
+        <strong>정지 점검</strong>
+        <span class="sub">Idle Inspect</span>
+      </button>
+    </div>
+
+    <!-- Exploded View Slider -->
+    <div class="slider-group">
+      <div class="slider-header">
+        <span>분해 뷰 (Exploded View)</span>
+        <span class="slider-val" id="disp-explode">0%</span>
+      </div>
+      <input type="range" id="slider-explode" class="custom-slider" min="0" max="100" value="0">
+    </div>
+
+    <!-- Speed Slider -->
+    <div class="slider-group">
+      <div class="slider-header">
+        <span>태엽 속도 (Clockwork Speed)</span>
+        <span class="slider-val" id="disp-speed">1.0x</span>
+      </div>
+      <input type="range" id="slider-speed" class="custom-slider" min="0" max="300" value="100">
+    </div>
+
+    <!-- Camera Preset Views -->
+    <div class="section-title">카메라 시점 (Camera Views)</div>
+    <div class="camera-grid">
+      <button class="btn-cam" id="cam-front">전체 정면</button>
+      <button class="btn-cam" id="cam-gears">내부 기어 코어</button>
+      <button class="btn-cam" id="cam-wings">날개 관절 측면</button>
+      <button class="btn-cam" id="cam-eyes">조리개 눈 클로즈업</button>
+    </div>
+
+    <!-- Toggles -->
+    <div class="toggle-row">
+      <button class="btn-toggle" id="btn-wireframe">
+        <span>📐 와이어프레임</span>
+      </button>
+      <button class="btn-toggle" id="btn-turntable">
+        <span>🔄 자동 회전</span>
+      </button>
+    </div>
+  </div>
+
+  <div id="bottom-info">CHRONO-STRIGIFORME AUTOMATA · PROCEDURAL PBR THREE.JS</div>
+
+  <!-- Main Three.js Application Logic -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // ==========================================
+    // 1. Scene, Renderer, Camera Setup
+    // ==========================================
+    const canvas = document.getElementById('webgl-canvas');
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      powerPreference: 'high-performance'
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0c0e14);
+    scene.fog = new THREE.FogExp2(0x0c0e14, 0.035);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 2.5, 7.8);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.maxDistance = 20;
+    controls.minDistance = 1.2;
+    controls.target.set(0, 2.1, 0);
+    controls.maxPolarAngle = Math.PI / 2 + 0.15;
+
+    // ==========================================
+    // 2. Procedural Environment Map Generation
+    // ==========================================
+    function createProceduralEnvironment() {
+      const pmremGenerator = new THREE.PMREMGenerator(renderer);
+      pmremGenerator.compileEquirectangularShader();
+
+      const envScene = new THREE.Scene();
+      envScene.background = new THREE.Color(0x161311);
+
+      // Spheres simulating workshop steampunk ambient lights
+      const geo = new THREE.SphereGeometry(12, 16, 16);
+      const warmLight = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xffdfaa }));
+      warmLight.position.set(25, 30, 25);
+      envScene.add(warmLight);
+
+      const coolLight = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x66aaff }));
+      coolLight.position.set(-30, 10, -25);
+      envScene.add(coolLight);
+
+      const brassGlow = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xd4af37 }));
+      brassGlow.position.set(0, -20, 20);
+      envScene.add(brassGlow);
+
+      const renderTarget = pmremGenerator.fromScene(envScene, 0.04);
+      pmremGenerator.dispose();
+      return renderTarget.texture;
+    }
+    const envTexture = createProceduralEnvironment();
+    scene.environment = envTexture;
+
+    // ==========================================
+    // 3. Lighting Setup
+    // ==========================================
+    const ambientLight = new THREE.AmbientLight(0x28231d, 1.2);
+    scene.add(ambientLight);
+
+    // Warm Key Light (Spot/Directional)
+    const keyLight = new THREE.DirectionalLight(0xfff3db, 2.6);
+    keyLight.position.set(5.5, 8.5, 6.0);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.width = 2048;
+    keyLight.shadow.mapSize.height = 2048;
+    keyLight.shadow.camera.near = 0.5;
+    keyLight.shadow.camera.far = 25;
+    keyLight.shadow.camera.left = -4;
+    keyLight.shadow.camera.right = 4;
+    keyLight.shadow.camera.top = 5;
+    keyLight.shadow.camera.bottom = -2;
+    keyLight.shadow.bias = -0.0005;
+    scene.add(keyLight);
+
+    // Cool Rim Light
+    const rimLight = new THREE.DirectionalLight(0x4099ff, 1.8);
+    rimLight.position.set(-6, 5, -5.5);
+    scene.add(rimLight);
+
+    // Subtle Under Fill Light
+    const fillLight = new THREE.DirectionalLight(0xb87333, 0.9);
+    fillLight.position.set(0, -4, 4);
+    scene.add(fillLight);
+
+    // Chest Internal Core Point Light
+    const corePointLight = new THREE.PointLight(0xff9922, 2.8, 4.5, 1.2);
+    corePointLight.position.set(0, 2.15, 0.2);
+    scene.add(corePointLight);
+
+    // Left & Right Eye Glimmer Point Lights
+    const eyeLightL = new THREE.PointLight(0x00e5ff, 0.9, 1.2);
+    const eyeLightR = new THREE.PointLight(0x00e5ff, 0.9, 1.2);
+    scene.add(eyeLightL);
+    scene.add(eyeLightR);
+
+    // ==========================================
+    // 4. PBR Materials Palette
+    // ==========================================
+    const materials = {
+      brass: new THREE.MeshStandardMaterial({
+        color: 0xd4af37,
+        metalness: 0.88,
+        roughness: 0.28,
+        envMapIntensity: 1.2
+      }),
+      polishedBrass: new THREE.MeshStandardMaterial({
+        color: 0xf3cf65,
+        metalness: 0.94,
+        roughness: 0.16,
+        envMapIntensity: 1.5
+      }),
+      copper: new THREE.MeshStandardMaterial({
+        color: 0xc8754b,
+        metalness: 0.85,
+        roughness: 0.35,
+        envMapIntensity: 1.1
+      }),
+      darkSteel: new THREE.MeshStandardMaterial({
+        color: 0x242830,
+        metalness: 0.86,
+        roughness: 0.42,
+        envMapIntensity: 0.9
+      }),
+      chrome: new THREE.MeshStandardMaterial({
+        color: 0xdeebf5,
+        metalness: 0.96,
+        roughness: 0.12,
+        envMapIntensity: 1.8
+      }),
+      goldFiligree: new THREE.MeshStandardMaterial({
+        color: 0xffd700,
+        metalness: 0.92,
+        roughness: 0.22,
+        envMapIntensity: 1.4
+      }),
+      perchWood: new THREE.MeshStandardMaterial({
+        color: 0x3d2719,
+        metalness: 0.08,
+        roughness: 0.75,
+        envMapIntensity: 0.5
+      }),
+      glassHousing: new THREE.MeshPhysicalMaterial({
+        color: 0xffffff,
+        metalness: 0.05,
+        roughness: 0.12,
+        transmission: 0.88,
+        thickness: 0.25,
+        ior: 1.52,
+        transparent: true,
+        opacity: 0.65
+      }),
+      lensGlass: new THREE.MeshPhysicalMaterial({
+        color: 0x99ebff,
+        metalness: 0.1,
+        roughness: 0.04,
+        transmission: 0.92,
+        thickness: 0.45,
+        ior: 1.6,
+        transparent: true,
+        opacity: 0.8
+      }),
+      eyeCyanCore: new THREE.MeshStandardMaterial({
+        color: 0x00d2ff,
+        emissive: 0x00b4d8,
+        emissiveIntensity: 2.2,
+        roughness: 0.2,
+        metalness: 0.3
+      }),
+      eyeAmberCore: new THREE.MeshStandardMaterial({
+        color: 0xffaa00,
+        emissive: 0xff7700,
+        emissiveIntensity: 2.4,
+        roughness: 0.2,
+        metalness: 0.3
+      }),
+      mainspringGlow: new THREE.MeshStandardMaterial({
+        color: 0xffa500,
+        emissive: 0xff7b00,
+        emissiveIntensity: 2.5,
+        roughness: 0.3,
+        metalness: 0.6
+      })
+    };
+
+    // ==========================================
+    // 5. Procedural Geometry Builders
+    // ==========================================
+
+    // (A) True Procedural Extruded Toothed Gear Geometry
+    function createGearGeometry({
+      radius = 1.0,
+      teethCount = 20,
+      toothHeight = 0.18,
+      thickness = 0.12,
+      holeRadius = 0.2,
+      spokeCount = 5,
+      rimWidth = 0.18
+    }) {
+      const shape = new THREE.Shape();
+      const outerRadius = radius + toothHeight;
+      const rootRadius = radius - toothHeight * 0.75;
+      const totalSteps = teethCount * 4;
+
+      for (let i = 0; i <= totalSteps; i++) {
+        const toothIdx = Math.floor(i / 4);
+        const subIdx = i % 4;
+        const baseAngle = (toothIdx / teethCount) * Math.PI * 2;
+        const toothPitch = (Math.PI * 2) / teethCount;
+
+        let angle = baseAngle;
+        let r = rootRadius;
+
+        if (subIdx === 0) {
+          angle = baseAngle;
+          r = rootRadius;
+        } else if (subIdx === 1) {
+          angle = baseAngle + toothPitch * 0.24;
+          r = outerRadius;
+        } else if (subIdx === 2) {
+          angle = baseAngle + toothPitch * 0.52;
+          r = outerRadius;
+        } else if (subIdx === 3) {
+          angle = baseAngle + toothPitch * 0.76;
+          r = rootRadius;
+        }
+
+        const x = Math.cos(angle) * r;
+        const y = Math.sin(angle) * r;
+        if (i === 0) shape.moveTo(x, y);
+        else shape.lineTo(x, y);
+      }
+      shape.closePath();
+
+      // Center Axle Hole
+      const holePath = new THREE.Path();
+      holePath.absarc(0, 0, holeRadius, 0, Math.PI * 2, true);
+      shape.holes.push(holePath);
+
+      // Weight-Reduction Spoke Cutout Windows
+      const innerR = holeRadius + 0.08;
+      const outerR = Math.max(innerR + 0.1, rootRadius - rimWidth);
+      if (spokeCount > 0 && outerR > innerR + 0.08) {
+        for (let s = 0; s < spokeCount; s++) {
+          const aStart = (s / spokeCount) * Math.PI * 2 + 0.16;
+          const aEnd = ((s + 1) / spokeCount) * Math.PI * 2 - 0.16;
+          const windowPath = new THREE.Path();
+          windowPath.absarc(0, 0, innerR, aStart, aEnd, false);
+          windowPath.absarc(0, 0, outerR, aEnd, aStart, true);
+          windowPath.closePath();
+          shape.holes.push(windowPath);
+        }
+      }
+
+      const geom = new THREE.ExtrudeGeometry(shape, {
+        depth: thickness,
+        bevelEnabled: true,
+        bevelSegments: 2,
+        steps: 1,
+        bevelSize: 0.012,
+        bevelThickness: 0.012
+      });
+      geom.center();
+      return geom;
+    }
+
+    // (B) Procedural Metallic Feather Blade Geometry
+    function createFeatherGeometry(length, maxWidth, thickness = 0.02) {
+      const shape = new THREE.Shape();
+      shape.moveTo(0, 0);
+      shape.bezierCurveTo(maxWidth * 0.8, length * 0.35, maxWidth, length * 0.75, 0, length);
+      shape.bezierCurveTo(-maxWidth * 0.5, length * 0.75, -maxWidth * 0.4, length * 0.35, 0, 0);
+
+      const geom = new THREE.ExtrudeGeometry(shape, {
+        depth: thickness,
+        bevelEnabled: true,
+        bevelSegments: 1,
+        bevelSize: 0.006,
+        bevelThickness: 0.006,
+        steps: 1
+      });
+      geom.center();
+      // Move pivot to base of feather
+      geom.translate(0, length / 2, 0);
+      return geom;
+    }
+
+    // (C) Coiled Spring Geometry
+    function createCoilSpringGeometry(radius, pitch, turns, pipeRadius = 0.025) {
+      class SpringCurve extends THREE.Curve {
+        constructor() {
+          super();
+        }
+        getPoint(t) {
+          const angle = t * Math.PI * 2 * turns;
+          const y = (t - 0.5) * pitch * turns;
+          const x = Math.cos(angle) * radius;
+          const z = Math.sin(angle) * radius;
+          return new THREE.Vector3(x, y, z);
+        }
+      }
+      return new THREE.TubeGeometry(new SpringCurve(), 80, pipeRadius, 8, false);
+    }
+
+    // ==========================================
+    // 6. Exploded View Registration System
+    // ==========================================
+    const explodables = [];
+    function registerExplodable(object, dirX, dirY, dirZ, maxDist) {
+      explodables.push({
+        object,
+        originPos: object.position.clone(),
+        dir: new THREE.Vector3(dirX, dirY, dirZ).normalize(),
+        maxDist
+      });
+    }
+
+    // Root Assembly
+    const owlRoot = new THREE.Group();
+    scene.add(owlRoot);
+
+    // ==========================================
+    // 7. PEDESTAL BASE & CAM CRANK MECHANISM
+    // ==========================================
+    const baseGroup = new THREE.Group();
+    owlRoot.add(baseGroup);
+
+    // Heavy Ornate Pedestal
+    const basePlinthGeo = new THREE.CylinderGeometry(2.3, 2.5, 0.5, 8);
+    const basePlinth = new THREE.Mesh(basePlinthGeo, materials.darkSteel);
+    basePlinth.position.y = 0.25;
+    basePlinth.receiveShadow = true;
+    baseGroup.add(basePlinth);
+
+    // Brass Plinth Ring Moldings
+    const baseRingGeo = new THREE.TorusGeometry(2.28, 0.06, 8, 32);
+    baseRingGeo.rotateX(Math.PI / 2);
+    const baseRing = new THREE.Mesh(baseRingGeo, materials.brass);
+    baseRing.position.y = 0.5;
+    baseGroup.add(baseRing);
+
+    const baseTopTierGeo = new THREE.CylinderGeometry(1.9, 2.1, 0.45, 8);
+    const baseTopTier = new THREE.Mesh(baseTopTierGeo, materials.darkSteel);
+    baseTopTier.position.y = 0.72;
+    baseGroup.add(baseTopTier);
+
+    // Decorative Brass Nameplate Plaque
+    const plaqueGeo = new THREE.BoxGeometry(1.4, 0.28, 0.05);
+    const plaque = new THREE.Mesh(plaqueGeo, materials.brass);
+    plaque.position.set(0, 0.65, 1.95);
+    baseGroup.add(plaque);
+
+    // Dial Gauges on Base Face
+    function createMiniGauge(posX, posY, posZ) {
+      const gGroup = new THREE.Group();
+      gGroup.position.set(posX, posY, posZ);
+
+      const bezelGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.05, 24);
+      bezelGeo.rotateX(Math.PI / 2);
+      const bezel = new THREE.Mesh(bezelGeo, materials.polishedBrass);
+      gGroup.add(bezel);
+
+      const dialFaceGeo = new THREE.CircleGeometry(0.15, 24);
+      const dialFaceMat = new THREE.MeshStandardMaterial({ color: 0xf5eedc, roughness: 0.6 });
+      const dialFace = new THREE.Mesh(dialFaceGeo, dialFaceMat);
+      dialFace.position.z = 0.026;
+      gGroup.add(dialFace);
+
+      const needleGeo = new THREE.BoxGeometry(0.015, 0.12, 0.005);
+      needleGeo.translate(0, 0.05, 0);
+      const needle = new THREE.Mesh(needleGeo, materials.darkSteel);
+      needle.position.z = 0.028;
+      gGroup.add(needle);
+      gGroup.userData = { needle };
+
+      return gGroup;
+    }
+    const gauge1 = createMiniGauge(-0.55, 0.35, 2.2);
+    const gauge2 = createMiniGauge(0.55, 0.35, 2.2);
+    baseGroup.add(gauge1);
+    baseGroup.add(gauge2);
+
+    // Front & Side Base Explodable Outer Armor Panels
+    const basePanelGeo = new THREE.BoxGeometry(1.8, 0.4, 0.1);
+    const basePanelFront = new THREE.Mesh(basePanelGeo, materials.copper);
+    basePanelFront.position.set(0, 0.35, 2.25);
+    baseGroup.add(basePanelFront);
+    registerExplodable(basePanelFront, 0, 0, 1, 1.2);
+
+    const basePanelBack = new THREE.Mesh(basePanelGeo, materials.copper);
+    basePanelBack.position.set(0, 0.35, -2.25);
+    baseGroup.add(basePanelBack);
+    registerExplodable(basePanelBack, 0, 0, -1, 1.2);
+
+    // Crankshaft & Cam Drive Assembly (Exposed inside Base)
+    const crankHousingGroup = new THREE.Group();
+    crankHousingGroup.position.set(0, 0.7, 0);
+    baseGroup.add(crankHousingGroup);
+
+    // Rotating Horizontal Crankshaft
+    const crankshaft = new THREE.Group();
+    crankHousingGroup.add(crankshaft);
+
+    const crankShaftBar = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.2, 16), materials.darkSteel);
+    crankShaftBar.rotation.z = Math.PI / 2;
+    crankshaft.add(crankShaftBar);
+
+    // Eccentric Cams Left and Right
+    const camGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.08, 24);
+    camGeo.scale(1.4, 1.0, 0.8);
+    const camLeft = new THREE.Mesh(camGeo, materials.polishedBrass);
+    camLeft.rotation.z = Math.PI / 2;
+    camLeft.position.set(0.65, 0, 0);
+    crankshaft.add(camLeft);
+
+    const camRight = new THREE.Mesh(camGeo, materials.polishedBrass);
+    camRight.rotation.z = Math.PI / 2;
+    camRight.position.set(-0.65, 0, 0);
+    crankshaft.add(camRight);
+
+    // Vertical Reciprocating Pushrods (Passing up into Torso)
+    const pushrodLeft = new THREE.Group();
+    pushrodLeft.position.set(0.65, 0.7, 0);
+    baseGroup.add(pushrodLeft);
+
+    const rodL = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.8, 12), materials.chrome);
+    rodL.position.y = 0.9;
+    rodL.castShadow = true;
+    pushrodLeft.add(rodL);
+
+    const pushrodBushingL = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.25, 16), materials.brass);
+    pushrodBushingL.position.set(0.65, 0.95, 0);
+    baseGroup.add(pushrodBushingL);
+
+    const pushrodRight = new THREE.Group();
+    pushrodRight.position.set(-0.65, 0.7, 0);
+    baseGroup.add(pushrodRight);
+
+    const rodR = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.8, 12), materials.chrome);
+    rodR.position.y = 0.9;
+    rodR.castShadow = true;
+    pushrodRight.add(rodR);
+
+    const pushrodBushingR = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.25, 16), materials.brass);
+    pushrodBushingR.position.set(-0.65, 0.95, 0);
+    baseGroup.add(pushrodBushingR);
+
+    // ==========================================
+    // 8. BRASS & WOOD PERCH BRANCH
+    // ==========================================
+    const perchGroup = new THREE.Group();
+    owlRoot.add(perchGroup);
+
+    // Main Turned Horizontal Perch Beam
+    const perchBeamGeo = new THREE.CylinderGeometry(0.16, 0.16, 4.4, 24);
+    perchBeamGeo.rotateZ(Math.PI / 2);
+    const perchBeam = new THREE.Mesh(perchBeamGeo, materials.perchWood);
+    perchBeam.position.set(0, 1.35, 0.15);
+    perchBeam.castShadow = true;
+    perchBeam.receiveShadow = true;
+    perchGroup.add(perchBeam);
+
+    // Brass End Caps (Finials)
+    [-2.2, 2.2].forEach(x => {
+      const finialGroup = new THREE.Group();
+      finialGroup.position.set(x, 1.35, 0.15);
+
+      const capRing = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.1, 16), materials.polishedBrass);
+      capRing.rotation.z = Math.PI / 2;
+      finialGroup.add(capRing);
+
+      const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 16), materials.brass);
+      sphere.position.x = x > 0 ? 0.12 : -0.12;
+      finialGroup.add(sphere);
+
+      perchGroup.add(finialGroup);
+    });
+
+    // Ornate Gothic Support Brackets Bolted to Base
+    [-1.2, 1.2].forEach(x => {
+      const bracketGroup = new THREE.Group();
+      bracketGroup.position.set(x, 0.95, 0.15);
+
+      const verticalStrut = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.8, 12), materials.darkSteel);
+      verticalStrut.position.y = 0.2;
+      bracketGroup.add(verticalStrut);
+
+      // Curved Filigree Arc
+      const arcGeo = new THREE.TorusGeometry(0.35, 0.04, 8, 16, Math.PI * 0.7);
+      arcGeo.rotateY(Math.PI / 2);
+      const arc = new THREE.Mesh(arcGeo, materials.brass);
+      arc.position.set(0, 0.2, 0);
+      bracketGroup.add(arc);
+
+      perchGroup.add(bracketGroup);
+    });
+
+    // ==========================================
+    // 9. ARTICULATED TALONS & LEGS
+    // ==========================================
+    function createArticulatedTalon(isLeft = true) {
+      const legRoot = new THREE.Group();
+      const sign = isLeft ? 1 : -1;
+      legRoot.position.set(sign * 0.55, 1.45, 0.15);
+
+      // Thigh & Hip Knuckle
+      const hipKnuckle = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), materials.brass);
+      hipKnuckle.position.y = 0.5;
+      legRoot.add(hipKnuckle);
+
+      // Femur Strut
+      const femur = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 0.45, 10), materials.copper);
+      femur.position.set(0, 0.28, -0.04);
+      femur.rotation.x = 0.25;
+      legRoot.add(femur);
+
+      // Knee Joint with Shock Dampening Coil Spring
+      const knee = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.18, 12), materials.polishedBrass);
+      knee.rotation.z = Math.PI / 2;
+      knee.position.set(0, 0.1, -0.08);
+      legRoot.add(knee);
+
+      const shockSpring = new THREE.Mesh(createCoilSpringGeometry(0.07, 0.035, 5, 0.015), materials.chrome);
+      shockSpring.position.set(0, 0.26, -0.05);
+      shockSpring.rotation.x = 0.25;
+      legRoot.add(shockSpring);
+
+      // Ankle Block
+      const ankle = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.16), materials.darkSteel);
+      ankle.position.set(0, 0, 0);
+      legRoot.add(ankle);
+
+      // Toes gripping the perch (3 forward, 1 reverse raptor hallux)
+      const toeAngles = [-0.35, 0.0, 0.35];
+      toeAngles.forEach(ang => {
+        const toeGroup = new THREE.Group();
+        toeGroup.rotation.y = ang;
+
+        // Phalanx 1
+        const ph1 = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.18), materials.brass);
+        ph1.position.set(0, -0.02, 0.1);
+        ph1.rotation.x = -0.3;
+        toeGroup.add(ph1);
+
+        // Phalanx 2 (Curving around perch)
+        const ph2 = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.16), materials.copper);
+        ph2.position.set(0, -0.09, 0.22);
+        ph2.rotation.x = -0.85;
+        toeGroup.add(ph2);
+
+        // Sharp Curved Talon Claw
+        const clawGeo = new THREE.ConeGeometry(0.03, 0.14, 8);
+        clawGeo.rotateX(Math.PI / 1.7);
+        const claw = new THREE.Mesh(clawGeo, materials.darkSteel);
+        claw.position.set(0, -0.17, 0.24);
+        toeGroup.add(claw);
+
+        legRoot.add(toeGroup);
+      });
+
+      // Reverse Hallux Toe
+      const rearToe = new THREE.Group();
+      rearToe.rotation.y = Math.PI;
+
+      const rph1 = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.18), materials.brass);
+      rph1.position.set(0, -0.02, 0.1);
+      rph1.rotation.x = -0.3;
+      rearToe.add(rph1);
+
+      const rph2 = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.15), materials.copper);
+      rph2.position.set(0, -0.09, 0.2);
+      rph2.rotation.x = -0.8;
+      rearToe.add(rph2);
+
+      const rclawGeo = new THREE.ConeGeometry(0.03, 0.13, 8);
+      rclawGeo.rotateX(Math.PI / 1.7);
+      const rclaw = new THREE.Mesh(rclawGeo, materials.darkSteel);
+      rclaw.position.set(0, -0.16, 0.22);
+      rearToe.add(rclaw);
+
+      legRoot.add(rearToe);
+
+      return legRoot;
+    }
+    const talonLeft = createArticulatedTalon(true);
+    const talonRight = createArticulatedTalon(false);
+    owlRoot.add(talonLeft);
+    owlRoot.add(talonRight);
+
+    // ==========================================
+    // 10. EXPOSED CLOCKWORK TORSO & GEAR TRAIN
+    // ==========================================
+    const torsoGroup = new THREE.Group();
+    torsoGroup.position.set(0, 2.15, 0);
+    owlRoot.add(torsoGroup);
+
+    // Spine Column & Structural Brass Pillars
+    const spineBar = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.8, 16), materials.darkSteel);
+    spineBar.position.set(0, 0, -0.35);
+    torsoGroup.add(spineBar);
+
+    // Vertebrae Rings
+    for (let v = -0.7; v <= 0.7; v += 0.28) {
+      const vRing = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.035, 8, 16), materials.polishedBrass);
+      vRing.rotation.x = Math.PI / 2;
+      vRing.position.set(0, v, -0.35);
+      torsoGroup.add(vRing);
+    }
+
+    // Skeletal Brass Ribcage Arches (Explodable Outward)
+    const ribsLeftGroup = new THREE.Group();
+    const ribsRightGroup = new THREE.Group();
+    torsoGroup.add(ribsLeftGroup);
+    torsoGroup.add(ribsRightGroup);
+
+    for (let r = 0; r < 4; r++) {
+      const yOffset = 0.5 - r * 0.32;
+      const arcRadius = 0.85 - r * 0.04;
+
+      // Left Rib
+      const ribLGeo = new THREE.TorusGeometry(arcRadius, 0.035, 8, 20, Math.PI * 0.6);
+      ribLGeo.rotateZ(-Math.PI * 0.1);
+      ribLGeo.rotateX(0.25);
+      const ribL = new THREE.Mesh(ribLGeo, materials.brass);
+      ribL.position.set(0.08, yOffset, -0.1);
+      ribsLeftGroup.add(ribL);
+
+      // Right Rib
+      const ribRGeo = new THREE.TorusGeometry(arcRadius, 0.035, 8, 20, Math.PI * 0.6);
+      ribRGeo.rotateZ(Math.PI - Math.PI * 0.5);
+      ribRGeo.rotateX(0.25);
+      const ribR = new THREE.Mesh(ribRGeo, materials.brass);
+      ribR.position.set(-0.08, yOffset, -0.1);
+      ribsRightGroup.add(ribR);
+    }
+    registerExplodable(ribsLeftGroup, 1.2, 0, 0.5, 1.5);
+    registerExplodable(ribsRightGroup, -1.2, 0, 0.5, 1.5);
+
+    // Translucent Curved Glass Torso Housing Panels
+    const glassCoverGeo = new THREE.CylinderGeometry(0.85, 0.75, 1.35, 16, 1, true, -Math.PI * 0.45, Math.PI * 0.9);
+    const glassCoverFront = new THREE.Mesh(glassCoverGeo, materials.glassHousing);
+    glassCoverFront.position.set(0, 0, 0.12);
+    torsoGroup.add(glassCoverFront);
+    registerExplodable(glassCoverFront, 0, 0, 1, 1.6);
+
+    // Front Chest Breastplate (Explodable)
+    const breastplateGroup = new THREE.Group();
+    breastplateGroup.position.set(0, 0.1, 0.75);
+    torsoGroup.add(breastplateGroup);
+
+    const bpPlate = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.7, 0.06), materials.copper);
+    breastplateGroup.add(bpPlate);
+
+    const bpTrim = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.03, 8, 24), materials.goldFiligree);
+    breastplateGroup.add(bpTrim);
+    registerExplodable(breastplateGroup, 0, 0.2, 1.2, 1.8);
+
+    // ==========================================
+    // INTERLOCKING PROCEDURAL 8-GEAR TRAIN
+    // ==========================================
+    const gearTrainGroup = new THREE.Group();
+    torsoGroup.add(gearTrainGroup);
+
+    // Gear 1: Main Driving Gear (Central Large)
+    // R1 = 0.62, 26 teeth, thickness 0.12
+    const g1Radius = 0.62;
+    const g1Teeth = 26;
+    const g1Geo = createGearGeometry({
+      radius: g1Radius,
+      teethCount: g1Teeth,
+      toothHeight: 0.15,
+      thickness: 0.12,
+      holeRadius: 0.18,
+      spokeCount: 6,
+      rimWidth: 0.12
+    });
+    const gear1 = new THREE.Mesh(g1Geo, materials.polishedBrass);
+    gear1.position.set(0, 0.05, -0.06);
+    gearTrainGroup.add(gear1);
+
+    // Gear 2: Upper Right Driven Gear (Meshed with G1)
+    // R2 = 0.38, 16 teeth. Dist = R1 + R2 = 1.00
+    // Angle = 45 deg -> pos = (1.0 * cos(45), 0.05 + 1.0 * sin(45), -0.06)
+    const g2Radius = 0.38;
+    const g2Teeth = 16;
+    const g2Geo = createGearGeometry({
+      radius: g2Radius,
+      teethCount: g2Teeth,
+      toothHeight: 0.15,
+      thickness: 0.1,
+      holeRadius: 0.12,
+      spokeCount: 5,
+      rimWidth: 0.1
+    });
+    const gear2 = new THREE.Mesh(g2Geo, materials.brass);
+    const g2Dist = g1Radius + g2Radius;
+    const g2Angle = Math.PI / 4;
+    gear2.position.set(
+      g2Dist * Math.cos(g2Angle),
+      0.05 + g2Dist * Math.sin(g2Angle),
+      -0.06
+    );
+    gearTrainGroup.add(gear2);
+
+    // Gear 3: Coaxial Reduction Pinion mounted on Gear 2's shaft
+    // R3 = 0.20, 8 teeth, turns locked with Gear 2
+    const g3Radius = 0.20;
+    const g3Teeth = 8;
+    const g3Geo = createGearGeometry({
+      radius: g3Radius,
+      teethCount: g3Teeth,
+      toothHeight: 0.14,
+      thickness: 0.1,
+      holeRadius: 0.1,
+      spokeCount: 4,
+      rimWidth: 0.08
+    });
+    const gear3 = new THREE.Mesh(g3Geo, materials.copper);
+    gear3.position.set(gear2.position.x, gear2.position.y, 0.06);
+    gearTrainGroup.add(gear3);
+
+    // Gear 4: Outer Upper Right Cam Driver Gear (Meshed with G3)
+    // R4 = 0.42, 18 teeth. Dist = R3 + R4 = 0.62
+    const g4Radius = 0.42;
+    const g4Teeth = 18;
+    const g4Geo = createGearGeometry({
+      radius: g4Radius,
+      teethCount: g4Teeth,
+      toothHeight: 0.14,
+      thickness: 0.08,
+      holeRadius: 0.14,
+      spokeCount: 5,
+      rimWidth: 0.09
+    });
+    const gear4 = new THREE.Mesh(g4Geo, materials.darkSteel);
+    const g4Angle = 0.25;
+    gear4.position.set(
+      gear2.position.x + (g3Radius + g4Radius) * Math.cos(g4Angle),
+      gear2.position.y + (g3Radius + g4Radius) * Math.sin(g4Angle),
+      0.06
+    );
+    gearTrainGroup.add(gear4);
+
+    // Gear 5: Upper Left Intermediate Gear (Meshed with G1)
+    // R5 = 0.42, 18 teeth. Dist = R1 + R5 = 1.04. Angle = 135 deg
+    const g5Radius = 0.42;
+    const g5Teeth = 18;
+    const g5Geo = createGearGeometry({
+      radius: g5Radius,
+      teethCount: g5Teeth,
+      toothHeight: 0.15,
+      thickness: 0.1,
+      holeRadius: 0.14,
+      spokeCount: 5,
+      rimWidth: 0.1
+    });
+    const gear5 = new THREE.Mesh(g5Geo, materials.brass);
+    const g5Dist = g1Radius + g5Radius;
+    const g5Angle = (Math.PI * 3) / 4;
+    gear5.position.set(
+      g5Dist * Math.cos(g5Angle),
+      0.05 + g5Dist * Math.sin(g5Angle),
+      -0.06
+    );
+    gearTrainGroup.add(gear5);
+
+    // Gear 6: Lower Bevel / Spur Transmission Gear (Meshed with G1)
+    // R6 = 0.42, 18 teeth. Positioned directly below G1. Dist = 1.04
+    const g6Radius = 0.42;
+    const g6Teeth = 18;
+    const g6Geo = createGearGeometry({
+      radius: g6Radius,
+      teethCount: g6Teeth,
+      toothHeight: 0.15,
+      thickness: 0.1,
+      holeRadius: 0.14,
+      spokeCount: 5,
+      rimWidth: 0.1
+    });
+    const gear6 = new THREE.Mesh(g6Geo, materials.copper);
+    gear6.position.set(0, 0.05 - (g1Radius + g6Radius), -0.06);
+    gearTrainGroup.add(gear6);
+
+    // Gear 7: Escapement Ratchet Wheel (Coaxial with G5 at front)
+    // R7 = 0.28, 12 pointed saw-teeth
+    const g7Radius = 0.28;
+    const g7Teeth = 12;
+    const g7Geo = createGearGeometry({
+      radius: g7Radius,
+      teethCount: g7Teeth,
+      toothHeight: 0.16,
+      thickness: 0.06,
+      holeRadius: 0.1,
+      spokeCount: 4,
+      rimWidth: 0.07
+    });
+    const gear7 = new THREE.Mesh(g7Geo, materials.goldFiligree);
+    gear7.position.set(gear5.position.x, gear5.position.y, 0.06);
+    gearTrainGroup.add(gear7);
+
+    // Gear 8: Vertical Bevel Gear on Chest driveshaft
+    const g8Geo = createGearGeometry({
+      radius: 0.32,
+      teethCount: 14,
+      toothHeight: 0.12,
+      thickness: 0.08,
+      holeRadius: 0.1,
+      spokeCount: 4,
+      rimWidth: 0.08
+    });
+    g8Geo.rotateX(Math.PI / 2);
+    const gear8 = new THREE.Mesh(g8Geo, materials.polishedBrass);
+    gear8.position.set(0, -0.65, 0.08);
+    gearTrainGroup.add(gear8);
+
+    // Ticking Escapement Pallet Fork & Balance Wheel
+    const escapementGroup = new THREE.Group();
+    escapementGroup.position.set(gear5.position.x + 0.32, gear5.position.y - 0.18, 0.06);
+    gearTrainGroup.add(escapementGroup);
+
+    // Pallet Fork
+    const palletGeo = new THREE.BoxGeometry(0.04, 0.22, 0.02);
+    const palletFork = new THREE.Mesh(palletGeo, materials.darkSteel);
+    palletFork.position.set(0, 0, 0);
+    escapementGroup.add(palletFork);
+
+    // Oscillating Balance Wheel
+    const balanceWheelGroup = new THREE.Group();
+    balanceWheelGroup.position.set(gear5.position.x + 0.42, gear5.position.y - 0.42, 0.12);
+    gearTrainGroup.add(balanceWheelGroup);
+
+    const bWheelRim = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.025, 8, 24), materials.polishedBrass);
+    balanceWheelGroup.add(bWheelRim);
+
+    // Balance Screws on Rim
+    for (let b = 0; b < 6; b++) {
+      const bAng = (b / 6) * Math.PI * 2;
+      const bScrew = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.04, 8), materials.goldFiligree);
+      bScrew.position.set(Math.cos(bAng) * 0.24, Math.sin(bAng) * 0.24, 0);
+      bScrew.rotation.z = bAng;
+      balanceWheelGroup.add(bScrew);
+    }
+
+    // Coiled Hairspring (Archimedean spiral line)
+    const spiralPoints = [];
+    for (let s = 0; s < 120; s++) {
+      const phi = (s / 120) * Math.PI * 8;
+      const rad = 0.03 + (s / 120) * 0.14;
+      spiralPoints.push(new THREE.Vector3(Math.cos(phi) * rad, Math.sin(phi) * rad, 0));
+    }
+    const hairspringGeo = new THREE.BufferGeometry().setFromPoints(spiralPoints);
+    const hairspringMat = new THREE.LineBasicMaterial({ color: 0x4cc9f0, linewidth: 2 });
+    const hairspring = new THREE.Line(hairspringGeo, hairspringMat);
+    hairspring.position.z = 0.02;
+    balanceWheelGroup.add(hairspring);
+
+    // Pulsing Luminescent Mainspring Core (Aetheric Spring)
+    const mainspringCoreGroup = new THREE.Group();
+    mainspringCoreGroup.position.set(0, 0.08, 0.18);
+    torsoGroup.add(mainspringCoreGroup);
+
+    // Brass Cutout Housing Cage
+    const cageGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.35, 12, 1, true);
+    const cage = new THREE.Mesh(cageGeo, materials.polishedBrass);
+    cage.rotation.x = Math.PI / 2;
+    mainspringCoreGroup.add(cage);
+
+    // Coiled Metal Spring Ribbon
+    const ribbonGeo = new THREE.TorusGeometry(0.22, 0.03, 8, 24, Math.PI * 1.8);
+    const ribbon = new THREE.Mesh(ribbonGeo, materials.copper);
+    mainspringCoreGroup.add(ribbon);
+
+    // Glowing Luminescent Orb
+    const aetherOrbGeo = new THREE.SphereGeometry(0.18, 20, 20);
+    const aetherOrb = new THREE.Mesh(aetherOrbGeo, materials.mainspringGlow);
+    mainspringCoreGroup.add(aetherOrb);
+
+    // Gimbal Ring
+    const gimbalGeo = new THREE.TorusGeometry(0.28, 0.018, 8, 24);
+    const gimbalRing = new THREE.Mesh(gimbalGeo, materials.chrome);
+    mainspringCoreGroup.add(gimbalRing);
+
+    // ==========================================
+    // 11. ARTICULATED HEAD & OPTICAL LENS EYES
+    // ==========================================
+    const neckPivot = new THREE.Group();
+    neckPivot.position.set(0, 0.95, -0.05);
+    torsoGroup.add(neckPivot);
+
+    // Neck Ball-and-Socket Gimbal
+    const neckBall = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 16), materials.darkSteel);
+    neckPivot.add(neckBall);
+
+    const neckRing = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.04, 8, 24), materials.polishedBrass);
+    neckRing.rotation.x = Math.PI / 2;
+    neckPivot.add(neckRing);
+
+    // Main Articulated Head Assembly Group
+    const headGroup = new THREE.Group();
+    neckPivot.add(headGroup);
+
+    // Skull Base Structure
+    const skullCore = new THREE.Mesh(new THREE.SphereGeometry(0.68, 20, 20), materials.darkSteel);
+    skullCore.position.set(0, 0.45, 0.05);
+    headGroup.add(skullCore);
+
+    // Segmented Brass & Copper Skull Armor Plates (Explodable)
+    const skullFrontPlates = new THREE.Group();
+    skullFrontPlates.position.set(0, 0.45, 0.05);
+    headGroup.add(skullFrontPlates);
+
+    // Forehead Crown Plate
+    const foreheadGeo = new THREE.CylinderGeometry(0.65, 0.72, 0.35, 12, 1, false, -Math.PI * 0.35, Math.PI * 0.7);
+    const forehead = new THREE.Mesh(foreheadGeo, materials.copper);
+    forehead.position.set(0, 0.28, 0.12);
+    forehead.rotation.x = 0.2;
+    skullFrontPlates.add(forehead);
+
+    // Heavy Brass Brow Ridges
+    const browGeo = new THREE.BoxGeometry(1.25, 0.16, 0.3);
+    browGeo.rotateX(-0.25);
+    const brow = new THREE.Mesh(browGeo, materials.polishedBrass);
+    brow.position.set(0, 0.22, 0.58);
+    skullFrontPlates.add(brow);
+
+    // Forehead Mini Chronometer Dial
+    const headDial = createMiniGauge(0, 0.45, 0.6);
+    headDial.scale.set(0.7, 0.7, 0.7);
+    skullFrontPlates.add(headDial);
+
+    registerExplodable(skullFrontPlates, 0, 0.6, 1.4, 1.6);
+
+    // Mechanical Ear Tufts (깃각)
+    function createEarTuft(isLeft = true) {
+      const tuft = new THREE.Group();
+      const sign = isLeft ? 1 : -1;
+      tuft.position.set(sign * 0.48, 0.9, -0.05);
+      tuft.rotation.set(-0.3, sign * 0.2, sign * 0.45);
+
+      for (let f = 0; f < 3; f++) {
+        const bladeGeo = createFeatherGeometry(0.48 - f * 0.08, 0.1 - f * 0.015, 0.015);
+        const blade = new THREE.Mesh(bladeGeo, f % 2 === 0 ? materials.polishedBrass : materials.copper);
+        blade.position.set(sign * f * 0.04, f * 0.06, -f * 0.04);
+        blade.rotation.z = sign * f * 0.12;
+        tuft.add(blade);
+      }
+      return tuft;
+    }
+    const earTuftL = createEarTuft(true);
+    const earTuftR = createEarTuft(false);
+    headGroup.add(earTuftL);
+    headGroup.add(earTuftR);
+    registerExplodable(earTuftL, 1.2, 0.8, -0.4, 1.3);
+    registerExplodable(earTuftR, -1.2, 0.8, -0.4, 1.3);
+
+    // Hinged Mechanical Beak Assembly
+    const beakGroup = new THREE.Group();
+    beakGroup.position.set(0, 0.35, 0.65);
+    headGroup.add(beakGroup);
+
+    // Upper Beak
+    const upperBeakGeo = new THREE.ConeGeometry(0.16, 0.42, 6);
+    upperBeakGeo.rotateX(Math.PI / 1.7);
+    upperBeakGeo.scale(1.1, 1.4, 1.0);
+    const upperBeak = new THREE.Mesh(upperBeakGeo, materials.polishedBrass);
+    upperBeak.position.set(0, -0.05, 0.14);
+    beakGroup.add(upperBeak);
+
+    // Lower Beak Hinge & Mandible
+    const lowerBeakHinge = new THREE.Group();
+    lowerBeakHinge.position.set(0, -0.15, 0.08);
+    beakGroup.add(lowerBeakHinge);
+
+    const lowerBeakGeo = new THREE.ConeGeometry(0.12, 0.34, 6);
+    lowerBeakGeo.rotateX(Math.PI / 1.85);
+    const lowerBeak = new THREE.Mesh(lowerBeakGeo, materials.copper);
+    lowerBeak.position.set(0, -0.05, 0.12);
+    lowerBeakHinge.add(lowerBeak);
+
+    registerExplodable(beakGroup, 0, -0.4, 1.6, 1.5);
+
+    // Compound Optical Lens Eyes with Concentric Rings & Mechanical Aperture Blades
+    const apertureBladesLeft = [];
+    const apertureBladesRight = [];
+
+    function createCompoundEye(isLeft = true) {
+      const eyeRoot = new THREE.Group();
+      const sign = isLeft ? 1 : -1;
+      eyeRoot.position.set(sign * 0.36, 0.48, 0.54);
+
+      // Outer Stepped Bezel Housing
+      const bezelOuter = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.12, 24), materials.brass);
+      bezelOuter.rotation.x = Math.PI / 2;
+      eyeRoot.add(bezelOuter);
+
+      const bezelInner = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.25, 0.14, 24), materials.polishedBrass);
+      bezelInner.rotation.x = Math.PI / 2;
+      eyeRoot.add(bezelInner);
+
+      // Engraved Tick Lines on Rim
+      const tickRingGeo = new THREE.TorusGeometry(0.24, 0.015, 8, 24);
+      const tickRing = new THREE.Mesh(tickRingGeo, materials.goldFiligree);
+      tickRing.position.z = 0.07;
+      eyeRoot.add(tickRing);
+
+      // Emissive Core Interior
+      const coreGeo = new THREE.CircleGeometry(0.18, 24);
+      const coreMesh = new THREE.Mesh(coreGeo, materials.eyeCyanCore);
+      coreMesh.position.z = 0.02;
+      eyeRoot.add(coreMesh);
+
+      // Concentric Reticle Ring inside Eye
+      const reticleGeo = new THREE.RingGeometry(0.08, 0.1, 24);
+      const reticle = new THREE.Mesh(reticleGeo, materials.goldFiligree);
+      reticle.position.z = 0.03;
+      eyeRoot.add(reticle);
+
+      // Mechanical Aperture Iris (8 overlapping curved polygonal blades)
+      const apertureGroup = new THREE.Group();
+      apertureGroup.position.z = 0.045;
+      eyeRoot.add(apertureGroup);
+
+      const bladesList = isLeft ? apertureBladesLeft : apertureBladesRight;
+      const bladeCount = 8;
+      const bladeRadius = 0.14;
+
+      for (let i = 0; i < bladeCount; i++) {
+        const bladeAngle = (i / bladeCount) * Math.PI * 2;
+        const bladePivot = new THREE.Group();
+        bladePivot.position.set(Math.cos(bladeAngle) * bladeRadius, Math.sin(bladeAngle) * bladeRadius, 0);
+        bladePivot.rotation.z = bladeAngle;
+
+        // Custom Curved Aperture Blade Geometry
+        const bladeShape = new THREE.Shape();
+        bladeShape.moveTo(0, 0);
+        bladeShape.quadraticCurveTo(0.12, 0.02, 0.18, 0.12);
+        bladeShape.lineTo(0.14, 0.18);
+        bladeShape.quadraticCurveTo(0.05, 0.08, 0, 0);
+
+        const bGeo = new THREE.ShapeGeometry(bladeShape);
+        const bMesh = new THREE.Mesh(bGeo, materials.darkSteel);
+        bMesh.position.z = i * 0.002;
+        bladePivot.add(bMesh);
+
+        apertureGroup.add(bladePivot);
+        bladesList.push(bladePivot);
+      }
+
+      // Convex Protective Optical Lens Glass (Front)
+      const lensGeo = new THREE.SphereGeometry(0.24, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.35);
+      lensGeo.rotateX(Math.PI / 2);
+      const lensMesh = new THREE.Mesh(lensGeo, materials.lensGlass);
+      lensMesh.position.z = 0.08;
+      eyeRoot.add(lensMesh);
+
+      return eyeRoot;
+    }
+
+    const eyeLeft = createCompoundEye(true);
+    const eyeRight = createCompoundEye(false);
+    headGroup.add(eyeLeft);
+    headGroup.add(eyeRight);
+
+    eyeLightL.position.set(0.36, 3.1, 0.7);
+    eyeLightR.position.set(-0.36, 3.1, 0.7);
+
+    // ==========================================
+    // 12. MULTI-JOINTED MECHANICAL FEATHERED WINGS
+    // ==========================================
+    function createMechanicalWing(isLeft = true) {
+      const wingRoot = new THREE.Group();
+      const sign = isLeft ? 1 : -1;
+      wingRoot.position.set(sign * 0.78, 0.35, -0.05);
+
+      // (A) Segment 1: Shoulder Joint & Humerus
+      const shoulderJoint = new THREE.Group();
+      wingRoot.add(shoulderJoint);
+
+      const sBall = new THREE.Mesh(new THREE.SphereGeometry(0.16, 14, 14), materials.polishedBrass);
+      shoulderJoint.add(sBall);
+
+      const humerus = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 1.05, 12), materials.darkSteel);
+      humerus.position.set(sign * 0.52, -0.05, -0.05);
+      humerus.rotation.z = sign * -Math.PI / 2.3;
+      shoulderJoint.add(humerus);
+
+      // Hydraulic Piston Cylinder on Humerus
+      const pistonCylinder = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.6, 12), materials.brass);
+      pistonCylinder.position.set(sign * 0.48, -0.15, 0.05);
+      pistonCylinder.rotation.z = sign * -Math.PI / 2.4;
+      shoulderJoint.add(pistonCylinder);
+
+      const pistonRod = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.55, 12), materials.chrome);
+      pistonRod.position.set(sign * 0.75, -0.22, 0.05);
+      pistonRod.rotation.z = sign * -Math.PI / 2.4;
+      shoulderJoint.add(pistonRod);
+
+      // 4 Covert Feathers (Short, Polished Brass & Copper)
+      const covertFeathers = [];
+      for (let c = 0; c < 4; c++) {
+        const cGeo = createFeatherGeometry(0.85 + c * 0.1, 0.18, 0.02);
+        const cFeather = new THREE.Mesh(cGeo, c % 2 === 0 ? materials.polishedBrass : materials.copper);
+        cFeather.position.set(sign * (0.28 + c * 0.22), -0.08, 0.04);
+        cFeather.rotation.set(-0.25, sign * 0.15, sign * (-0.75 - c * 0.18));
+        shoulderJoint.add(cFeather);
+        covertFeathers.push(cFeather);
+      }
+
+      // (B) Segment 2: Elbow Joint & Forearm (Radius / Ulna)
+      const elbowJoint = new THREE.Group();
+      elbowJoint.position.set(sign * 0.98, -0.15, -0.08);
+      shoulderJoint.add(elbowJoint);
+
+      const ePivotMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.16, 14), materials.brass);
+      ePivotMesh.rotation.x = Math.PI / 2;
+      elbowJoint.add(ePivotMesh);
+
+      const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.075, 1.1, 12), materials.darkSteel);
+      forearm.position.set(sign * 0.55, -0.08, -0.04);
+      forearm.rotation.z = sign * -Math.PI / 2.5;
+      elbowJoint.add(forearm);
+
+      // Scissor Linkage Struts on Forearm
+      const scissorStrut = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.8, 0.04), materials.copper);
+      scissorStrut.position.set(sign * 0.52, -0.04, 0.06);
+      scissorStrut.rotation.z = sign * -Math.PI / 2.8;
+      elbowJoint.add(scissorStrut);
+
+      // 6 Secondary Feathers (Mid-length, Brass & Gunmetal)
+      const secondaryFeathers = [];
+      for (let s = 0; s < 6; s++) {
+        const sGeo = createFeatherGeometry(1.25 + s * 0.08, 0.2, 0.02);
+        const sFeather = new THREE.Mesh(sGeo, s % 2 === 0 ? materials.brass : materials.darkSteel);
+        sFeather.position.set(sign * (0.15 + s * 0.18), -0.06, 0.02);
+        sFeather.rotation.set(-0.2, sign * 0.18, sign * (-0.95 - s * 0.14));
+        elbowJoint.add(sFeather);
+        secondaryFeathers.push(sFeather);
+      }
+
+      // (C) Segment 3: Wrist / Hand Joint & Primary Flight Feathers
+      const wristJoint = new THREE.Group();
+      wristJoint.position.set(sign * 1.05, -0.22, -0.06);
+      elbowJoint.add(wristJoint);
+
+      const wPivotMesh = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), materials.polishedBrass);
+      wristJoint.add(wPivotMesh);
+
+      const handBar = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.6, 10), materials.darkSteel);
+      handBar.position.set(sign * 0.28, -0.05, 0);
+      handBar.rotation.z = sign * -Math.PI / 2.8;
+      wristJoint.add(handBar);
+
+      // 6 Primary Feathers (Longest Outer Flight Feathers, Dark Steel with Polished Brass trim)
+      const primaryFeathers = [];
+      for (let p = 0; p < 6; p++) {
+        const pGeo = createFeatherGeometry(1.65 + p * 0.12, 0.22, 0.025);
+        const pFeather = new THREE.Mesh(pGeo, p % 2 === 0 ? materials.darkSteel : materials.polishedBrass);
+        pFeather.position.set(sign * (0.08 + p * 0.1), -0.04, 0);
+        pFeather.rotation.set(-0.15, sign * 0.2, sign * (-1.15 - p * 0.15));
+        wristJoint.add(pFeather);
+        primaryFeathers.push(pFeather);
+      }
+
+      return {
+        wingRoot,
+        shoulderJoint,
+        elbowJoint,
+        wristJoint,
+        covertFeathers,
+        secondaryFeathers,
+        primaryFeathers,
+        pistonRod
+      };
+    }
+
+    const wingLeftData = createMechanicalWing(true);
+    const wingRightData = createMechanicalWing(false);
+    torsoGroup.add(wingLeftData.wingRoot);
+    torsoGroup.add(wingRightData.wingRoot);
+
+    registerExplodable(wingLeftData.wingRoot, 1.5, 0.2, 0, 1.8);
+    registerExplodable(wingRightData.wingRoot, -1.5, 0.2, 0, 1.8);
+
+    // ==========================================
+    // 13. FLOATING BRASS PARTICLES (ATMOSPHERE)
+    // ==========================================
+    const particleCount = 280;
+    const particleGeo = new THREE.BufferGeometry();
+    const particlePositions = new Float32Array(particleCount * 3);
+    for (let i = 0; i < particleCount; i++) {
+      particlePositions[i * 3 + 0] = (Math.random() - 0.5) * 10;
+      particlePositions[i * 3 + 1] = Math.random() * 6;
+      particlePositions[i * 3 + 2] = (Math.random() - 0.5) * 10;
+    }
+    particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+    const particleMat = new THREE.PointsMaterial({
+      color: 0xffd27d,
+      size: 0.035,
+      transparent: true,
+      opacity: 0.75,
+      blending: THREE.AdditiveBlending
+    });
+    const particleSystem = new THREE.Points(particleGeo, particleMat);
+    scene.add(particleSystem);
+
+    // Count Total Meshes in Scene for Telemetry
+    let totalMeshCount = 0;
+    scene.traverse(node => {
+      if (node.isMesh) totalMeshCount++;
+    });
+    document.getElementById('val-mesh-count').textContent = `${totalMeshCount} 파츠`;
+
+    // ==========================================
+    // 14. ANIMATION & STATE ENGINE
+    // ==========================================
+    let currentMode = 'flight'; // 'flight', 'scan', 'overdrive', 'idle'
+    let speedMultiplier = 1.0;
+    let targetExplodedProgress = 0.0;
+    let currentExplodedProgress = 0.0;
+    let isWireframe = false;
+    let isTurntable = false;
+
+    // Camera Lerp Transition State
+    const camTargetPos = new THREE.Vector3().copy(camera.position);
+    const camTargetLook = new THREE.Vector3().copy(controls.target);
+    let isCamLerping = false;
+
+    // Mode-Specific Kinematic Parameters
+    const modeConfigs = {
+      flight: {
+        gearSpeed: 1.0,
+        flapFreq: 1.35,
+        flapAmp: 0.55,
+        eyeDilation: 0.65,
+        headSpeed: 0.6,
+        headAmp: 0.35,
+        nameKr: '활공 날개짓'
+      },
+      scan: {
+        gearSpeed: 0.7,
+        flapFreq: 0.4,
+        flapAmp: 0.15,
+        eyeDilation: 0.95,
+        headSpeed: 1.8,
+        headAmp: 0.85,
+        nameKr: '경계 탐색'
+      },
+      overdrive: {
+        gearSpeed: 2.6,
+        flapFreq: 3.2,
+        flapAmp: 0.65,
+        eyeDilation: 0.8,
+        headSpeed: 1.2,
+        headAmp: 0.45,
+        nameKr: '태엽 고속 가동'
+      },
+      idle: {
+        gearSpeed: 0.25,
+        flapFreq: 0.2,
+        flapAmp: 0.08,
+        eyeDilation: 0.4,
+        headSpeed: 0.25,
+        headAmp: 0.12,
+        nameKr: '정지 점검'
+      }
+    };
+
+    // Telemetry FPS Calculation
+    let lastTime = performance.now();
+    let frameCount = 0;
+    let fpsTimer = 0;
+
+    const clock = new THREE.Clock();
+    let mainGearAngle = 0;
+    let animTime = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const delta = Math.min(clock.getDelta(), 0.1);
+      const config = modeConfigs[currentMode];
+      const effectiveSpeed = config.gearSpeed * speedMultiplier;
+      animTime += delta * effectiveSpeed;
+
+      // Smooth Exploded View Interpolation
+      currentExplodedProgress += (targetExplodedProgress - currentExplodedProgress) * 0.08;
+      explodables.forEach(item => {
+        item.object.position.copy(item.originPos).addScaledVector(item.dir, item.maxDist * currentExplodedProgress);
+      });
+
+      // Smooth Camera Transitions
+      if (isCamLerping) {
+        camera.position.lerp(camTargetPos, 0.06);
+        controls.target.lerp(camTargetLook, 0.06);
+        if (camera.position.distanceTo(camTargetPos) < 0.02 && controls.target.distanceTo(camTargetLook) < 0.02) {
+          isCamLerping = false;
+        }
+      }
+
+      // Turntable Auto Rotation
+      if (isTurntable && !isCamLerping) {
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 1.8;
+      } else {
+        controls.autoRotate = false;
+      }
+      controls.update();
+
+      // ----------------------------------------
+      // (1) 8-Gear Mathematically Coupled Rotation
+      // ----------------------------------------
+      const gearStep = delta * effectiveSpeed * 3.2;
+      mainGearAngle += gearStep;
+
+      // Gear 1: Base Driver
+      gear1.rotation.z = mainGearAngle;
+
+      // Gear 2: Meshed with G1 (Ratio: -N1/N2 = -26/16)
+      gear2.rotation.z = -mainGearAngle * (g1Teeth / g2Teeth);
+
+      // Gear 3: Coaxial on G2 (Same angle)
+      gear3.rotation.z = gear2.rotation.z;
+
+      // Gear 4: Meshed with G3 (Ratio: -rotG3 * N3/N4 = -rotG3 * 8/18)
+      gear4.rotation.z = -gear3.rotation.z * (g3Teeth / g4Teeth);
+
+      // Gear 5: Upper Left Meshed with G1 (Ratio: -N1/N5 = -26/18)
+      gear5.rotation.z = -mainGearAngle * (g1Teeth / g5Teeth);
+
+      // Gear 6: Lower Transmission Gear Meshed with G1 (Ratio: -N1/N6 = -26/18)
+      gear6.rotation.z = -mainGearAngle * (g1Teeth / g6Teeth);
+
+      // Gear 7: Escapement Sawtooth Wheel (Same as G5)
+      gear7.rotation.z = gear5.rotation.z;
+
+      // Gear 8: Vertical Bevel Gear on Chest driveshaft
+      gear8.rotation.y = mainGearAngle * (g1Teeth / 14);
+
+      // Ticking Escapement Pallet & Balance Wheel Oscillation
+      const balanceFreq = 22 * (effectiveSpeed > 0.01 ? 1 : 0);
+      const balanceOsc = Math.sin(animTime * balanceFreq) * 0.85;
+      balanceWheelGroup.rotation.z = balanceOsc;
+      palletFork.rotation.z = Math.sign(Math.sin(animTime * balanceFreq)) * 0.16;
+
+      // Hairspring Breathing Scale
+      hairspring.scale.setScalar(1.0 + Math.sin(animTime * balanceFreq) * 0.06);
+
+      // Mainspring Orb & Core Light Glow Pulse
+      const corePulse = 2.0 + Math.sin(animTime * 4) * 0.8;
+      materials.mainspringGlow.emissiveIntensity = currentMode === 'overdrive' ? 4.5 : corePulse;
+      corePointLight.intensity = (currentMode === 'overdrive' ? 4.8 : 2.5) * (1.0 + Math.sin(animTime * 6) * 0.2);
+
+      // Base Crankshaft & Vertical Reciprocating Pushrods
+      crankshaft.rotation.x = mainGearAngle;
+      const camDisplacement = Math.sin(mainGearAngle) * 0.24;
+      pushrodLeft.position.y = 0.7 + camDisplacement;
+      pushrodRight.position.y = 0.7 + Math.sin(mainGearAngle + Math.PI) * 0.24;
+
+      // Base Dial Needles Flutter
+      if (gauge1.userData && gauge1.userData.needle) {
+        gauge1.userData.needle.rotation.z = Math.sin(animTime * 3.5) * 0.45 - 0.2;
+      }
+      if (gauge2.userData && gauge2.userData.needle) {
+        gauge2.userData.needle.rotation.z = Math.cos(animTime * 4.2) * 0.5 + 0.1;
+      }
+
+      // ----------------------------------------
+      // (2) Head Saccades & Beak Kinematics
+      // ----------------------------------------
+      let headYaw = 0;
+      let headPitch = 0;
+      let headRoll = 0;
+
+      if (currentMode === 'scan') {
+        // Steampunk Saccadic Jerky Clockwork Glance
+        const stepTime = Math.floor(animTime * 1.5);
+        const subT = (animTime * 1.5) % 1;
+        const easeStep = Math.min(1.0, subT * 4.0); // fast transition then pause
+        const glanceTarget = Math.sin(stepTime * 2.3) * config.headAmp;
+        headYaw = glanceTarget * easeStep;
+        headPitch = Math.cos(stepTime * 1.7) * 0.2 * easeStep;
+        headRoll = Math.sin(stepTime * 3.1) * 0.15 * easeStep;
+      } else {
+        headYaw = Math.sin(animTime * config.headSpeed) * config.headAmp;
+        headPitch = Math.cos(animTime * config.headSpeed * 1.4) * 0.14;
+        headRoll = Math.sin(animTime * config.headSpeed * 0.8) * 0.08;
+      }
+
+      neckPivot.rotation.y = headYaw;
+      headGroup.rotation.x = headPitch;
+      headGroup.rotation.z = headRoll;
+
+      // Beak Chatter / Clicking
+      let beakOpen = 0;
+      if (currentMode === 'scan' || currentMode === 'overdrive') {
+        beakOpen = Math.sin(animTime * 14) > 0.45 ? 0.35 : 0;
+      } else {
+        beakOpen = (Math.sin(animTime * 2.5) > 0.85) ? 0.2 : 0;
+      }
+      lowerBeakHinge.rotation.x = -beakOpen;
+
+      // ----------------------------------------
+      // (3) Animated Optical Aperture Iris
+      // ----------------------------------------
+      let targetAperture = config.eyeDilation;
+      if (currentMode === 'scan') {
+        targetAperture = 0.5 + Math.sin(animTime * 5) * 0.45;
+      } else if (currentMode === 'overdrive') {
+        targetAperture = 0.85 + Math.sin(animTime * 12) * 0.15;
+      } else {
+        targetAperture = config.eyeDilation + Math.sin(animTime * 1.5) * 0.12;
+      }
+      targetAperture = THREE.MathUtils.clamp(targetAperture, 0.1, 1.0);
+
+      // Rotate each blade around its pivot
+      const bladeSweep = (1.0 - targetAperture) * 0.75;
+      apertureBladesLeft.forEach((blade, idx) => {
+        blade.rotation.z = (idx / 8) * Math.PI * 2 + bladeSweep;
+      });
+      apertureBladesRight.forEach((blade, idx) => {
+        blade.rotation.z = (idx / 8) * Math.PI * 2 + bladeSweep;
+      });
+
+      // ----------------------------------------
+      // (4) Phase-Lagged Sinusoidal Wing Flapping
+      // ----------------------------------------
+      const flapPhase = animTime * config.flapFreq * Math.PI * 2;
+      const flapAmp = config.flapAmp;
+
+      // Left Wing Kinematics
+      const sRotZ = Math.sin(flapPhase) * flapAmp - 0.25;
+      const sRotY = Math.cos(flapPhase) * (flapAmp * 0.45);
+      const sRotX = Math.sin(flapPhase) * (flapAmp * 0.28);
+      wingLeftData.shoulderJoint.rotation.set(sRotX, sRotY, sRotZ);
+
+      // Elbow Lags Shoulder by 0.5 rad (~30 deg)
+      const eRotZ = Math.sin(flapPhase - 0.55) * (flapAmp * 0.75) + 0.12;
+      const eRotY = Math.cos(flapPhase - 0.55) * (flapAmp * 0.3);
+      wingLeftData.elbowJoint.rotation.set(0, eRotY, eRotZ);
+
+      // Wrist Lags Elbow by 1.1 rad (~65 deg)
+      const wRotZ = Math.sin(flapPhase - 1.15) * (flapAmp * 0.95) - 0.1;
+      wingLeftData.wristJoint.rotation.set(0, 0, wRotZ);
+
+      // Symmetrical Right Wing Kinematics (Mirrored)
+      wingRightData.shoulderJoint.rotation.set(sRotX, -sRotY, -sRotZ);
+      wingRightData.elbowJoint.rotation.set(0, -eRotY, -eRotZ);
+      wingRightData.wristJoint.rotation.set(0, 0, -wRotZ);
+
+      // Aerodynamic Feather Fanning on Downstroke vs Upstroke
+      // Downstroke (sin > 0): fan spread open; Upstroke (sin < 0): fan folds close
+      const isDownstroke = Math.sin(flapPhase) > 0;
+      const fanFactor = isDownstroke ? 1.0 : 0.65;
+
+      wingLeftData.primaryFeathers.forEach((f, idx) => {
+        f.rotation.z = -1.15 - idx * 0.15 * fanFactor;
+      });
+      wingRightData.primaryFeathers.forEach((f, idx) => {
+        f.rotation.z = 1.15 + idx * 0.15 * fanFactor;
+      });
+
+      // Drift Atmospheric Particles
+      const pArr = particleGeo.attributes.position.array;
+      for (let p = 0; p < particleCount; p++) {
+        pArr[p * 3 + 1] += Math.sin(animTime + p) * 0.003;
+        if (pArr[p * 3 + 1] > 6) pArr[p * 3 + 1] = 0.2;
+      }
+      particleGeo.attributes.position.needsUpdate = true;
+
+      // ----------------------------------------
+      // (5) Live Telemetry HUD Updates
+      // ----------------------------------------
+      frameCount++;
+      const now = performance.now();
+      if (now - lastTime >= 500) {
+        const curFps = Math.round((frameCount * 1000) / (now - lastTime));
+        document.getElementById('val-fps').textContent = `${curFps} FPS`;
+        frameCount = 0;
+        lastTime = now;
+
+        const liveRpm = Math.round(effectiveSpeed * 42);
+        document.getElementById('val-rpm').textContent = `${liveRpm} RPM`;
+
+        const liveHz = (config.flapFreq * speedMultiplier).toFixed(2);
+        document.getElementById('val-flap-hz').textContent = `${liveHz} Hz`;
+
+        const liveAperturePct = Math.round(targetAperture * 100);
+        document.getElementById('val-aperture').textContent = `${liveAperturePct} %`;
+
+        const liveTorque = (42.5 - Math.sin(animTime * 0.3) * 4.5).toFixed(1);
+        document.getElementById('val-torque').textContent = `${liveTorque} N·m`;
+      }
+
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // ==========================================
+    // 15. UI EVENT LISTENERS & CONTROLS
+    // ==========================================
+
+    // Mode Buttons
+    const modeButtons = document.querySelectorAll('.btn-mode');
+    modeButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        modeButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentMode = btn.dataset.mode;
+      });
+    });
+
+    // Exploded View Slider
+    const sliderExplode = document.getElementById('slider-explode');
+    const dispExplode = document.getElementById('disp-explode');
+    sliderExplode.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      targetExplodedProgress = val / 100.0;
+      dispExplode.textContent = `${Math.round(val)}%`;
+    });
+
+    // Speed Slider
+    const sliderSpeed = document.getElementById('slider-speed');
+    const dispSpeed = document.getElementById('disp-speed');
+    sliderSpeed.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value) / 100.0;
+      speedMultiplier = val;
+      dispSpeed.textContent = `${val.toFixed(1)}x`;
+    });
+
+    // Camera Preset Buttons
+    function setCameraView(posX, posY, posZ, lookX, lookY, lookZ) {
+      camTargetPos.set(posX, posY, posZ);
+      camTargetLook.set(lookX, lookY, lookZ);
+      isCamLerping = true;
+    }
+
+    document.getElementById('cam-front').addEventListener('click', () => {
+      setCameraView(0, 2.5, 7.8, 0, 2.1, 0);
+    });
+    document.getElementById('cam-gears').addEventListener('click', () => {
+      setCameraView(0, 2.2, 2.6, 0, 2.15, 0);
+    });
+    document.getElementById('cam-wings').addEventListener('click', () => {
+      setCameraView(3.6, 2.7, 2.4, 1.2, 2.2, -0.1);
+    });
+    document.getElementById('cam-eyes').addEventListener('click', () => {
+      setCameraView(0.65, 3.45, 1.8, 0.36, 3.4, 0.54);
+    });
+
+    // Wireframe Toggle
+    const btnWireframe = document.getElementById('btn-wireframe');
+    btnWireframe.addEventListener('click', () => {
+      isWireframe = !isWireframe;
+      btnWireframe.classList.toggle('active', isWireframe);
+      Object.values(materials).forEach(mat => {
+        mat.wireframe = isWireframe;
+      });
+    });
+
+    // Turntable Toggle
+    const btnTurntable = document.getElementById('btn-turntable');
+    btnTurntable.addEventListener('click', () => {
+      isTurntable = !isTurntable;
+      btnTurntable.classList.toggle('active', isTurntable);
+    });
+
+    // Window Resize Handler
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,1931 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Set 04 - Chubby Baby Hedgehog</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: radial-gradient(circle at 50% 42%, #2b2329 0%, #171217 65%, #0c090d 100%);
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    outline: none;
+    cursor: grab;
+  }
+  canvas:active {
+    cursor: grabbing;
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ============================================================================
+// 1. RENDERER, SCENE, CAMERA & STUDIO ENVIRONMENT
+// ============================================================================
+const canvas = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  powerPreference: 'high-performance'
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.08;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(
+  36,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  50
+);
+camera.position.set(1.25, 0.72, 3.15);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.055;
+controls.target.set(0, 0.08, 0.08);
+controls.minDistance = 1.4;
+controls.maxDistance = 6.5;
+controls.maxPolarAngle = Math.PI * 0.62;
+controls.minPolarAngle = Math.PI * 0.12;
+controls.update();
+
+// Procedural HDR-like Studio Environment Map for Glossy Eyes, Wet Nose & Jelly Paws
+function createStudioEnvironment(rendererInstance) {
+  const pmrem = new THREE.PMREMGenerator(rendererInstance);
+  pmrem.compileEquirectangularShader();
+  const envScene = new THREE.Scene();
+  envScene.background = new THREE.Color(0x1f191d);
+
+  const domeGeo = new THREE.SphereGeometry(12, 32, 24);
+  const posAttr = domeGeo.attributes.position;
+  const colors = new Float32Array(posAttr.count * 3);
+  const cTop = new THREE.Color(0xfff5ea);
+  const cMid = new THREE.Color(0x3a2e37);
+  const cBot = new THREE.Color(0x24191e);
+  const temp = new THREE.Color();
+  for (let i = 0; i < posAttr.count; i++) {
+    const y = posAttr.getY(i) / 12;
+    if (y > 0) {
+      temp.lerpColors(cMid, cTop, Math.pow(y, 1.4) * 0.55);
+    } else {
+      temp.lerpColors(cMid, cBot, Math.min(1, -y * 1.3));
+    }
+    colors[i * 3] = temp.r;
+    colors[i * 3 + 1] = temp.g;
+    colors[i * 3 + 2] = temp.b;
+  }
+  domeGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const domeMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide });
+  envScene.add(new THREE.Mesh(domeGeo, domeMat));
+
+  // Studio softbox panels for crisp eye & nose catchlights
+  const boxGeo = new THREE.PlaneGeometry(4.5, 3.2);
+  const keyPanel = new THREE.Mesh(
+    boxGeo,
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(6.5, 6.0, 5.4), side: THREE.DoubleSide })
+  );
+  keyPanel.position.set(4.2, 4.8, 5.0);
+  keyPanel.lookAt(0, 0, 0);
+  envScene.add(keyPanel);
+
+  const fillPanel = new THREE.Mesh(
+    boxGeo,
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 2.8, 3.6), side: THREE.DoubleSide })
+  );
+  fillPanel.position.set(-5.0, 2.5, 4.0);
+  fillPanel.lookAt(0, 0, 0);
+  envScene.add(fillPanel);
+
+  const rimPanel = new THREE.Mesh(
+    new THREE.PlaneGeometry(6.0, 2.5),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(5.0, 3.8, 2.8), side: THREE.DoubleSide })
+  );
+  rimPanel.position.set(0.0, 4.5, -5.5);
+  rimPanel.lookAt(0, 0, 0);
+  envScene.add(rimPanel);
+
+  const envTex = pmrem.fromScene(envScene, 0.035).texture;
+  pmrem.dispose();
+  return envTex;
+}
+
+scene.environment = createStudioEnvironment(renderer);
+
+// ============================================================================
+// 2. THREE-POINT STUDIO LIGHTING & SOFT CONTACT SHADOWS
+// ============================================================================
+const ambientLight = new THREE.HemisphereLight(0xfff3e6, 0x38262e, 0.72);
+scene.add(ambientLight);
+
+// 1. Key Light (warm studio softbox)
+const keyLight = new THREE.DirectionalLight(0xfff5e8, 2.65);
+keyLight.position.set(3.2, 4.6, 3.8);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 1.0;
+keyLight.shadow.camera.far = 12.0;
+const d = 1.95;
+keyLight.shadow.camera.left = -d;
+keyLight.shadow.camera.right = d;
+keyLight.shadow.camera.top = d;
+keyLight.shadow.camera.bottom = -d;
+keyLight.shadow.bias = -0.0005;
+keyLight.shadow.normalBias = 0.018;
+keyLight.shadow.radius = 3.5;
+scene.add(keyLight);
+
+// 2. Fill Light (soft cool-sky balance from left)
+const fillLight = new THREE.DirectionalLight(0xdce8ff, 1.25);
+fillLight.position.set(-3.8, 2.1, 2.6);
+scene.add(fillLight);
+
+// 3. Rim Light (golden backlight to accentuate quills & fluffy silhouette)
+const rimLight = new THREE.DirectionalLight(0xffddb5, 2.35);
+rimLight.position.set(0.3, 3.4, -4.2);
+scene.add(rimLight);
+
+// Warm under-bounce for the squishy pink jelly paws & fluffy belly
+const bounceLight = new THREE.PointLight(0xffc8d2, 1.15, 5.5, 1.5);
+bounceLight.position.set(0.0, -1.35, 1.65);
+scene.add(bounceLight);
+
+// Soft Contact Shadow Floor
+function createContactShadowTexture() {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 512;
+  const ctx = c.getContext('2d');
+  const grad = ctx.createRadialGradient(256, 256, 18, 256, 256, 250);
+  grad.addColorStop(0.0, 'rgba(8, 4, 7, 0.78)');
+  grad.addColorStop(0.35, 'rgba(10, 5, 9, 0.52)');
+  grad.addColorStop(0.68, 'rgba(12, 7, 11, 0.16)');
+  grad.addColorStop(1.0, 'rgba(12, 7, 11, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 512);
+  const tex = new THREE.CanvasTexture(c);
+  return tex;
+}
+
+const shadowFloorGroup = new THREE.Group();
+shadowFloorGroup.position.set(0, -0.92, -0.04);
+scene.add(shadowFloorGroup);
+
+const contactShadowMesh = new THREE.Mesh(
+  new THREE.PlaneGeometry(3.1, 2.85),
+  new THREE.MeshBasicMaterial({
+    map: createContactShadowTexture(),
+    transparent: true,
+    depthWrite: false,
+    opacity: 0.92
+  })
+);
+contactShadowMesh.rotation.x = -Math.PI / 2;
+shadowFloorGroup.add(contactShadowMesh);
+
+const shadowReceiverFloor = new THREE.Mesh(
+  new THREE.PlaneGeometry(10, 10),
+  new THREE.ShadowMaterial({ opacity: 0.34 })
+);
+shadowReceiverFloor.rotation.x = -Math.PI / 2;
+shadowReceiverFloor.position.y = 0.002;
+shadowReceiverFloor.receiveShadow = true;
+shadowFloorGroup.add(shadowReceiverFloor);
+
+// ============================================================================
+// 3. MATHEMATICAL HEDGEHOG BODY SURFACE & ANATOMY HELPERS
+// ============================================================================
+function smoothstep(edge0, edge1, x) {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+// Evaluates a point and surface normal on the chubby pear-shaped baby hedgehog torso
+// dy in [-1, 1], u in [-PI, PI] where u = 0 is +Z (belly/face front) and u = +-PI is -Z (spiny back)
+function evalHedgehogBodySurface(u, dy, outPos, outNorm) {
+  const clampedY = Math.max(-1, Math.min(1, dy));
+  const sinPhi = Math.sqrt(Math.max(0, 1 - clampedY * clampedY));
+  const sinU = Math.sin(u);
+  const cosU = Math.cos(u);
+
+  const dx = sinPhi * sinU;
+  const dz = sinPhi * cosU;
+
+  // Chubby pear-shaped baby proportions
+  const hipPlump = Math.exp(-Math.pow((clampedY + 0.24) * 2.1, 2));
+  const headTaper = smoothstep(0.15, 0.92, clampedY);
+  const bottomFlat = smoothstep(-0.68, -1.0, clampedY);
+
+  const rx = 0.84 * (1.0 + 0.16 * hipPlump - 0.19 * headTaper);
+  const ry = 0.98 * (1.0 - 0.09 * bottomFlat);
+
+  // Deeper dome on the back (-Z), soft plump tummy on the front (+Z)
+  const backWeight = smoothstep(0.25, -0.65, cosU);
+  const bellyPlump = Math.exp(-Math.pow((clampedY + 0.16) * 2.3, 2)) * smoothstep(-0.2, 0.85, cosU);
+  const chestRound = Math.exp(-Math.pow((clampedY - 0.36) * 2.8, 2)) * smoothstep(0.0, 0.9, cosU);
+  const rz = 0.82 + 0.15 * backWeight + 0.11 * bellyPlump + 0.06 * chestRound;
+
+  // Mantle hood lip (subtle realistic skin fold along the quill-fur border)
+  const absU = Math.abs(u);
+  const borderAngle = getMantleBorderAngle(clampedY);
+  const mantleHood = smoothstep(borderAngle - 0.12, borderAngle + 0.16, absU) *
+                     smoothstep(-0.85, -0.5, clampedY);
+
+  const rScale = 1.0 + 0.042 * mantleHood;
+
+  // Forward curve of upper head
+  const zHeadOffset = 0.08 * smoothstep(0.15, 0.85, clampedY);
+  const ySitOffset = 0.04 * bottomFlat;
+
+  const px = dx * rx * rScale;
+  const py = clampedY * ry + ySitOffset;
+  const pz = dz * rz * rScale + zHeadOffset;
+
+  outPos.set(px, py, pz);
+
+  // Approximate analytical surface normal
+  outNorm.set(
+    dx / (rx * rScale),
+    clampedY / ry - 0.15 * bottomFlat,
+    dz / (rz * rScale)
+  ).normalize();
+}
+
+// Returns the azimuthal angle |u| where the spiny mantle starts for a given height dy
+function getMantleBorderAngle(dy) {
+  // Forehead brow crest (quills come all the way over the top of the crown with a cute widow's peak)
+  if (dy > 0.65) {
+    return 0.0;
+  }
+  // Upper face & around ears: widens so cheeks and eyes have plush cream fur
+  const faceZone = Math.exp(-Math.pow((dy - 0.40) * 3.8, 2));
+  // Mid belly & flanks: wraps generously around sides (~48 deg from centerline) so quills frame the belly
+  const flankAngle = 0.83 + 0.24 * faceZone - 0.14 * smoothstep(-0.35, -0.82, dy);
+  const crownTransition = smoothstep(0.48, 0.65, dy);
+  return flankAngle * (1.0 - crownTransition);
+}
+
+// Determines if a surface coordinate (u, dy) is inside the spiny mantle
+function isInsideMantle(u, dy) {
+  if (dy < -0.88) return false;
+  const absU = Math.abs(u);
+  // Widow's peak dip on forehead center
+  const widowPeak = (absU < 0.55) ? 0.045 * Math.cos(u * 2.8) : 0.0;
+  const effectiveDy = dy + widowPeak;
+  if (effectiveDy > 0.64) return true;
+  const border = getMantleBorderAngle(effectiveDy);
+  return absU >= border;
+}
+
+// ============================================================================
+// 4. HEDGEHOG HIERARCHY & CORE BODY MESH
+// ============================================================================
+const hedgehogRoot = new THREE.Group();
+// Sitting upright and tilted slightly back (~21 degrees) so both spiny mantle & fluffy belly/paws show clearly
+const BASE_TILT_X = -0.36;
+hedgehogRoot.rotation.x = BASE_TILT_X;
+hedgehogRoot.position.set(0, -0.02, 0.05);
+scene.add(hedgehogRoot);
+
+const bodyCoreGroup = new THREE.Group();
+hedgehogRoot.add(bodyCoreGroup);
+
+// Build underlying sculpted body mesh with vertex-colored undercoat (dark espresso on mantle, warm cream on belly)
+function createSculptedBodyMesh() {
+  const segU = 72;
+  const segV = 56;
+  const geo = new THREE.BufferGeometry();
+  const vertices = [];
+  const normals = [];
+  const colors = [];
+  const indices = [];
+
+  const p = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  const cMantle = new THREE.Color(0x281810);
+  const cFurUnder = new THREE.Color(0xebd5c3);
+  const cBellyPink = new THREE.Color(0xe6bfb8);
+  const cTemp = new THREE.Color();
+
+  for (let iv = 0; iv <= segV; iv++) {
+    const v = iv / segV;
+    const phi = (1 - v) * Math.PI;
+    const dy = Math.cos(phi);
+
+    for (let iu = 0; iu <= segU; iu++) {
+      const u = (iu / segU) * Math.PI * 2 - Math.PI;
+      evalHedgehogBodySurface(u, dy, p, n);
+      // Inset slightly so quills & fur emerge deeply from the skin
+      p.addScaledVector(n, -0.012);
+
+      vertices.push(p.x, p.y, p.z);
+      normals.push(n.x, n.y, n.z);
+
+      const border = getMantleBorderAngle(dy);
+      const mantleBlend = smoothstep(border - 0.08, border + 0.08, Math.abs(u));
+      const bellyPinkBlend = Math.exp(-Math.pow((dy + 0.22) * 2.5, 2)) * smoothstep(0.6, 0.0, Math.abs(u));
+      cTemp.copy(cFurUnder).lerp(cBellyPink, bellyPinkBlend * 0.45).lerp(cMantle, mantleBlend);
+      colors.push(cTemp.r, cTemp.g, cTemp.b);
+    }
+  }
+
+  for (let iv = 0; iv < segV; iv++) {
+    for (let iu = 0; iu < segU; iu++) {
+      const a = iv * (segU + 1) + iu;
+      const b = a + segU + 1;
+      indices.push(a, b, a + 1);
+      indices.push(b, b + 1, a + 1);
+    }
+  }
+
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geo.setIndex(indices);
+
+  const mat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.78,
+    metalness: 0.02
+  });
+
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+const coreSkinMesh = createSculptedBodyMesh();
+bodyCoreGroup.add(coreSkinMesh);
+
+// Cute tiny pink tail stub at the lower back
+const tailMesh = new THREE.Mesh(
+  new THREE.CapsuleGeometry(0.055, 0.09, 8, 12),
+  new THREE.MeshPhysicalMaterial({
+    color: 0xeeb0b8,
+    roughness: 0.45,
+    sheen: 0.5,
+    sheenColor: 0xffe6ea
+  })
+);
+tailMesh.position.set(0, -0.78, -0.62);
+tailMesh.rotation.x = -0.85;
+bodyCoreGroup.add(tailMesh);
+
+// ============================================================================
+// 5. 18,000+ PROCEDURAL 3D BANDED QUILLS (InstancedMesh)
+//    Dark brown base -> Warm cream middle band -> Dark sub-tip -> Tapered ivory tip
+// ============================================================================
+const QUILL_COUNT = 18000;
+
+function createBandedQuillGeometry() {
+  const radialSegs = 6;
+  const heightSegs = 7;
+  const geo = new THREE.BufferGeometry();
+
+  const positions = [];
+  const normals = [];
+  const colors = [];
+  const indices = [];
+
+  // Authentic hedgehog quill color bands
+  const colRoot = new THREE.Color(0x23130b);     // Dark brown follicle base
+  const colLower = new THREE.Color(0x3a2012);    // Deep chocolate lower band
+  const colMidCream = new THREE.Color(0xf5e2c4); // Warm cream middle band
+  const colSubTip = new THREE.Color(0x2b160c);   // Dark brown sub-terminal band
+  const colIvoryTip = new THREE.Color(0xfffaf0); // Crisp tapered ivory tip
+  const c = new THREE.Color();
+
+  for (let iy = 0; iy <= heightSegs; iy++) {
+    const t = iy / heightSegs; // 0 at base, 1 at tip
+
+    // Realistic barrel-tapered hedgehog spine radius profile
+    let radius;
+    if (t < 0.12) {
+      radius = 0.015 + (t / 0.12) * 0.021; // bulbous base expansion
+    } else if (t < 0.55) {
+      radius = 0.036 * (1.0 - (t - 0.12) * 0.18);
+    } else {
+      const tipT = (t - 0.55) / 0.45;
+      radius = 0.033 * Math.pow(1.0 - tipT, 1.35) + 0.0006;
+    }
+
+    // Gentle organic arc along -Z so laid-back quills hug the body contour
+    const bendZ = -Math.pow(t, 1.65) * 0.065;
+    const bendDeriv = -1.65 * Math.pow(Math.max(0.001, t), 0.65) * 0.065;
+
+    // Banded color interpolation along quill length
+    if (t < 0.16) {
+      c.lerpColors(colRoot, colLower, t / 0.16);
+    } else if (t < 0.34) {
+      c.lerpColors(colLower, colMidCream, smoothstep(0.20, 0.34, t));
+    } else if (t < 0.64) {
+      c.copy(colMidCream);
+    } else if (t < 0.78) {
+      c.lerpColors(colMidCream, colSubTip, smoothstep(0.64, 0.75, t));
+    } else {
+      c.lerpColors(colSubTip, colIvoryTip, smoothstep(0.79, 0.91, t));
+    }
+
+    for (let ir = 0; ir < radialSegs; ir++) {
+      const angle = (ir / radialSegs) * Math.PI * 2;
+      const cosA = Math.cos(angle);
+      const sinA = Math.sin(angle);
+
+      // Subtle keratin longitudinal fluting
+      const flute = 1.0 + 0.04 * Math.cos(angle * 3);
+      const px = cosA * radius * flute;
+      const py = t;
+      const pz = sinA * radius * flute + bendZ;
+
+      positions.push(px, py, pz);
+
+      const nx = cosA;
+      const ny = 0.18 - bendDeriv * sinA;
+      const nz = sinA;
+      const invLen = 1 / Math.hypot(nx, ny, nz);
+      normals.push(nx * invLen, ny * invLen, nz * invLen);
+
+      colors.push(c.r, c.g, c.b);
+    }
+  }
+
+  for (let iy = 0; iy < heightSegs; iy++) {
+    const row = iy * radialSegs;
+    const nextRow = (iy + 1) * radialSegs;
+    for (let ir = 0; ir < radialSegs; ir++) {
+      const nextIr = (ir + 1) % radialSegs;
+      const a = row + ir;
+      const b = nextRow + ir;
+      const cIdx = nextRow + nextIr;
+      const dIdx = row + nextIr;
+      indices.push(a, b, dIdx);
+      indices.push(b, cIdx, dIdx);
+    }
+  }
+
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geo.setIndex(indices);
+  return geo;
+}
+
+const quillGeo = createBandedQuillGeometry();
+const quillMat = new THREE.MeshPhysicalMaterial({
+  vertexColors: true,
+  roughness: 0.36,
+  metalness: 0.04,
+  clearcoat: 0.28,
+  clearcoatRoughness: 0.32
+});
+
+const quillMesh = new THREE.InstancedMesh(quillGeo, quillMat, QUILL_COUNT);
+quillMesh.castShadow = true;
+quillMesh.receiveShadow = true;
+quillMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+bodyCoreGroup.add(quillMesh);
+
+// Pre-allocated typed arrays for 60fps quill physics
+const qPosX = new Float32Array(QUILL_COUNT);
+const qPosY = new Float32Array(QUILL_COUNT);
+const qPosZ = new Float32Array(QUILL_COUNT);
+
+const qNormX = new Float32Array(QUILL_COUNT);
+const qNormY = new Float32Array(QUILL_COUNT);
+const qNormZ = new Float32Array(QUILL_COUNT);
+
+const qLayX = new Float32Array(QUILL_COUNT);
+const qLayY = new Float32Array(QUILL_COUNT);
+const qLayZ = new Float32Array(QUILL_COUNT);
+
+const qSideX = new Float32Array(QUILL_COUNT);
+const qSideY = new Float32Array(QUILL_COUNT);
+const qSideZ = new Float32Array(QUILL_COUNT);
+
+const qScaleW = new Float32Array(QUILL_COUNT);
+const qScaleL = new Float32Array(QUILL_COUNT);
+const qPhase = new Float32Array(QUILL_COUNT);
+
+const qBristle = new Float32Array(QUILL_COUNT);
+const qBristleVel = new Float32Array(QUILL_COUNT);
+const qSway = new Float32Array(QUILL_COUNT);
+const qSwayVel = new Float32Array(QUILL_COUNT);
+
+// Deterministic pseudo-random helper
+function hash1(n) {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453123;
+  return x - Math.floor(x);
+}
+
+// Generate 18,000 quills across the crown, flanks, and dorsal mantle using Fibonacci sampling
+{
+  const tempPos = new THREE.Vector3();
+  const tempNorm = new THREE.Vector3();
+  const flowVec = new THREE.Vector3();
+  const sideVec = new THREE.Vector3();
+  const layVec = new THREE.Vector3();
+  const instColor = new THREE.Color();
+
+  const goldenRatio = (1 + Math.sqrt(5)) / 2;
+  let placed = 0;
+  let sampleIdx = 0;
+
+  while (placed < QUILL_COUNT) {
+    // Oversample Fibonacci sequence and accept points inside the mantle
+    const frac = (sampleIdx + 0.5) / (QUILL_COUNT * 1.56);
+    sampleIdx++;
+    const dy = 1.0 - 2.0 * (frac % 1.0);
+    const rawTheta = (2 * Math.PI * sampleIdx) / goldenRatio;
+    const u = ((rawTheta + Math.PI) % (2 * Math.PI)) - Math.PI;
+
+    if (!isInsideMantle(u, dy)) continue;
+
+    // Exclude ear sockets so quills frame the rounded ears cleanly
+    const earDistL = Math.hypot(u - 1.18, (dy - 0.50) * 1.45);
+    const earDistR = Math.hypot(u + 1.18, (dy - 0.50) * 1.45);
+    if (earDistL < 0.20 || earDistR < 0.20) continue;
+
+    // Slight organic jitter so rows never look mechanical
+    const jitterU = (hash1(sampleIdx * 1.3) - 0.5) * 0.025;
+    const jitterY = (hash1(sampleIdx * 2.7) - 0.5) * 0.018;
+    const finalU = u + jitterU;
+    const finalY = Math.max(-0.88, Math.min(0.992, dy + jitterY));
+
+    evalHedgehogBodySurface(finalU, finalY, tempPos, tempNorm);
+
+    qPosX[placed] = tempPos.x;
+    qPosY[placed] = tempPos.y;
+    qPosZ[placed] = tempPos.z;
+
+    qNormX[placed] = tempNorm.x;
+    qNormY[placed] = tempNorm.y;
+    qNormZ[placed] = tempNorm.z;
+
+    // Natural backward & downward flow vector across the hedgehog's mantle
+    // On the crown (finalY > 0.55), quills sweep backward (-Z) and slightly outward
+    // Along the flanks and back, quills sweep toward the rear (-Z) and downward (-Y)
+    const crownFactor = smoothstep(0.45, 0.85, finalY);
+    flowVec.set(
+      Math.sin(finalU) * (0.28 + 0.18 * crownFactor),
+      -0.78 * (1.0 - 0.55 * crownFactor) + 0.15 * crownFactor,
+      -0.65 - 0.35 * crownFactor
+    );
+    // Project flowVec onto tangent plane of skin normal
+    flowVec.addScaledVector(tempNorm, -flowVec.dot(tempNorm)).normalize();
+
+    // Tangent side vector
+    sideVec.crossVectors(flowVec, tempNorm).normalize();
+
+    // Real hedgehog quills have subtle alternating criss-cross angle (+-14 deg) for dense interlocking
+    const crossSign = (placed & 1) === 0 ? 1 : -1;
+    const crossAmount = (0.14 + 0.10 * hash1(placed * 3.1)) * crossSign;
+
+    // Relaxed lay vector: blends skin normal (outward) and swept-back flow vector
+    const borderDist = Math.abs(finalU) - getMantleBorderAngle(finalY);
+    const edgeFlare = smoothstep(0.32, 0.0, borderDist); // Quills near the cheek/flank border flare outward more visibly
+    const normalWeight = 0.54 + 0.18 * edgeFlare + (hash1(placed * 5.3) - 0.5) * 0.12;
+    const flowWeight = 1.0 - normalWeight * 0.48;
+
+    layVec.set(
+      tempNorm.x * normalWeight + flowVec.x * flowWeight + sideVec.x * crossAmount,
+      tempNorm.y * normalWeight + flowVec.y * flowWeight + sideVec.y * crossAmount,
+      tempNorm.z * normalWeight + flowVec.z * flowWeight + sideVec.z * crossAmount
+    ).normalize();
+
+    qLayX[placed] = layVec.x;
+    qLayY[placed] = layVec.y;
+    qLayZ[placed] = layVec.z;
+
+    qSideX[placed] = sideVec.x;
+    qSideY[placed] = sideVec.y;
+    qSideZ[placed] = sideVec.z;
+
+    // Quill length & thickness variation: shorter baby quills along brow border, lush long spines on crown & back
+    const browShorten = (finalY > 0.52 && Math.abs(finalU) < 0.85)
+      ? smoothstep(0.58, 0.72, finalY) * 0.65 + 0.35
+      : 1.0;
+    const flankBorderShorten = 0.68 + 0.32 * smoothstep(0.0, 0.22, borderDist);
+    const randLen = 0.84 + 0.32 * hash1(placed * 7.9);
+
+    qScaleL[placed] = 0.44 * browShorten * flankBorderShorten * randLen;
+    qScaleW[placed] = (0.88 + 0.28 * hash1(placed * 11.3)) * (0.82 + 0.18 * flankBorderShorten);
+    qPhase[placed] = hash1(placed * 13.7) * Math.PI * 2;
+
+    // Natural per-quill warm agouti color variation
+    const toneShift = (hash1(placed * 17.1) - 0.5) * 0.14;
+    const goldWarmth = (hash1(placed * 19.9) - 0.5) * 0.08;
+    instColor.setRGB(
+      1.0 + toneShift + goldWarmth,
+      0.98 + toneShift + goldWarmth * 0.5,
+      0.94 + toneShift - goldWarmth * 0.4
+    );
+    quillMesh.setColorAt(placed, instColor);
+
+    placed++;
+  }
+  quillMesh.instanceColor.needsUpdate = true;
+}
+
+// ============================================================================
+// 6. 7,500+ SOFT CREAM-WHITE FLUFFY BELLY, CHEST & CHEEK FUR STRANDS (InstancedMesh)
+// ============================================================================
+const FUR_COUNT = 7500;
+
+function createFluffyFurGeometry() {
+  const radialSegs = 5;
+  const heightSegs = 5;
+  const geo = new THREE.BufferGeometry();
+
+  const positions = [];
+  const normals = [];
+  const colors = [];
+  const indices = [];
+
+  // Warm rosy-peach skin root -> Soft vanilla cream -> Pure fluffy snow-cream tip
+  const colRoot = new THREE.Color(0xe5bfb2);
+  const colMid = new THREE.Color(0xf8ede0);
+  const colTip = new THREE.Color(0xffffff);
+  const c = new THREE.Color();
+
+  for (let iy = 0; iy <= heightSegs; iy++) {
+    const t = iy / heightSegs;
+    const radius = 0.028 * Math.pow(1.0 - t, 0.85) + 0.0015;
+    const curveZ = -Math.pow(t, 1.75) * 0.14;
+
+    if (t < 0.4) {
+      c.lerpColors(colRoot, colMid, t / 0.4);
+    } else {
+      c.lerpColors(colMid, colTip, (t - 0.4) / 0.6);
+    }
+
+    for (let ir = 0; ir < radialSegs; ir++) {
+      const a = (ir / radialSegs) * Math.PI * 2;
+      const cosA = Math.cos(a);
+      const sinA = Math.sin(a);
+
+      // Slightly flattened ribbon-like plush tuft cross section
+      const px = cosA * radius * 1.25;
+      const py = t;
+      const pz = sinA * radius * 0.82 + curveZ;
+      positions.push(px, py, pz);
+
+      normals.push(cosA, 0.35, sinA);
+      colors.push(c.r, c.g, c.b);
+    }
+  }
+
+  for (let iy = 0; iy < heightSegs; iy++) {
+    const row = iy * radialSegs;
+    const nextRow = (iy + 1) * radialSegs;
+    for (let ir = 0; ir < radialSegs; ir++) {
+      const nextIr = (ir + 1) % radialSegs;
+      const a = row + ir;
+      const b = nextRow + ir;
+      const cIdx = nextRow + nextIr;
+      const dIdx = row + nextIr;
+      indices.push(a, b, dIdx);
+      indices.push(b, cIdx, dIdx);
+    }
+  }
+
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geo.setIndex(indices);
+  return geo;
+}
+
+const furGeo = createFluffyFurGeometry();
+const furMat = new THREE.MeshPhysicalMaterial({
+  vertexColors: true,
+  roughness: 0.68,
+  metalness: 0.0,
+  sheen: 1.0,
+  sheenRoughness: 0.42,
+  sheenColor: new THREE.Color(0xfff9f2)
+});
+
+const furMesh = new THREE.InstancedMesh(furGeo, furMat, FUR_COUNT);
+furMesh.castShadow = true;
+furMesh.receiveShadow = true;
+furMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+bodyCoreGroup.add(furMesh);
+
+// Pre-allocated typed arrays for 60fps fluffy fur physics
+const fPosX = new Float32Array(FUR_COUNT);
+const fPosY = new Float32Array(FUR_COUNT);
+const fPosZ = new Float32Array(FUR_COUNT);
+
+const fNormX = new Float32Array(FUR_COUNT);
+const fNormY = new Float32Array(FUR_COUNT);
+const fNormZ = new Float32Array(FUR_COUNT);
+
+const fLayX = new Float32Array(FUR_COUNT);
+const fLayY = new Float32Array(FUR_COUNT);
+const fLayZ = new Float32Array(FUR_COUNT);
+
+const fSideX = new Float32Array(FUR_COUNT);
+const fSideY = new Float32Array(FUR_COUNT);
+const fSideZ = new Float32Array(FUR_COUNT);
+
+const fScaleW = new Float32Array(FUR_COUNT);
+const fScaleL = new Float32Array(FUR_COUNT);
+const fPhase = new Float32Array(FUR_COUNT);
+
+const fDeflectX = new Float32Array(FUR_COUNT);
+const fDeflectVelX = new Float32Array(FUR_COUNT);
+const fDeflectY = new Float32Array(FUR_COUNT);
+const fDeflectVelY = new Float32Array(FUR_COUNT);
+
+// Populate 7,500 fluffy fur strands across the belly, chest, cheeks, and face bridge
+{
+  const tempPos = new THREE.Vector3();
+  const tempNorm = new THREE.Vector3();
+  const flowVec = new THREE.Vector3();
+  const sideVec = new THREE.Vector3();
+  const layVec = new THREE.Vector3();
+  const instColor = new THREE.Color();
+
+  const goldenRatio = (1 + Math.sqrt(5)) / 2;
+  let placed = 0;
+  let sampleIdx = 0;
+
+  while (placed < FUR_COUNT) {
+    const frac = (sampleIdx + 0.5) / (FUR_COUNT * 3.35);
+    sampleIdx++;
+    const dy = 0.72 - 1.62 * (frac % 1.0); // Covers y from -0.90 (lower belly) to +0.72 (brow/face)
+    const rawTheta = (2 * Math.PI * sampleIdx) / goldenRatio;
+    const u = ((rawTheta + Math.PI) % (2 * Math.PI)) - Math.PI;
+
+    const border = getMantleBorderAngle(dy);
+    // Overlap slightly (+0.07 rad) with the mantle edge so the fur-to-quill transition is lush & seamless
+    if (Math.abs(u) > border + 0.07) continue;
+
+    const jU = (hash1(sampleIdx * 4.1) - 0.5) * 0.032;
+    const jY = (hash1(sampleIdx * 6.3) - 0.5) * 0.024;
+    const finalU = u + jU;
+    const finalY = Math.max(-0.90, Math.min(0.68, dy + jY));
+
+    // Skip immediate snout cone center & eye sockets so eyes & nose sit cleanly in the fur
+    const snoutDist = Math.hypot(finalU * 0.85, finalY - 0.34);
+    if (snoutDist < 0.17) continue;
+    const eyeDistL = Math.hypot(finalU - 0.38, finalY - 0.45);
+    const eyeDistR = Math.hypot(finalU + 0.38, finalY - 0.45);
+    if (eyeDistL < 0.095 || eyeDistR < 0.095) continue;
+
+    evalHedgehogBodySurface(finalU, finalY, tempPos, tempNorm);
+
+    fPosX[placed] = tempPos.x;
+    fPosY[placed] = tempPos.y;
+    fPosZ[placed] = tempPos.z;
+
+    fNormX[placed] = tempNorm.x;
+    fNormY[placed] = tempNorm.y;
+    fNormZ[placed] = tempNorm.z;
+
+    // Fur flow: radiates gracefully outward from snout on the face/cheeks, and downward/outward on chest & belly
+    if (finalY > 0.16) {
+      flowVec.set(
+        Math.sin(finalU) * 0.82,
+        (finalY - 0.34) * 0.65 - 0.25,
+        -0.35
+      );
+    } else {
+      flowVec.set(
+        Math.sin(finalU) * 0.45,
+        -0.88,
+        0.15 - Math.abs(finalU) * 0.3
+      );
+    }
+    flowVec.addScaledVector(tempNorm, -flowVec.dot(tempNorm)).normalize();
+    sideVec.crossVectors(flowVec, tempNorm).normalize();
+
+    const tuftJitter = (hash1(placed * 8.3) - 0.5) * 0.25;
+    layVec.set(
+      tempNorm.x * 0.64 + flowVec.x * 0.72 + sideVec.x * tuftJitter,
+      tempNorm.y * 0.64 + flowVec.y * 0.72 + sideVec.y * tuftJitter,
+      tempNorm.z * 0.64 + flowVec.z * 0.72 + sideVec.z * tuftJitter
+    ).normalize();
+
+    fLayX[placed] = layVec.x;
+    fLayY[placed] = layVec.y;
+    fLayZ[placed] = layVec.z;
+
+    fSideX[placed] = sideVec.x;
+    fSideY[placed] = sideVec.y;
+    fSideZ[placed] = sideVec.z;
+
+    // Longer, extra-fluffy fur on cheeks, chest ruff & tummy; shorter velvety fur around eye bridge
+    const faceBridgeShorten = smoothstep(0.16, 0.38, snoutDist);
+    const cheekFluff = 1.0 + 0.38 * Math.exp(-Math.pow((finalY - 0.24) * 3.5, 2)) * smoothstep(0.25, 0.75, Math.abs(finalU));
+    const tummyFluff = 1.0 + 0.28 * smoothstep(0.2, -0.4, finalY);
+
+    fScaleL[placed] = (0.12 + 0.11 * hash1(placed * 9.7)) * (0.48 + 0.52 * faceBridgeShorten) * cheekFluff * tummyFluff;
+    fScaleW[placed] = (0.95 + 0.45 * hash1(placed * 12.1)) * (0.75 + 0.25 * faceBridgeShorten);
+    fPhase[placed] = hash1(placed * 15.5) * Math.PI * 2;
+
+    // Subtle warm cream / rosy-ivory tint variation
+    const warmTint = hash1(placed * 21.3);
+    const cheekBlush = Math.exp(-Math.pow((finalY - 0.28) * 4.5, 2)) *
+                       Math.exp(-Math.pow((Math.abs(finalU) - 0.52) * 4.0, 2));
+    instColor.setRGB(
+      0.99 + warmTint * 0.02,
+      0.95 + warmTint * 0.04 - cheekBlush * 0.06,
+      0.90 + warmTint * 0.06 - cheekBlush * 0.08
+    );
+    furMesh.setColorAt(placed, instColor);
+
+    placed++;
+  }
+  furMesh.instanceColor.needsUpdate = true;
+}
+
+// ============================================================================
+// 7. FACIAL FEATURES: CONICAL SNOUT, WET TWITCHING BUTTON NOSE,
+//    GLOSSY BEAD EYES WITH CATCHLIGHTS & ROUNDED PINK-LINED EARS
+// ============================================================================
+const headDetailGroup = new THREE.Group();
+headDetailGroup.position.set(0, 0.34, 0.76);
+bodyCoreGroup.add(headDetailGroup);
+
+// 7A. Sculpted Conical Snout & Whisker Pads
+function createConicalSnoutMesh() {
+  const segR = 36;
+  const segL = 28;
+  const geo = new THREE.BufferGeometry();
+  const positions = [];
+  const normals = [];
+  const colors = [];
+  const indices = [];
+
+  const cBase = new THREE.Color(0xf7eadb);    // Blends seamlessly with cream face fur
+  const cMid = new THREE.Color(0xdfb8ad);     // Soft warm cocoa-rose muzzle bridge
+  const cTip = new THREE.Color(0x6e4f4b);     // Darker muzzle tip around the wet nose
+  const cUnder = new THREE.Color(0xefb9c2);   // Rosy pink lower lip/chin
+  const c = new THREE.Color();
+
+  for (let il = 0; il <= segL; il++) {
+    const t = il / segL; // 0 at face base, 1 at snout tip
+    const z = t * 0.44 - 0.06;
+
+    // Conical taper with cute plump whisker pads near t = 0.55
+    const whiskerPad = Math.exp(-Math.pow((t - 0.55) * 3.8, 2)) * 0.028;
+    const baseRadiusX = 0.28 * Math.pow(1.0 - t * 0.74, 0.92) + whiskerPad;
+    const baseRadiusY = 0.23 * Math.pow(1.0 - t * 0.76, 0.95);
+    // Cute slight upward tilt at the tip of the snout
+    const yCenter = 0.015 * Math.sin(t * Math.PI) + 0.028 * Math.pow(t, 2.2);
+
+    for (let ir = 0; ir <= segR; ir++) {
+      const a = (ir / segR) * Math.PI * 2;
+      const cosA = Math.cos(a);
+      const sinA = Math.sin(a);
+
+      // Whisker pad side swell & subtle top bridge ridge
+      const padSwell = 1.0 + 0.14 * Math.pow(cosA, 2) * Math.exp(-Math.pow((t - 0.52) * 3.5, 2));
+      const px = cosA * baseRadiusX * padSwell;
+      const py = sinA * baseRadiusY + yCenter;
+      const pz = z * (1.0 - 0.08 * (1.0 - sinA) * t);
+
+      positions.push(px, py, pz);
+
+      const nx = cosA / baseRadiusX;
+      const ny = sinA / baseRadiusY;
+      const nz = 0.48;
+      const inv = 1 / Math.hypot(nx, ny, nz);
+      normals.push(nx * inv, ny * inv, nz * inv);
+
+      if (t < 0.55) {
+        c.lerpColors(cBase, cMid, smoothstep(0.05, 0.55, t));
+      } else {
+        c.lerpColors(cMid, cTip, smoothstep(0.55, 0.98, t));
+      }
+      if (sinA < -0.15) {
+        c.lerp(cUnder, Math.min(1, (-sinA - 0.15) * 0.75 * (1 - t * 0.4)));
+      }
+      colors.push(c.r, c.g, c.b);
+    }
+  }
+
+  for (let il = 0; il < segL; il++) {
+    for (let ir = 0; ir < segR; ir++) {
+      const a = il * (segR + 1) + ir;
+      const b = a + segR + 1;
+      indices.push(a, a + 1, b);
+      indices.push(b, a + 1, b + 1);
+    }
+  }
+
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geo.setIndex(indices);
+
+  const mat = new THREE.MeshPhysicalMaterial({
+    vertexColors: true,
+    roughness: 0.58,
+    sheen: 0.85,
+    sheenRoughness: 0.45,
+    sheenColor: new THREE.Color(0xfff2ea)
+  });
+
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+const snoutMesh = createConicalSnoutMesh();
+headDetailGroup.add(snoutMesh);
+
+// Cute rosy lower lip & happy mouth line under the snout
+const mouthGroup = new THREE.Group();
+mouthGroup.position.set(0, -0.075, 0.21);
+headDetailGroup.add(mouthGroup);
+
+const lowerLipMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(0.075, 20, 16),
+  new THREE.MeshPhysicalMaterial({
+    color: 0xf2a7b5,
+    roughness: 0.38,
+    transmission: 0.2,
+    thickness: 0.2,
+    sheen: 0.5
+  })
+);
+lowerLipMesh.scale.set(1.25, 0.58, 1.15);
+mouthGroup.add(lowerLipMesh);
+
+const tongueTipMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(0.042, 16, 12),
+  new THREE.MeshPhysicalMaterial({
+    color: 0xff758f,
+    roughness: 0.22,
+    clearcoat: 0.75,
+    clearcoatRoughness: 0.15
+  })
+);
+tongueTipMesh.scale.set(1.05, 0.45, 1.1);
+tongueTipMesh.position.set(0, 0.018, 0.035);
+mouthGroup.add(tongueTipMesh);
+
+// 7B. Wet Twitching Black Button Nose
+const nosePivot = new THREE.Group();
+nosePivot.position.set(0, 0.035, 0.395);
+headDetailGroup.add(nosePivot);
+
+function createWetButtonNose() {
+  const noseGroup = new THREE.Group();
+  const geo = new THREE.SphereGeometry(0.082, 32, 24);
+  const pos = geo.attributes.position;
+
+  for (let i = 0; i < pos.count; i++) {
+    let x = pos.getX(i);
+    let y = pos.getY(i);
+    let z = pos.getZ(i);
+
+    // Sculpt into a heart/button rhinarium with nostril indents and philtrum groove
+    x *= 1.18 * (1.0 + 0.18 * (y / 0.082));
+    y *= 0.92;
+    z *= 0.86;
+
+    // Philtrum center groove
+    const philtrum = Math.exp(-Math.pow(x * 28, 2)) * smoothstep(0.03, -0.07, y) * 0.012;
+    z -= philtrum;
+
+    // Left and right curved nostril cavities
+    const nDistL = Math.hypot((x - 0.042) * 1.1, (y - 0.005) * 1.4, (z - 0.045));
+    const nDistR = Math.hypot((x + 0.042) * 1.1, (y - 0.005) * 1.4, (z - 0.045));
+    const indentL = Math.exp(-Math.pow(nDistL * 32, 2)) * 0.022;
+    const indentR = Math.exp(-Math.pow(nDistR * 32, 2)) * 0.022;
+    z -= (indentL + indentR);
+
+    pos.setXYZ(i, x, y, z);
+  }
+  geo.computeVertexNormals();
+
+  const noseMat = new THREE.MeshPhysicalMaterial({
+    color: 0x120e10,
+    roughness: 0.11,
+    metalness: 0.04,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.05,
+    reflectivity: 1.0
+  });
+
+  const mesh = new THREE.Mesh(geo, noseMat);
+  mesh.castShadow = true;
+  noseGroup.add(mesh);
+
+  // Subtle moist specular highlight bead on top of nose
+  const wetShine = new THREE.Mesh(
+    new THREE.SphereGeometry(0.011, 12, 8),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.72 })
+  );
+  wetShine.scale.set(1.6, 0.7, 0.5);
+  wetShine.position.set(0.024, 0.038, 0.068);
+  wetShine.rotation.z = -0.25;
+  noseGroup.add(wetShine);
+
+  return noseGroup;
+}
+
+const buttonNose = createWetButtonNose();
+nosePivot.add(buttonNose);
+
+// Delicate sensory whiskers on snout & brow
+function createWhiskers() {
+  const whiskerGroup = new THREE.Group();
+  const whiskerMat = new THREE.MeshStandardMaterial({
+    color: 0xf5ebe0,
+    roughness: 0.35,
+    transparent: true,
+    opacity: 0.82
+  });
+
+  for (let side = -1; side <= 1; side += 2) {
+    for (let i = 0; i < 6; i++) {
+      const row = Math.floor(i / 2);
+      const col = i % 2;
+      const len = 0.22 + row * 0.055 + col * 0.03;
+      const curve = new THREE.QuadraticBezierCurve3(
+        new THREE.Vector3(side * (0.095 + row * 0.018), -0.005 + (col - 0.5) * 0.032, 0.25 - row * 0.045),
+        new THREE.Vector3(side * (0.19 + row * 0.04), -0.01 + (col - 0.5) * 0.045, 0.23 - row * 0.05),
+        new THREE.Vector3(side * (0.26 + len * 0.55), -0.055 + (col - 0.5) * 0.06, 0.14 - row * 0.08)
+      );
+      const wGeo = new THREE.TubeGeometry(curve, 10, 0.0022 * (1.1 - row * 0.12), 5, false);
+      const wMesh = new THREE.Mesh(wGeo, whiskerMat);
+      whiskerGroup.add(wMesh);
+    }
+  }
+  return whiskerGroup;
+}
+const whiskersGroup = createWhiskers();
+headDetailGroup.add(whiskersGroup);
+
+// 7C. Glossy Dark Bead Eyes with Physical Dual Catchlights & Eyelid Cushions
+function createGlossyBeadEye(side) {
+  const eyeSocket = new THREE.Group();
+  eyeSocket.position.set(side * 0.265, 0.115, 0.055);
+  eyeSocket.rotation.y = side * 0.42;
+  eyeSocket.rotation.x = -0.08;
+
+  // Soft cream-tan eyelid rim cushion
+  const lidRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.082, 0.022, 14, 28),
+    new THREE.MeshStandardMaterial({
+      color: 0xdec4b2,
+      roughness: 0.65
+    })
+  );
+  lidRing.scale.set(1.06, 0.96, 0.85);
+  eyeSocket.add(lidRing);
+
+  const eyeBallGroup = new THREE.Group();
+  eyeSocket.add(eyeBallGroup);
+
+  // Glossy obsidian-espresso bead eyeball
+  const eyeBall = new THREE.Mesh(
+    new THREE.SphereGeometry(0.078, 32, 24),
+    new THREE.MeshPhysicalMaterial({
+      color: 0x0b0706,
+      roughness: 0.025,
+      metalness: 0.02,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.015,
+      ior: 1.52,
+      reflectivity: 1.0
+    })
+  );
+  eyeBall.scale.set(1.0, 1.0, 0.94);
+  eyeBallGroup.add(eyeBall);
+
+  // Primary bright studio window catchlight
+  const catchlightPrimary = new THREE.Mesh(
+    new THREE.SphereGeometry(0.019, 14, 12),
+    new THREE.MeshBasicMaterial({ color: 0xffffff })
+  );
+  catchlightPrimary.scale.set(1.15, 0.95, 0.35);
+  catchlightPrimary.position.set(0.022, 0.028, 0.068);
+  catchlightPrimary.rotation.y = 0.28;
+  catchlightPrimary.rotation.x = -0.32;
+  eyeBallGroup.add(catchlightPrimary);
+
+  // Secondary warm fill catchlight
+  const catchlightSecondary = new THREE.Mesh(
+    new THREE.SphereGeometry(0.0095, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xfff0dd })
+  );
+  catchlightSecondary.scale.set(1.0, 1.0, 0.35);
+  catchlightSecondary.position.set(-0.026, -0.022, 0.067);
+  eyeBallGroup.add(catchlightSecondary);
+
+  return { eyeSocket, eyeBallGroup };
+}
+
+const leftEye = createGlossyBeadEye(1);
+const rightEye = createGlossyBeadEye(-1);
+headDetailGroup.add(leftEye.eyeSocket);
+headDetailGroup.add(rightEye.eyeSocket);
+
+// 7D. Rounded Pink-Lined Ears
+function createRoundedEar(side) {
+  const earGroup = new THREE.Group();
+  // Nestled on the upper sides of the head just in front of the spiny crown crest
+  earGroup.position.set(side * 0.56, 0.48, 0.24);
+  earGroup.rotation.y = side * 0.52;
+  earGroup.rotation.z = -side * 0.36;
+  earGroup.rotation.x = 0.14;
+
+  // Sculpted cup-shaped outer ear shell
+  const outerGeo = new THREE.SphereGeometry(0.21, 28, 22, 0, Math.PI * 2, 0, Math.PI * 0.68);
+  const pos = outerGeo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    let x = pos.getX(i);
+    let y = pos.getY(i);
+    let z = pos.getZ(i);
+    x *= 0.92;
+    z *= 1.15;
+    // Slight inward curl of the ear rim
+    const rim = smoothstep(0.08, -0.05, y);
+    y = y * 0.52 + 0.03 * rim;
+    pos.setXYZ(i, x, y, z);
+  }
+  outerGeo.computeVertexNormals();
+
+  const outerEarMat = new THREE.MeshPhysicalMaterial({
+    color: 0xdfc2b4,
+    roughness: 0.62,
+    sheen: 0.85,
+    sheenColor: new THREE.Color(0xfff5ec),
+    side: THREE.DoubleSide
+  });
+  const outerEar = new THREE.Mesh(outerGeo, outerEarMat);
+  outerEar.rotation.x = Math.PI * 0.52;
+  outerEar.castShadow = true;
+  outerEar.receiveShadow = true;
+  earGroup.add(outerEar);
+
+  // Translucent rosy-pink inner ear lining with subtle ridges
+  const innerGeo = outerGeo.clone();
+  const innerEarMat = new THREE.MeshPhysicalMaterial({
+    color: 0xf49cab,
+    emissive: 0x380912,
+    emissiveIntensity: 0.14,
+    roughness: 0.42,
+    transmission: 0.28,
+    thickness: 0.25,
+    sheen: 0.5,
+    sheenColor: new THREE.Color(0xffdce2),
+    side: THREE.DoubleSide
+  });
+  const innerEar = new THREE.Mesh(innerGeo, innerEarMat);
+  innerEar.scale.set(0.86, 0.86, 0.88);
+  innerEar.position.set(0, 0.0, 0.018);
+  innerEar.rotation.x = Math.PI * 0.52;
+  earGroup.add(innerEar);
+
+  // Cute inner ear antihelix fold
+  const foldMesh = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.022, 0.085, 8, 12),
+    innerEarMat
+  );
+  foldMesh.position.set(-side * 0.02, -0.03, 0.025);
+  foldMesh.rotation.z = side * 0.35;
+  earGroup.add(foldMesh);
+
+  return earGroup;
+}
+
+const leftEar = createRoundedEar(1);
+const rightEar = createRoundedEar(-1);
+bodyCoreGroup.add(leftEar);
+bodyCoreGroup.add(rightEar);
+
+// ============================================================================
+// 8. FOUR STUBBY PAWS WITH TRANSLUCENT SQUISHY PINK JELLY PAW PADS
+//    (MeshPhysicalMaterial with Subsurface Transmission & Squish Physics)
+// ============================================================================
+const jellyPadMat = new THREE.MeshPhysicalMaterial({
+  color: new THREE.Color(0xff8ca8),
+  emissive: new THREE.Color(0x420a18),
+  emissiveIntensity: 0.20,
+  roughness: 0.16,
+  metalness: 0.0,
+  transmission: 0.54,
+  thickness: 0.45,
+  ior: 1.43,
+  attenuationColor: new THREE.Color(0xff4275),
+  attenuationDistance: 0.32,
+  clearcoat: 0.88,
+  clearcoatRoughness: 0.12,
+  sheen: 0.45,
+  sheenColor: new THREE.Color(0xffe0e8)
+});
+
+const pawSkinMat = new THREE.MeshPhysicalMaterial({
+  color: new THREE.Color(0xf2bcc6),
+  emissive: new THREE.Color(0x29070f),
+  emissiveIntensity: 0.10,
+  roughness: 0.46,
+  transmission: 0.22,
+  thickness: 0.25,
+  sheen: 0.65,
+  sheenColor: new THREE.Color(0xfff0f3)
+});
+
+const pawCuffMat = new THREE.MeshPhysicalMaterial({
+  color: new THREE.Color(0xf7ecdf),
+  roughness: 0.68,
+  sheen: 1.0,
+  sheenRoughness: 0.4,
+  sheenColor: new THREE.Color(0xffffff)
+});
+
+const clawMat = new THREE.MeshPhysicalMaterial({
+  color: new THREE.Color(0xfff9f0),
+  roughness: 0.22,
+  transmission: 0.35,
+  thickness: 0.15,
+  clearcoat: 0.8
+});
+
+const pawControllers = [];
+
+function createStubbyPawWithJellyPads(isHind, side) {
+  const pawRoot = new THREE.Group();
+  const s = isHind ? 1.14 : 0.96;
+
+  // 1. Fluffy cream arm/leg stub cuff connecting to the belly
+  const cuffMesh = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.135 * s, 0.14 * s, 14, 20),
+    pawCuffMat
+  );
+  cuffMesh.position.set(0, 0, -0.11 * s);
+  cuffMesh.rotation.x = Math.PI * 0.5;
+  cuffMesh.scale.set(1.08, 1.0, 0.92);
+  cuffMesh.castShadow = true;
+  pawRoot.add(cuffMesh);
+
+  // 2. Plump rosy-pink paw palm/sole cushion
+  const palmBase = new THREE.Mesh(
+    new THREE.SphereGeometry(0.13 * s, 24, 20),
+    pawSkinMat
+  );
+  palmBase.scale.set(1.06, isHind ? 1.26 : 1.08, 0.66);
+  palmBase.castShadow = true;
+  pawRoot.add(palmBase);
+
+  // 3. Squishy Jelly Pad Group (compresses & wobbles on hover/click!)
+  const jellyGroup = new THREE.Group();
+  jellyGroup.position.set(0, 0, 0.048 * s);
+  pawRoot.add(jellyGroup);
+
+  // Heart/bilobed central metacarpal/metatarsal jelly palm pad
+  const mainPadGeo = new THREE.SphereGeometry(0.068 * s, 24, 18);
+  const mpPos = mainPadGeo.attributes.position;
+  for (let i = 0; i < mpPos.count; i++) {
+    let x = mpPos.getX(i);
+    let y = mpPos.getY(i);
+    let z = mpPos.getZ(i);
+    // Cute bilobed heart-pad shape
+    const lobe = Math.cos((x / (0.068 * s)) * 2.2) * 0.012 * s;
+    y += (y < 0 ? lobe : -lobe * 0.4);
+    x *= 1.24;
+    y *= isHind ? 1.15 : 1.02;
+    z *= 0.62;
+    mpPos.setXYZ(i, x, y, z);
+  }
+  mainPadGeo.computeVertexNormals();
+
+  const mainJellyPad = new THREE.Mesh(mainPadGeo, jellyPadMat);
+  mainJellyPad.position.set(0, -0.028 * s, 0.018 * s);
+  jellyGroup.add(mainJellyPad);
+
+  // 4 Chubby Digital Toe Beans + Tiny Baby Claws arranged in an adorable arc
+  const toeAngles = [-0.62, -0.21, 0.21, 0.62];
+  const toeBeans = [];
+  for (let t = 0; t < 4; t++) {
+    const a = toeAngles[t] * side;
+    const isOuter = (t === 0 || t === 3);
+    const radiusArc = (isHind ? 0.118 : 0.104) * s * (isOuter ? 0.93 : 1.02);
+
+    const tx = Math.sin(a) * radiusArc;
+    const ty = Math.cos(a) * radiusArc - 0.012 * s;
+
+    const toeHolder = new THREE.Group();
+    toeHolder.position.set(tx, ty, 0);
+    toeHolder.rotation.z = -a * 0.85;
+    jellyGroup.add(toeHolder);
+
+    // Pink toe skin backing
+    const toeSkin = new THREE.Mesh(
+      new THREE.SphereGeometry(0.038 * s * (isOuter ? 0.90 : 1.0), 16, 14),
+      pawSkinMat
+    );
+    toeSkin.scale.set(0.88, 1.15, 0.72);
+    toeSkin.position.set(0, 0.008 * s, -0.012 * s);
+    toeHolder.add(toeSkin);
+
+    // Translucent Squishy Pink Jelly Toe Bean
+    const bean = new THREE.Mesh(
+      new THREE.SphereGeometry(0.033 * s * (isOuter ? 0.90 : 1.0), 18, 16),
+      jellyPadMat
+    );
+    bean.scale.set(0.86, 1.18, 0.68);
+    bean.position.set(0, 0.004 * s, 0.014 * s);
+    toeHolder.add(bean);
+
+    // Tiny delicate translucent ivory baby claw
+    const claw = new THREE.Mesh(
+      new THREE.ConeGeometry(0.011 * s, 0.036 * s, 10),
+      clawMat
+    );
+    claw.position.set(0, 0.048 * s, -0.006 * s);
+    claw.rotation.x = 0.28;
+    toeHolder.add(claw);
+
+    toeBeans.push(toeHolder);
+  }
+
+  // Extra cute heel pad on hind feet
+  if (isHind) {
+    const heelPad = new THREE.Mesh(
+      new THREE.SphereGeometry(0.038 * s, 16, 14),
+      jellyPadMat
+    );
+    heelPad.scale.set(1.05, 0.88, 0.56);
+    heelPad.position.set(0, -0.098 * s, 0.012 * s);
+    jellyGroup.add(heelPad);
+  }
+
+  return {
+    pawRoot,
+    jellyGroup,
+    toeBeans,
+    isHind,
+    side,
+    basePos: new THREE.Vector3(),
+    baseRot: new THREE.Euler(),
+    squish: 0,
+    squishVel: 0
+  };
+}
+
+// Front Left & Right Paws (tucked adorably on upper belly, palms tilted toward viewer)
+const frontLeftPaw = createStubbyPawWithJellyPads(false, 1);
+frontLeftPaw.basePos.set(0.34, -0.02, 0.83);
+frontLeftPaw.baseRot.set(0.18, 0.24, -0.32);
+frontLeftPaw.pawRoot.position.copy(frontLeftPaw.basePos);
+frontLeftPaw.pawRoot.rotation.copy(frontLeftPaw.baseRot);
+bodyCoreGroup.add(frontLeftPaw.pawRoot);
+pawControllers.push(frontLeftPaw);
+
+const frontRightPaw = createStubbyPawWithJellyPads(false, -1);
+frontRightPaw.basePos.set(-0.34, -0.02, 0.83);
+frontRightPaw.baseRot.set(0.18, -0.24, 0.32);
+frontRightPaw.pawRoot.position.copy(frontRightPaw.basePos);
+frontRightPaw.pawRoot.rotation.copy(frontRightPaw.baseRot);
+bodyCoreGroup.add(frontRightPaw.pawRoot);
+pawControllers.push(frontRightPaw);
+
+// Hind Left & Right Feet (sticking out at lower belly, soles facing viewer to showcase pink jelly pads)
+const hindLeftFoot = createStubbyPawWithJellyPads(true, 1);
+hindLeftFoot.basePos.set(0.41, -0.54, 0.77);
+hindLeftFoot.baseRot.set(-0.22, 0.32, -0.42);
+hindLeftFoot.pawRoot.position.copy(hindLeftFoot.basePos);
+hindLeftFoot.pawRoot.rotation.copy(hindLeftFoot.baseRot);
+bodyCoreGroup.add(hindLeftFoot.pawRoot);
+pawControllers.push(hindLeftFoot);
+
+const hindRightFoot = createStubbyPawWithJellyPads(true, -1);
+hindRightFoot.basePos.set(-0.41, -0.54, 0.77);
+hindRightFoot.baseRot.set(-0.22, -0.32, 0.42);
+hindRightFoot.pawRoot.position.copy(hindRightFoot.basePos);
+hindRightFoot.pawRoot.rotation.copy(hindRightFoot.baseRot);
+bodyCoreGroup.add(hindRightFoot.pawRoot);
+pawControllers.push(hindRightFoot);
+
+// ============================================================================
+// 9. INTERACTIVE RAYCASTER, TRAVELLING BRISTLE WAVES & MOUSE PHYSICS
+// ============================================================================
+const raycaster = new THREE.Raycaster();
+const pointerNDC = new THREE.Vector2(99, 99);
+const prevLocalHit = new THREE.Vector3();
+const currLocalHit = new THREE.Vector3();
+const localMouseVel = new THREE.Vector3();
+let isHoveringHedgehog = false;
+let hoverIntensity = 0;
+let defensivePuff = 0;
+let defensivePuffVel = 0;
+
+// Fast proxy shell collider that encompasses the outer quill tips & belly so sweeping over quills always hits
+const hitProxyMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(1.16, 24, 20),
+  new THREE.MeshBasicMaterial({ visible: false })
+);
+hitProxyMesh.scale.set(1.02, 1.12, 1.06);
+bodyCoreGroup.add(hitProxyMesh);
+
+// Travelling concentric bristle wave pool across the mantle
+const MAX_WAVES = 6;
+const bristleWaves = [];
+for (let i = 0; i < MAX_WAVES; i++) {
+  bristleWaves.push({
+    active: false,
+    origin: new THREE.Vector3(),
+    radius: 0,
+    speed: 2.2,
+    strength: 0
+  });
+}
+let nextWaveIdx = 0;
+
+function spawnBristleWave(localPoint, strength = 1.0, speed = 2.3) {
+  const w = bristleWaves[nextWaveIdx];
+  nextWaveIdx = (nextWaveIdx + 1) % MAX_WAVES;
+  w.active = true;
+  w.origin.copy(localPoint);
+  w.radius = 0.02;
+  w.speed = speed;
+  w.strength = strength;
+}
+
+let lastWaveSpawnTime = 0;
+
+function handlePointerMove(e) {
+  pointerNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
+  pointerNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+  raycaster.setFromCamera(pointerNDC, camera);
+  const hits = raycaster.intersectObjects([
+    coreSkinMesh,
+    snoutMesh,
+    frontLeftPaw.pawRoot,
+    frontRightPaw.pawRoot,
+    hindLeftFoot.pawRoot,
+    hindRightFoot.pawRoot,
+    hitProxyMesh
+  ], true);
+
+  if (hits.length > 0) {
+    const hitPointWorld = hits[0].point.clone();
+    bodyCoreGroup.worldToLocal(hitPointWorld);
+
+    if (isHoveringHedgehog) {
+      localMouseVel.subVectors(hitPointWorld, prevLocalHit).multiplyScalar(14.0);
+      localMouseVel.clampLength(0, 2.5);
+    } else {
+      localMouseVel.set(0, 0, 0);
+    }
+    prevLocalHit.copy(hitPointWorld);
+    currLocalHit.copy(hitPointWorld);
+    isHoveringHedgehog = true;
+
+    const now = performance.now() * 0.001;
+    if (now - lastWaveSpawnTime > 0.11 && localMouseVel.lengthSq() > 0.02) {
+      spawnBristleWave(currLocalHit, 0.72, 2.1);
+      lastWaveSpawnTime = now;
+    }
+
+    // Check proximity to each of the 4 jelly paws for interactive squish wobble
+    for (let p = 0; p < pawControllers.length; p++) {
+      const pc = pawControllers[p];
+      const dist = pc.basePos.distanceTo(currLocalHit);
+      if (dist < 0.34) {
+        pc.squishVel += (1.0 - dist / 0.34) * 2.2;
+      }
+    }
+  } else {
+    isHoveringHedgehog = false;
+  }
+}
+
+function handlePointerDown(e) {
+  pointerNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
+  pointerNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+  raycaster.setFromCamera(pointerNDC, camera);
+  const hits = raycaster.intersectObjects([
+    coreSkinMesh,
+    snoutMesh,
+    frontLeftPaw.pawRoot,
+    frontRightPaw.pawRoot,
+    hindLeftFoot.pawRoot,
+    hindRightFoot.pawRoot,
+    hitProxyMesh
+  ], true);
+
+  if (hits.length > 0) {
+    const hitLocal = hits[0].point.clone();
+    bodyCoreGroup.worldToLocal(hitLocal);
+    currLocalHit.copy(hitLocal);
+    isHoveringHedgehog = true;
+
+    // Trigger full-mantle ripple wave + cute hedgehog defensive puff & paw squish!
+    spawnBristleWave(hitLocal, 1.45, 2.5);
+    defensivePuffVel += 3.2;
+
+    for (let p = 0; p < pawControllers.length; p++) {
+      const pc = pawControllers[p];
+      const dist = pc.basePos.distanceTo(hitLocal);
+      const boost = dist < 0.42 ? 10.5 : 4.2;
+      pc.squishVel += boost;
+    }
+  }
+}
+
+window.addEventListener('pointermove', handlePointerMove, { passive: true });
+window.addEventListener('pointerdown', handlePointerDown, { passive: true });
+
+// ============================================================================
+// 10. HIGH-PERFORMANCE 60FPS ANIMATION LOOP
+//     (Breathing, Nose Sniffing, Paw Wiggling, 18k Quill Wave-Bristling & 7.5k Fur Brushing)
+// ============================================================================
+const clock = new THREE.Clock();
+
+function updateQuillsAndFur(time, dt, breathExpandX, breathExpandY, breathExpandZ) {
+  const clampedDt = Math.min(dt, 0.033);
+  const hitX = currLocalHit.x;
+  const hitY = currLocalHit.y;
+  const hitZ = currLocalHit.z;
+  const velX = localMouseVel.x;
+  const velY = localMouseVel.y;
+  const velZ = localMouseVel.z;
+  const hovering = isHoveringHedgehog;
+
+  // Update active bristle waves
+  for (let w = 0; w < MAX_WAVES; w++) {
+    const wave = bristleWaves[w];
+    if (!wave.active) continue;
+    wave.radius += wave.speed * clampedDt;
+    wave.strength *= Math.exp(-1.65 * clampedDt);
+    if (wave.radius > 2.6 || wave.strength < 0.02) {
+      wave.active = false;
+    }
+  }
+
+  // ---- A. UPDATE 18,000 BANDED QUILLS ----
+  const qMatArr = quillMesh.instanceMatrix.array;
+  const springK = 42.0;
+  const damping = Math.exp(-8.5 * clampedDt);
+  const puffAmount = Math.max(0, defensivePuff * 0.42);
+
+  for (let i = 0; i < QUILL_COUNT; i++) {
+    const px = qPosX[i] * breathExpandX;
+    const py = qPosY[i] * breathExpandY;
+    const pz = qPosZ[i] * breathExpandZ;
+
+    let targetBristle = puffAmount + 0.035 * Math.sin(time * 2.4 + qPhase[i]);
+    let targetSway = 0.02 * Math.cos(time * 1.9 + qPhase[i]);
+
+    // Direct cursor brush & bristle radius
+    if (hovering) {
+      const dx = px - hitX;
+      const dy = py - hitY;
+      const dz = pz - hitZ;
+      const distSq = dx * dx + dy * dy + dz * dz;
+      if (distSq < 0.42) {
+        const falloff = 1.0 - distSq / 0.42;
+        const f2 = falloff * falloff;
+        targetBristle += f2 * 0.92;
+        // Part/deflect quills tangentially with cursor sweep
+        const sideDotVel = qSideX[i] * velX + qSideY[i] * velY + qSideZ[i] * velZ;
+        const pushSide = (dx * qSideX[i] + dy * qSideY[i] + dz * qSideZ[i]);
+        targetSway += (sideDotVel * 0.25 + pushSide * 0.85) * f2;
+      }
+    }
+
+    // Travelling concentric wave-bristling across the back
+    for (let w = 0; w < MAX_WAVES; w++) {
+      const wave = bristleWaves[w];
+      if (!wave.active) continue;
+      const wx = px - wave.origin.x;
+      const wy = py - wave.origin.y;
+      const wz = pz - wave.origin.z;
+      const dist = Math.sqrt(wx * wx + wy * wy + wz * wz);
+      const bandDelta = dist - wave.radius;
+      if (bandDelta > -0.26 && bandDelta < 0.26) {
+        const ringProfile = Math.cos((bandDelta / 0.26) * (Math.PI * 0.5));
+        const wavePulse = ringProfile * ringProfile * wave.strength;
+        targetBristle += wavePulse * 0.88;
+        targetSway += Math.sin(bandDelta * 14.0) * wavePulse * 0.24;
+      }
+    }
+
+    targetBristle = Math.min(1.05, targetBristle);
+
+    // Damped spring integration
+    let b = qBristle[i];
+    let bv = (qBristleVel[i] + (targetBristle - b) * springK * clampedDt) * damping;
+    b += bv * clampedDt;
+    qBristle[i] = b;
+    qBristleVel[i] = bv;
+
+    let sw = qSway[i];
+    let swv = (qSwayVel[i] + (targetSway - sw) * 36.0 * clampedDt) * damping;
+    sw += swv * clampedDt;
+    qSway[i] = sw;
+    qSwayVel[i] = swv;
+
+    // Interpolate quill direction from relaxed swept-back lay to erected skin normal + side sway
+    const sx = qSideX[i];
+    const sy = qSideY[i];
+    const sz = qSideZ[i];
+
+    let ux = qLayX[i] + (qNormX[i] - qLayX[i]) * b + sx * sw;
+    let uy = qLayY[i] + (qNormY[i] - qLayY[i]) * b + sy * sw;
+    let uz = qLayZ[i] + (qNormZ[i] - qLayZ[i]) * b + sz * sw;
+    const uInv = 1.0 / Math.sqrt(ux * ux + uy * uy + uz * uz);
+    ux *= uInv;
+    uy *= uInv;
+    uz *= uInv;
+
+    // Orthonormal basis: F = normalize(cross(S, U)), R = cross(U, F)
+    let fx = sy * uz - sz * uy;
+    let fy = sz * ux - sx * uz;
+    let fz = sx * uy - sy * ux;
+    const fInv = 1.0 / Math.sqrt(fx * fx + fy * fy + fz * fz + 1e-8);
+    fx *= fInv;
+    fy *= fInv;
+    fz *= fInv;
+
+    const rx = uy * fz - uz * fy;
+    const ry = uz * fx - ux * fz;
+    const rz = ux * fy - uy * fx;
+
+    const wScale = qScaleW[i];
+    const lScale = qScaleL[i] * (1.0 + b * 0.08);
+    const idx = i * 16;
+
+    qMatArr[idx] = rx * wScale;
+    qMatArr[idx + 1] = ry * wScale;
+    qMatArr[idx + 2] = rz * wScale;
+    qMatArr[idx + 3] = 0;
+
+    qMatArr[idx + 4] = ux * lScale;
+    qMatArr[idx + 5] = uy * lScale;
+    qMatArr[idx + 6] = uz * lScale;
+    qMatArr[idx + 7] = 0;
+
+    qMatArr[idx + 8] = fx * wScale;
+    qMatArr[idx + 9] = fy * wScale;
+    qMatArr[idx + 10] = fz * wScale;
+    qMatArr[idx + 11] = 0;
+
+    qMatArr[idx + 12] = px;
+    qMatArr[idx + 13] = py;
+    qMatArr[idx + 14] = pz;
+    qMatArr[idx + 15] = 1;
+  }
+  quillMesh.instanceMatrix.needsUpdate = true;
+
+  // ---- B. UPDATE 7,500 FLUFFY BELLY, CHEST & CHEEK FUR STRANDS ----
+  const fMatArr = furMesh.instanceMatrix.array;
+  const furDamping = Math.exp(-9.5 * clampedDt);
+
+  for (let i = 0; i < FUR_COUNT; i++) {
+    const px = fPosX[i] * breathExpandX;
+    const py = fPosY[i] * breathExpandY;
+    const pz = fPosZ[i] * breathExpandZ;
+
+    let targetDx = 0.04 * Math.sin(time * 2.1 + fPhase[i]);
+    let targetDy = 0.03 * Math.cos(time * 1.7 + fPhase[i]);
+
+    if (hovering) {
+      const dx = px - hitX;
+      const dy = py - hitY;
+      const dz = pz - hitZ;
+      const distSq = dx * dx + dy * dy + dz * dz;
+      if (distSq < 0.24) {
+        const falloff = 1.0 - distSq / 0.24;
+        const f2 = falloff * falloff;
+        // Brush belly & cheek fur smoothly along mouse velocity & radial parting
+        targetDx += (velX * 0.35 + dx * 1.45) * f2;
+        targetDy += (velY * 0.35 + dy * 1.45) * f2;
+      }
+    }
+
+    let dfx = fDeflectX[i];
+    let dfvx = (fDeflectVelX[i] + (targetDx - dfx) * 48.0 * clampedDt) * furDamping;
+    dfx += dfvx * clampedDt;
+    fDeflectX[i] = dfx;
+    fDeflectVelX[i] = dfvx;
+
+    let dfy = fDeflectY[i];
+    let dfvy = (fDeflectVelY[i] + (targetDy - dfy) * 48.0 * clampedDt) * furDamping;
+    dfy += dfvy * clampedDt;
+    fDeflectY[i] = dfy;
+    fDeflectVelY[i] = dfvy;
+
+    const sx = fSideX[i];
+    const sy = fSideY[i];
+    const sz = fSideZ[i];
+
+    let ux = fLayX[i] + sx * dfx + fNormX[i] * Math.abs(dfy) * 0.35;
+    let uy = fLayY[i] + dfy * 0.65;
+    let uz = fLayZ[i] + sz * dfx;
+    const uInv = 1.0 / Math.sqrt(ux * ux + uy * uy + uz * uz);
+    ux *= uInv;
+    uy *= uInv;
+    uz *= uInv;
+
+    let fx = sy * uz - sz * uy;
+    let fy = sz * ux - sx * uz;
+    let fz = sx * uy - sy * ux;
+    const fInv = 1.0 / Math.sqrt(fx * fx + fy * fy + fz * fz + 1e-8);
+    fx *= fInv;
+    fy *= fInv;
+    fz *= fInv;
+
+    const rx = uy * fz - uz * fy;
+    const ry = uz * fx - ux * fz;
+    const rz = ux * fy - uy * fx;
+
+    const wScale = fScaleW[i];
+    const lScale = fScaleL[i];
+    const idx = i * 16;
+
+    fMatArr[idx] = rx * wScale;
+    fMatArr[idx + 1] = ry * wScale;
+    fMatArr[idx + 2] = rz * wScale;
+    fMatArr[idx + 3] = 0;
+
+    fMatArr[idx + 4] = ux * lScale;
+    fMatArr[idx + 5] = uy * lScale;
+    fMatArr[idx + 6] = uz * lScale;
+    fMatArr[idx + 7] = 0;
+
+    fMatArr[idx + 8] = fx * wScale;
+    fMatArr[idx + 9] = fy * wScale;
+    fMatArr[idx + 10] = fz * wScale;
+    fMatArr[idx + 11] = 0;
+
+    fMatArr[idx + 12] = px;
+    fMatArr[idx + 13] = py;
+    fMatArr[idx + 14] = pz;
+    fMatArr[idx + 15] = 1;
+  }
+  furMesh.instanceMatrix.needsUpdate = true;
+}
+
+// Initial build of matrices before first render
+updateQuillsAndFur(0, 0.016, 1.0, 1.0, 1.0);
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const time = clock.getElapsedTime();
+
+  // Decay mouse velocity smoothly
+  localMouseVel.multiplyScalar(Math.exp(-10.0 * dt));
+  hoverIntensity += ((isHoveringHedgehog ? 1.0 : 0.0) - hoverIntensity) * Math.min(1, dt * 6.0);
+
+  // Whole-body defensive puff spring
+  defensivePuffVel = (defensivePuffVel - defensivePuff * 28.0 * dt) * Math.exp(-5.5 * dt);
+  defensivePuff += defensivePuffVel * dt;
+
+  // 1. BREATHING ANIMATION (soft rhythmic belly & mantle expansion + subtle rocking)
+  const breathCycle = Math.sin(time * 2.65);
+  const breathHarmonic = Math.sin(time * 5.3) * 0.15;
+  const breath = breathCycle + breathHarmonic;
+
+  const breathExpandX = 1.0 + breath * 0.018 + defensivePuff * 0.045;
+  const breathExpandY = 1.0 - breath * 0.009 + defensivePuff * 0.025;
+  const breathExpandZ = 1.0 + breath * 0.024 + defensivePuff * 0.045;
+
+  coreSkinMesh.scale.set(breathExpandX, breathExpandY, breathExpandZ);
+  hedgehogRoot.rotation.x = BASE_TILT_X + breath * 0.018 - defensivePuff * 0.05;
+  hedgehogRoot.rotation.z = Math.sin(time * 1.15) * 0.016;
+  hedgehogRoot.position.y = -0.02 + breath * 0.008;
+
+  // Contact shadow subtle sync
+  const shadowScale = 1.0 + breath * 0.015 + defensivePuff * 0.03;
+  contactShadowMesh.scale.set(shadowScale, shadowScale, 1.0);
+
+  // 2. WET BUTTON NOSE SNIFFING & HEAD REACTIVITY
+  // Rapid multi-frequency sniffing bursts ("sniff-sniff-sniff... pause")
+  const sniffEnvelope = Math.max(0.25, Math.sin(time * 2.1) * 0.65 + 0.45 + hoverIntensity * 0.55);
+  const sniffFastX = Math.sin(time * 19.5) * sniffEnvelope;
+  const sniffFastY = Math.cos(time * 24.0) * sniffEnvelope;
+
+  nosePivot.rotation.x = sniffFastY * 0.14;
+  nosePivot.rotation.y = sniffFastX * 0.12;
+  nosePivot.position.y = 0.035 + sniffFastY * 0.009;
+  nosePivot.position.z = 0.395 + Math.abs(sniffFastY) * 0.008;
+  buttonNose.scale.set(
+    1.0 + sniffFastX * 0.06,
+    1.0 - sniffFastX * 0.05,
+    1.0 + Math.abs(sniffFastY) * 0.05
+  );
+
+  // Whiskers twitch in sync with nose sniffing
+  whiskersGroup.rotation.z = sniffFastX * 0.045;
+  whiskersGroup.rotation.x = sniffFastY * 0.038;
+
+  // Cute mouth & tongue micro-breathing
+  mouthGroup.position.y = -0.075 - Math.max(0, breath) * 0.008;
+
+  // Subtle head curiosity tilt toward cursor
+  const targetHeadYaw = isHoveringHedgehog ? THREE.MathUtils.clamp(currLocalHit.x * 0.18, -0.16, 0.16) : Math.sin(time * 0.8) * 0.04;
+  const targetHeadPitch = isHoveringHedgehog ? THREE.MathUtils.clamp(-currLocalHit.y * 0.12, -0.12, 0.12) : Math.cos(time * 1.1) * 0.03;
+  headDetailGroup.rotation.y += (targetHeadYaw - headDetailGroup.rotation.y) * Math.min(1, dt * 5.0);
+  headDetailGroup.rotation.x += (targetHeadPitch - headDetailGroup.rotation.x) * Math.min(1, dt * 5.0);
+  headDetailGroup.position.z = 0.76 * breathExpandZ;
+
+  // Periodic natural baby blink
+  const blinkCycle = time % 4.6;
+  let blinkScaleY = 1.0;
+  if (blinkCycle > 4.38 && blinkCycle < 4.56) {
+    const bt = (blinkCycle - 4.38) / 0.18;
+    blinkScaleY = Math.max(0.08, Math.abs(Math.cos(bt * Math.PI)));
+  }
+  leftEye.eyeBallGroup.scale.y = blinkScaleY;
+  rightEye.eyeBallGroup.scale.y = blinkScaleY;
+
+  // Ear micro-twitches
+  const earTwitchL = Math.pow(Math.max(0, Math.sin(time * 3.7 + 0.5)), 12) * 0.14;
+  const earTwitchR = Math.pow(Math.max(0, Math.sin(time * 4.3 + 2.1)), 12) * 0.14;
+  leftEar.rotation.z = -0.36 + earTwitchL - defensivePuff * 0.15;
+  rightEar.rotation.z = 0.36 - earTwitchR + defensivePuff * 0.15;
+
+  // 3. PAW WIGGLING & TRANSLUCENT PINK JELLY PAD SQUISH PHYSICS
+  for (let p = 0; p < pawControllers.length; p++) {
+    const pc = pawControllers[p];
+    const phase = p * 1.65;
+    const wiggleRate = pc.isHind ? 3.1 : 2.6;
+    const wiggle = Math.sin(time * wiggleRate + phase);
+    const toeCurl = Math.sin(time * (wiggleRate * 1.6) + phase);
+
+    // Elastic jelly spring update
+    pc.squishVel = (pc.squishVel - pc.squish * 58.0 * dt) * Math.exp(-6.5 * dt);
+    pc.squish += pc.squishVel * dt;
+
+    // Position & rotation wiggling
+    pc.pawRoot.position.x = pc.basePos.x * breathExpandX;
+    pc.pawRoot.position.y = pc.basePos.y + wiggle * 0.018;
+    pc.pawRoot.position.z = pc.basePos.z * breathExpandZ + Math.cos(time * wiggleRate + phase) * 0.014;
+
+    pc.pawRoot.rotation.x = pc.baseRot.x + wiggle * 0.095 - pc.squish * 0.12;
+    pc.pawRoot.rotation.y = pc.baseRot.y + Math.cos(time * 2.0 + phase) * 0.06;
+    pc.pawRoot.rotation.z = pc.baseRot.z + wiggle * 0.07 * pc.side;
+
+    // Jelly pad volume-preserving squish deformation (compress Z, bulge X & Y)
+    const jSquish = THREE.MathUtils.clamp(pc.squish, -0.35, 0.45);
+    pc.jellyGroup.scale.set(
+      1.0 + jSquish * 0.28,
+      1.0 + jSquish * 0.28,
+      Math.max(0.45, 1.0 - jSquish * 0.48)
+    );
+
+    // Individual toe bean fan & curl wiggle
+    for (let t = 0; t < pc.toeBeans.length; t++) {
+      const tb = pc.toeBeans[t];
+      const toeWave = Math.sin(time * 5.2 + phase + t * 0.7);
+      tb.rotation.x = toeWave * 0.12 + toeCurl * 0.08 - jSquish * 0.22;
+    }
+  }
+
+  // 4. UPDATE 18,000 QUILLS & 7,500 FUR STRANDS
+  updateQuillsAndFur(time, dt, breathExpandX, breathExpandY, breathExpandZ);
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+animate();
+</script>
+</body>
+</html>
