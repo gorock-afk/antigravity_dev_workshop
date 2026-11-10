@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Google Antigravity & Gemini 4 Argon — 개발자 실습 가이드</title>
+  <title>Google Antigravity &amp; Gemini 4 Argon — 개발자 실습 가이드</title>
   <style>
     :root {
       --navy: #174EA6;
@@ -158,10 +158,6 @@
     details.challenge summary { font-weight: 800; font-size: 13.5px; color: var(--navy); cursor: pointer; }
     details.challenge .ch-body { margin-top: 10px; font-size: 13.5px; color: var(--muted); }
 
-    .demo-iframe {
-      width: 100%; height: 640px; border: 1px solid #CBD5E1; border-radius: 8px; background: #fff; margin-top: 12px;
-    }
-
     #lightbox {
       display: none; position: fixed; inset: 0; z-index: 999;
       background: rgba(15,23,42,0.86); align-items: center; justify-content: center; padding: 24px; cursor: zoom-out;
@@ -178,7 +174,7 @@
     <div class="top-actions">
       <a class="btn primary" href="AGY_Dev_Workshop_Files.zip" download>📦 실습 파일 ZIP 다운로드</a>
       <a class="btn" href="AGY_Dev_Workshop_Slides.pdf" target="_blank">📑 강의 장표 PDF</a>
-      <a class="btn" href="demo3d/index.html" target="_blank">🧊 4모델 3D 토큰 비교 뷰어</a>
+      <a class="btn" href="AGY_Dev_Workshop_Slides.pptx" download>📊 강의 장표 PPTX</a>
       <a class="btn" href="https://gorock-afk.github.io/antigravity_dev_handson_lab/" target="_blank">🚀 올인원 인터랙티브 랩 버전 열기 ↗</a>
     </div>
   </header>
@@ -194,10 +190,10 @@
       <a class="toc-link" href="#p1-plan">/grill-me &amp; /plan 설계</a>
       <a class="toc-link" href="#p1-browser">/browser &amp; /goal 루프</a>
       <a class="toc-link" href="#p1-genui">/generative_ui 위젯</a>
-      <div class="toc-group">Part 2 · Argon &amp; 3D</div>
+      <div class="toc-group">Part 2 · Argon &amp; 벤치마크</div>
       <a class="toc-link" href="#p2-switch">Flash vs Argon 전환</a>
       <a class="toc-link" href="#p2-bench">강점 벤치마크 프롬프팅</a>
-      <a class="toc-link" href="#p2-demo">Claude vs Gemini 토큰 데모</a>
+      <a class="toc-link" href="#p2-token">쿼터·토큰 최적화 전략</a>
       <div class="toc-group">Part 3 · 멀티에이전트</div>
       <a class="toc-link" href="#p3-boost">/boost 교차 검증 루프</a>
       <a class="toc-link" href="#p3-teamwork">/teamwork 병렬 분업</a>
@@ -208,7 +204,7 @@
       <section class="hero" id="overview">
         <span class="part-badge">TARGET GOAL · 90분 압축 / 180분 심화 탄력 운영</span>
         <h1>Gemini 4 Argon 강점 체험 &amp; Antigravity 편의 기능 실습</h1>
-        <p>기업 계정 로그인부터 설계 인터뷰, 크롬 자율 E2E 디버깅, 단일 프롬프트 3D·벤치마크 비교, 그리고 멀티에이전트 분업과 팀 플러그인 자산화까지 전 과정을 직접 손으로 완주합니다.</p>
+        <p>기업 계정 로그인부터 설계 인터뷰, 크롬 자율 E2E 디버깅, 모델 체급 전환·실무 벤치마크 프롬프팅, 그리고 멀티에이전트 분업과 팀 플러그인 자산화까지 전 과정을 직접 손으로 완주합니다.</p>
 
         <table class="roadmap">
           <thead>
@@ -233,14 +229,14 @@
               <td><code>01_buggy_kanban_app.html</code>, <code>/grill-me</code>, <code>/plan</code>, <code>/browser</code>, <code>/goal</code>, <code>/generative_ui</code></td>
             </tr>
             <tr>
-              <td><strong>Part 2. 모델 &amp; 3D 생성 비교</strong></td>
-              <td>30분 / 60분</td>
-              <td>3.8 Flash ↔ 4 Argon 전환 · 벤치마크 프롬프팅 · [데모] Claude vs Carbon/Argon 토큰 밀도</td>
-              <td><code>02_floorplan_blueprint_spec.png</code>, <code>02_legacy_payment_service.py</code>, <code>03_token_stats_SKILL.md</code></td>
+              <td><strong>Part 2. 모델 전환 &amp; 벤치마크</strong></td>
+              <td>25분 / 50분</td>
+              <td>3.8 Flash ↔ 4 Argon 실무 대시보드 비교 · 설계도➔코드 &amp; 정산 동시성 감사 · 토큰 최적화</td>
+              <td><code>02_system_wireframe_spec.png</code>, <code>02_legacy_payment_service.py</code>, <code>03_token_stats_SKILL.md</code></td>
             </tr>
             <tr>
               <td><strong>Part 3. 멀티에이전트 &amp; 자산화</strong></td>
-              <td>20분 / 45분</td>
+              <td>25분 / 55분</td>
               <td>Worker 1➔2 교차 검증 · 파일 독점 병렬 구현 · 규칙 영구 저장 &amp; 플러그인 패키징</td>
               <td><code>04_clean_arch_rule.md</code>, <code>/boost</code>, <code>/teamwork</code>, <code>/learn</code>, <code>/plugin</code></td>
             </tr>
@@ -251,7 +247,7 @@
           <button class="tab-btn active" onclick="filterPart('all', this)">전체 보기</button>
           <button class="tab-btn" onclick="filterPart('part0', this)">Part 0. 로그인·무중단 제어</button>
           <button class="tab-btn" onclick="filterPart('part1', this)">Part 1. 설계~브라우저 루프</button>
-          <button class="tab-btn" onclick="filterPart('part2', this)">Part 2. Argon·3D·벤치마크</button>
+          <button class="tab-btn" onclick="filterPart('part2', this)">Part 2. Argon·벤치마크</button>
           <button class="tab-btn" onclick="filterPart('part3', this)">Part 3. 멀티에이전트·자산화</button>
         </div>
       </section>
@@ -399,33 +395,33 @@
 
       <!-- PART 2 -->
       <section class="section-card part-section" data-part="part2" id="p2-switch">
-        <span class="part-badge">PART 2 · 모델 &amp; 3D 생성 비교 + 벤치마크 프롬프팅</span>
-        <h2>실습 2-1. Gemini 3.8 Flash ↔ Gemini 4 Argon 전환 &amp; 3D 물리 비교</h2>
-        <p class="section-desc">동일한 단일 프롬프트를 <strong>Gemini 3.8 Flash</strong>(초고속 응답)와 <strong>Gemini 4 Argon</strong>(고밀도 공간·물리 추론)으로 각각 실행해 셰이더·물리 디테일과 로컬 토큰 효율을 직접 비교합니다.</p>
+        <span class="part-badge">PART 2 · 모델 체급 전환 &amp; 실무 벤치마크 프롬프팅</span>
+        <h2>실습 2-1. Gemini 3.8 Flash ↔ Gemini 4 Argon 전환 &amp; 로컬 토큰 계측</h2>
+        <p class="section-desc">동일한 실무 API 관제 대시보드 프롬프트를 <strong>Gemini 3.8 Flash</strong>(초고속 응답)와 <strong>Gemini 4 Argon</strong>(고밀도 시스템·상태 머신 설계)으로 각각 실행해 구현 깊이와 실제 토큰 효율을 비교합니다.</p>
 
         <div class="step-block">
-          <h3><span>1단계: 동일 3D·물리 프롬프트로 Flash vs Argon 맞대결</span><span class="status-ok">모델 셀렉터 전환</span></h3>
+          <h3><span>1단계: 동일 관제 대시보드 프롬프트로 Flash vs Argon 맞대결</span><span class="status-ok">모델 셀렉터 전환</span></h3>
           <ul class="action-list">
-            <li>1️⃣ 새 대화를 열고 모델을 <strong>Gemini 3.8 Flash</strong>로 선택한 뒤 아래 프롬프트로 <code>jelly_flash.html</code>을 생성합니다.</li>
-            <li>2️⃣ 두 번째 새 대화에서 모델을 <strong>Gemini 4 Argon</strong>으로 전환하고 같은 프롬프트로 <code>jelly_argon.html</code>을 생성해 브라우저에서 나란히 비교합니다.</li>
-            <li>3️⃣ 실습 파일의 <code>03_token_stats_SKILL.md</code>를 <code>.agents/skills/token-stats/SKILL.md</code>로 넣거나 CLI에서 <code>/context</code>를 실행해 두 세션의 실제 토큰과 코드 줄 수를 확인합니다.</li>
+            <li>1️⃣ 새 대화를 열고 모델을 <strong>Gemini 3.8 Flash</strong>로 선택한 뒤 아래 프롬프트로 <code>monitor_flash.html</code>을 생성합니다.</li>
+            <li>2️⃣ 두 번째 새 대화에서 모델을 <strong>Gemini 4 Argon</strong>으로 전환하고 같은 프롬프트로 <code>monitor_argon.html</code>을 생성해 상태 머신·통계 디테일 차이를 비교합니다.</li>
+            <li>3️⃣ 실습 파일의 <code>03_token_stats_SKILL.md</code>를 <code>.agents/skills/token-stats/SKILL.md</code>로 등록하거나 CLI에서 <code>/context</code>를 실행해 두 세션의 실제 토큰과 코드 줄 수를 확인합니다.</li>
           </ul>
           <div class="prompt-card">
             <div class="prompt-top">
               <div class="chip-row"><span class="ui-chip">Model: Gemini 3.8 Flash ↔ Gemini 4 Argon</span></div>
               <button class="copy-btn" onclick="copyPrompt(this)">복사</button>
             </div>
-            <div class="prompt-text">단일 HTML 파일로 마우스로 찌르면 탱글탱글하게 출렁이고 광원 굴절과 그림자가 살아있는 3D 반투명 젤리 로봇 시뮬레이터를 만들어줘</div>
+            <div class="prompt-text">단일 HTML 파일로 서비스별 응답 지연 차트와 에러율 임계치 알림, 서킷브레이커 상태 전환 시뮬레이터가 작동하는 실시간 API 관제 대시보드를 만들어줘</div>
           </div>
           <div class="shot-wrap">
-            <img class="shot-img" src="assets/screenshots/part2_flash_vs_argon_tokens.png" alt="Flash vs Argon 전환 및 토큰 실측" />
+            <img class="shot-img" src="assets/screenshots/part2_flash_vs_argon_web.png" alt="Flash vs Argon 전환 및 토큰 실측" />
           </div>
         </div>
 
         <div class="step-block" id="p2-bench">
-          <h3><span>2단계: Argon &amp; Carbon 강점 벤치마크 태스크 직접 돌려보기</span><span class="status-ok">Blueprint · Vals · ExploitGym</span></h3>
+          <h3><span>2단계: Argon &amp; Carbon 강점 벤치마크 태스크 직접 돌려보기</span><span class="status-ok">Vals · Blueprint · ExploitGym</span></h3>
           <ul class="action-list">
-            <li>1️⃣ <strong>공간·도면 재구성 (Blueprint-Bench 2 강점):</strong> 첨부된 평면도 이미지(<code>02_floorplan_blueprint_spec.png</code>)를 넣고 시점 전환·조명 토글이 되는 3D 오피스 공간으로 즉시 변환합니다.</li>
+            <li>1️⃣ <strong>화면 설계도 ➔ 운영 콘솔 구현 (Blueprint-Bench 강점):</strong> 첨부된 와이어프레임 이미지(<code>02_system_wireframe_spec.png</code>)를 넣고 4단계 상태 전이·고액 2인 승인 가드레일·감사 로그가 작동하는 정산 운영 콘솔을 생성합니다.</li>
             <li>2️⃣ <strong>복합 트랜잭션·보안 취약점 감사 (Vals &amp; ExploitGym 강점):</strong> <code>02_legacy_payment_service.py</code>에 숨겨진 멀티스레드 TOCTOU 레이스 컨디션, 부동소수점 오차, 초과 환불, 멱등성 누락 4가지를 한 번에 잡아냅니다.</li>
           </ul>
 
@@ -433,11 +429,11 @@
             <div class="prompt-top">
               <div class="chip-row">
                 <span class="ui-chip">Model: Gemini 4 Argon</span>
-                <span class="ui-chip">@02_floorplan_blueprint_spec.png</span>
+                <span class="ui-chip">@02_system_wireframe_spec.png</span>
               </div>
               <button class="copy-btn" onclick="copyPrompt(this)">복사</button>
             </div>
-            <div class="prompt-text">첨부한 평면도 치수와 5개 구역 사양을 그대로 반영해서 조감도·1인칭 시점 전환과 주야간 조명 토글이 작동하는 인터랙티브 3D 공간 뷰어를 단일 HTML로 구현해줘</div>
+            <div class="prompt-text">첨부한 화면 설계도와 4대 비즈니스 규칙을 그대로 반영해서 상태 필터와 고위험 거래 보류 처리, 감사 로그 내보내기가 작동하는 정산 운영 콘솔을 단일 HTML로 구현해줘</div>
           </div>
 
           <div class="prompt-card">
@@ -451,25 +447,28 @@
             <div class="prompt-text">이 정산 코드의 동시성 경쟁과 금액 정밀도, 부분 환불 취약점을 모두 찾아 패치하고 멀티스레드 재현 테스트로 잔액 무결성을 증명해줘</div>
           </div>
 
-          <div class="shot-grid-2">
-            <div>
-              <img class="shot-img" src="assets/screenshots/part2_blueprint_spec.png" alt="Blueprint 입력 도면" />
-              <div class="shot-cap">실습 입력 도면: 02_floorplan_blueprint_spec.png</div>
-            </div>
-            <div>
-              <img class="shot-img" src="assets/screenshots/part2_benchmark_and_opus_demo.png" alt="공식 벤치마크 및 Opus 5.5 토큰 비교" />
-              <div class="shot-cap">Argon·Carbon 공식 벤치마크 및 10-Set 3D 토큰 효율 실측</div>
-            </div>
+          <div class="shot-wrap">
+            <img class="shot-img" src="assets/screenshots/part2_arch_wireframe_spec.png" alt="실습 입력 화면 설계도" />
+            <div class="shot-cap">실습 입력 설계도: 02_system_wireframe_spec.png</div>
           </div>
         </div>
 
-        <div class="step-block" id="p2-demo">
-          <h3><span>3단계: [데모 &amp; 라이브 체험] Claude Opus 5.5 vs Gemini 4 Carbon · Argon · 3.8 Flash 토큰 대비 아웃풋</span><span class="status-warn">[강사 데모 + 직접 조작]</span></h3>
+        <div class="step-block" id="p2-token">
+          <h3><span>3단계: 팀 공용 쿼터를 아끼는 70:30 하이브리드 모델 전환 &amp; 캐시 전략</span><span class="status-warn">[실무 필독 가이드]</span></h3>
           <ul class="action-list">
-            <li>1️⃣ 동일한 10개 고난도 Pure-3D 과제를 수행했을 때 <strong>Claude Opus 5.5</strong>(<code>1,092.1K tok</code> / <code>8,651줄</code> / <code>$21.25</code>) 대비 <strong>Gemini 4 Carbon</strong>(<code>846.5K tok</code> / <strong><code>23,111줄</code></strong>)은 <strong>22% 적은 토큰으로 2.67배 코드 밀도</strong>, <strong>Gemini 4 Argon</strong>(<strong><code>515.7K tok</code></strong> / <strong><code>17,357줄</code></strong> / <code>$5.94</code>)은 <strong>절반 미만의 토큰으로 2.01배 코드 밀도</strong>를 기록했습니다.</li>
-            <li>2️⃣ 아래 내장된 실시간 2×2 WebGL 뷰어에서 좌측 10개 세트를 클릭하며 4개 모델의 실제 3D 결과물과 토큰·비용 지표를 직접 회전·비교해보세요.</li>
+            <li>1️⃣ 초기 설계·복합 비즈니스 규칙·동시성 디버깅(약 25~30%)은 <strong>Gemini 4 Argon</strong>으로 한 번에 정확히 뼈대를 잡고, 이후 반복적인 문구·스타일 수정과 테스트 보강(약 70%)은 <strong>Gemini 3.8 Flash</strong>로 전환해 속도와 쿼터 효율을 동시에 확보합니다.</li>
+            <li>2️⃣ 주제가 바뀔 때는 기존 긴 대화를 재사용하지 말고 <strong>새 대화 + @파일 멘션</strong>으로 시작하거나 <code>/compact</code>로 이력을 압축해 입력 토큰 누적을 막습니다.</li>
           </ul>
-          <iframe class="demo-iframe" src="demo3d/index.html" title="10-Set x 4-Model 3D Benchmark Viewer" loading="lazy"></iframe>
+          <div class="shot-wrap">
+            <img class="shot-img" src="assets/screenshots/part2_benchmarks_and_tokens.png" alt="벤치마크 및 토큰 최적화 가이드" />
+          </div>
+
+          <details class="challenge">
+            <summary>🔥 [3시간 과정용 심화 미션] 1M Output 활용 — 정산 엔진 REST API 래퍼 &amp; 동시성 부하 리포트 일괄 생성</summary>
+            <div class="ch-body">
+              패치된 <code>02_legacy_payment_service.py</code>를 기반으로 인메모리 REST 핸들러, 50개 동시 요청 스트레스 테스트 스크립트, 결과 요약 마크다운 리포트를 단일 턴에 끊김 없이 일괄 생성하고 검증해보세요.
+            </div>
+          </details>
         </div>
       </section>
 
